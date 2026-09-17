@@ -1,0 +1,427 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="NetworkGuardian.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:NetworkGuardian.App.ViewModels"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="mc">
+
+    <Grid Padding="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="6">
+            <TextBlock Text="设置" Style="{StaticResource PageTitle}" />
+            <TextBlock Text="{x:Bind ViewModel.Settings.ConfigPath}"
+                       Style="{StaticResource MonoText}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="保存并应用" Click="OnSaveClicked" Style="{StaticResource AccentButtonStyle}" />
+                <Button Content="重新加载" Click="OnReloadClicked" />
+                <Button Content="打开日志目录" Click="OnOpenLogsClicked" />
+                <TextBlock Text="{x:Bind ViewModel.Settings.Status, Mode=OneWay}"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource BodyText}"
+                           Foreground="{ThemeResource AppTextSecondary}" />
+            </StackPanel>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,12,0,0">
+            <StackPanel>
+
+                <Expander Header="常规" IsExpanded="True">
+                    <StackPanel Padding="0,8,0,8">
+                        <ToggleSwitch Header="启用自动网络恢复" OnContent="开启" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.AutomaticRecovery, Mode=TwoWay}" />
+                        <ToggleSwitch Header="以太网优先（不主动扰动 Wi-Fi 连接）" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.PreferEthernet, Mode=TwoWay}" />
+                        <ToggleSwitch Header="允许自动打开 Wi-Fi 无线电开关" OnContent="允许" OffContent="不允许"
+                                      IsOn="{x:Bind ViewModel.Settings.AutoEnableWifiRadio, Mode=TwoWay}" />
+                        <ToggleSwitch Header="允许自动启用被禁用的物理无线网卡" OnContent="允许" OffContent="不允许"
+                                      IsOn="{x:Bind ViewModel.Settings.AutoEnableWifiDevices, Mode=TwoWay}" />
+                        <ToggleSwitch Header="启动时确保无线电为开启" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.EnsureRadioOnAtStartup, Mode=TwoWay}" />
+                        <TextBlock Text="巡检周期（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.HealthSweepSeconds, Mode=TwoWay}"
+                                   Minimum="5" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="设备枚举刷新周期（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.EnumerationRefreshSeconds, Mode=TwoWay}"
+                                   Minimum="30" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="睡眠唤醒后的稳定等待（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ResumeSettleSeconds, Mode=TwoWay}"
+                                   Minimum="0" Maximum="300" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="同一网卡两次扫描最小间隔（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.MinimumScanIntervalSeconds, Mode=TwoWay}"
+                                   Minimum="5" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="扫描超时（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ScanTimeoutSeconds, Mode=TwoWay}"
+                                   Minimum="3" Maximum="120" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="连接后等待 DHCP（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.DhcpWaitSeconds, Mode=TwoWay}"
+                                   Minimum="3" Maximum="300" SpinButtonPlacementMode="Compact" />
+                        <ToggleSwitch Header="自动调整接口度量（默认关闭，会改变路由优先级）"
+                                      OnContent="启用" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.ManageInterfaceMetrics, Mode=TwoWay}" />
+                        <TextBlock Text="以太网接口度量" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.PreferredEthernetMetric, Mode=TwoWay}"
+                                   Minimum="1" Maximum="9999" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="Wi-Fi 接口度量" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.PreferredWifiMetric, Mode=TwoWay}"
+                                   Minimum="1" Maximum="9999" SpinButtonPlacementMode="Compact" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="Internet 探测">
+                    <StackPanel Padding="0,8,0,8">
+                        <ToggleSwitch Header="启用探测" OnContent="开启" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.ProbeEnabled, Mode=TwoWay}" />
+                        <TextBlock Text="探测周期（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ProbeIntervalSeconds, Mode=TwoWay}"
+                                   Minimum="3" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="单次超时（毫秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ProbeTimeoutMs, Mode=TwoWay}"
+                                   Minimum="200" Maximum="60000" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="整轮超时（毫秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ProbeRoundTimeoutMs, Mode=TwoWay}"
+                                   Minimum="500" Maximum="120000" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="判定在线所需成功数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ProbeRequiredSuccessCount, Mode=TwoWay}"
+                                   Minimum="1" Maximum="10" SpinButtonPlacementMode="Compact" />
+                        <ToggleSwitch Header="按接口分别探测（用于判断某张网卡自身是否可用）"
+                                      OnContent="开启" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.ProbePerInterface, Mode=TwoWay}" />
+                        <ToggleSwitch Header="允许 ICMP 探测" OnContent="允许" OffContent="禁止"
+                                      IsOn="{x:Bind ViewModel.Settings.ProbeAllowIcmp, Mode=TwoWay}" />
+                        <ToggleSwitch Header="被认证页拦截时视为离线" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.ProbeTreatCaptivePortalAsOffline, Mode=TwoWay}" />
+
+                        <TextBlock Text="探测端点" Style="{StaticResource SectionTitle}" Margin="0,12,0,0" />
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.Settings.Endpoints, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnSpacing="8" Padding="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="240" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="160" />
+                                            <ColumnDefinition Width="70" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" Text="{Binding Name, Mode=TwoWay}" />
+                                        <ComboBox Grid.Column="1" SelectedIndex="{Binding KindIndex, Mode=TwoWay}">
+                                            <ComboBoxItem Content="TCP" />
+                                            <ComboBoxItem Content="HTTP" />
+                                            <ComboBoxItem Content="HTTPS" />
+                                            <ComboBoxItem Content="DNS" />
+                                            <ComboBoxItem Content="ICMP" />
+                                        </ComboBox>
+                                        <TextBox Grid.Column="2" Text="{Binding Target, Mode=TwoWay}" />
+                                        <NumberBox Grid.Column="3" Value="{Binding TimeoutMs, Mode=TwoWay}"
+                                                   Minimum="200" Maximum="60000" SpinButtonPlacementMode="Hidden" />
+                                        <TextBox Grid.Column="4" Text="{Binding BodyMarker, Mode=TwoWay}"
+                                                 PlaceholderText="响应正文标记（可空）" />
+                                        <ToggleSwitch Grid.Column="5" IsOn="{Binding Enabled, Mode=TwoWay}"
+                                                      OnContent="启用" OffContent="停用" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="无线策略（粘性连接）">
+                    <StackPanel Padding="0,8,0,8">
+                        <ToggleSwitch Header="粘性连接：已正常连接的网卡不参与择优切换" OnContent="开启" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.StickyConnection, Mode=TwoWay}" />
+                        <ToggleSwitch Header="允许在连接仍然存在但已无法上网时重新选网"
+                                      OnContent="允许" OffContent="禁止"
+                                      IsOn="{x:Bind ViewModel.Settings.RecoverStaleConnections, Mode=TwoWay}" />
+                        <ToggleSwitch Header="优先 5GHz / 6GHz" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.PreferHighBand, Mode=TwoWay}" />
+                        <ToggleSwitch Header="只连接已有配置的网络（绝不加入陌生 Wi-Fi）"
+                                      OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.OnlySavedProfiles, Mode=TwoWay}" />
+                        <ToggleSwitch Header="允许多张网卡连接同一个 SSID" OnContent="允许" OffContent="禁止"
+                                      IsOn="{x:Bind ViewModel.Settings.AllowSameSsidOnMultipleAdapters, Mode=TwoWay}" />
+                        <TextBlock Text="信号强度迟滞（百分点）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.SignalHysteresis, Mode=TwoWay}"
+                                   Minimum="0" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="最低可用信号（%）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.MinimumSignalQuality, Mode=TwoWay}"
+                                   Minimum="0" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="掉线后进入恢复的宽限期（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.DisconnectGraceSeconds, Mode=TwoWay}"
+                                   Minimum="0" Maximum="600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="SSID 黑名单（每行一个，可留空）" Style="{StaticResource FieldCaption}" />
+                        <TextBox Text="{x:Bind ViewModel.Settings.SsidDenyList, Mode=TwoWay}"
+                                 AcceptsReturn="True" Height="70" TextWrapping="Wrap" />
+                        <TextBlock Text="SSID 白名单（非空时只连接其中的 SSID）" Style="{StaticResource FieldCaption}" />
+                        <TextBox Text="{x:Bind ViewModel.Settings.SsidAllowList, Mode=TwoWay}"
+                                 AcceptsReturn="True" Height="70" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="失败与重试">
+                    <StackPanel Padding="0,8,0,8">
+                        <TextBlock Text="外网连续失败阈值" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.InternetFailureThreshold, Mode=TwoWay}"
+                                   Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="恢复判定所需连续成功次数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.InternetRecoveryThreshold, Mode=TwoWay}"
+                                   Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="无线连接失败阈值" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.WifiFailureThreshold, Mode=TwoWay}"
+                                   Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="恢复冷却（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CooldownSeconds, Mode=TwoWay}"
+                                   Minimum="0" Maximum="7200" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="退避基数（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.BaseBackoffSeconds, Mode=TwoWay}"
+                                   Minimum="1" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="退避上限（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.MaxBackoffSeconds, Mode=TwoWay}"
+                                   Minimum="5" Maximum="86400" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="单轮最大连接尝试次数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.MaxConnectAttemptsPerRound, Mode=TwoWay}"
+                                   Minimum="1" Maximum="50" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="连接失败后的短期封禁（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.ConnectFailureBlacklistSeconds, Mode=TwoWay}"
+                                   Minimum="0" Maximum="86400" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="启用网卡后的等待（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.DeviceEnableSettleSeconds, Mode=TwoWay}"
+                                   Minimum="1" Maximum="120" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="每小时最多启用次数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.MaxDeviceEnablePerHour, Mode=TwoWay}"
+                                   Minimum="1" Maximum="120" SpinButtonPlacementMode="Compact" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="校园网认证">
+                    <StackPanel Padding="0,8,0,8">
+                        <ToggleSwitch Header="启用校园网认证程序" OnContent="启用" OffContent="停用"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthEnabled, Mode=TwoWay}" />
+                        <TextBlock Text="名称" Style="{StaticResource FieldCaption}" />
+                        <TextBox Text="{x:Bind ViewModel.Settings.CampusAuthName, Mode=TwoWay}" />
+                        <TextBlock Text="运行方式" Style="{StaticResource FieldCaption}" />
+                        <ComboBox SelectedIndex="{x:Bind ViewModel.Settings.CampusAuthKindIndex, Mode=TwoWay}">
+                            <ComboBoxItem Content="程序（可执行文件 + 参数）" />
+                            <ComboBoxItem Content="命令行（通过 cmd /c 执行整行命令）" />
+                        </ComboBox>
+                        <TextBlock Text="可执行文件路径 / 命令行" Style="{StaticResource FieldCaption}" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{x:Bind ViewModel.Settings.CampusAuthPath, Mode=TwoWay}" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseCampusAuthClicked" />
+                        </Grid>
+                        <TextBlock Text="参数" Style="{StaticResource FieldCaption}" />
+                        <TextBox Text="{x:Bind ViewModel.Settings.CampusAuthArguments, Mode=TwoWay}" />
+                        <TextBlock Text="工作目录" Style="{StaticResource FieldCaption}" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{x:Bind ViewModel.Settings.CampusAuthWorkingDirectory, Mode=TwoWay}" />
+                            <Button Grid.Column="1" Content="浏览…" Click="OnBrowseCampusAuthWorkDirClicked" />
+                        </Grid>
+                        <ToggleSwitch Header="以管理员身份运行（会弹出 UAC）" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthRunAsAdmin, Mode=TwoWay}" />
+                        <TextBlock Text="连续失败多少次后触发" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CampusAuthTriggerFailures, Mode=TwoWay}"
+                                   Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="执行后等待（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CampusAuthWaitAfterRun, Mode=TwoWay}"
+                                   Minimum="0" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="最短重复间隔（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CampusAuthMinInterval, Mode=TwoWay}"
+                                   Minimum="0" Maximum="86400" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="每小时最大次数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CampusAuthMaxPerHour, Mode=TwoWay}"
+                                   Minimum="1" Maximum="1000" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="最大连续次数（无成功则停止）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CampusAuthMaxConsecutive, Mode=TwoWay}"
+                                   Minimum="1" Maximum="1000" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="执行超时（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.CampusAuthTimeout, Mode=TwoWay}"
+                                   Minimum="0" Maximum="3600" SpinButtonPlacementMode="Compact" />
+                        <ToggleSwitch Header="超时后结束进程" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthKillOnTimeout, Mode=TwoWay}" />
+                        <ToggleSwitch Header="已运行时不再启动新实例" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthSkipIfRunning, Mode=TwoWay}" />
+                        <ToggleSwitch Header="等待进程退出后再继续" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthWaitForExit, Mode=TwoWay}" />
+                        <ToggleSwitch Header="检测到认证页拦截时也执行" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthRunOnCaptivePortal, Mode=TwoWay}" />
+                        <ToggleSwitch Header="仅在物理以太网链路可用时执行" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.CampusAuthRequireEthernet, Mode=TwoWay}" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="断网时运行命令行 / 自定义命令">
+                    <StackPanel Padding="0,8,0,8">
+                        <TextBlock Text="当外网不可用时，按顺序执行下列命令。适用于“软件式校园网”需要运行客户端或命令行认证的场景。"
+                                   Style="{StaticResource BodyText}"
+                                   Foreground="{ThemeResource AppTextSecondary}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,8">
+                            <Button Content="新增命令" Click="OnAddCommandClicked" />
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.Settings.Commands, Mode=OneWay}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource CardBorder}">
+                                        <StackPanel Spacing="6">
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0" Text="{Binding Summary, Mode=OneWay}"
+                                                           Style="{StaticResource SectionTitle}" />
+                                                <Button Grid.Column="1" Content="删除" Click="OnRemoveCommandClicked" />
+                                            </Grid>
+                                            <TextBox Text="{Binding Name, Mode=TwoWay}" PlaceholderText="名称" />
+                                            <ComboBox SelectedIndex="{Binding KindIndex, Mode=TwoWay}">
+                                                <ComboBoxItem Content="程序（可执行文件 + 参数）" />
+                                                <ComboBoxItem Content="命令行（cmd /c）" />
+                                            </ComboBox>
+                                            <TextBlock Text="{Binding KindHint, Mode=OneWay}" Style="{StaticResource FieldCaption}" />
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding ExecutablePath, Mode=TwoWay}"
+                                                         PlaceholderText="可执行文件或命令行" />
+                                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseCommandClicked" />
+                                            </Grid>
+                                            <TextBox Text="{Binding Arguments, Mode=TwoWay}" PlaceholderText="参数（可空）" />
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Grid.Column="0" Text="{Binding WorkingDirectory, Mode=TwoWay}"
+                                                         PlaceholderText="工作目录（可空）" />
+                                                <Button Grid.Column="1" Content="浏览…" Click="OnBrowseCommandWorkDirClicked" />
+                                            </Grid>
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="超时（秒）" Style="{StaticResource FieldCaption}" />
+                                                    <NumberBox Value="{Binding ExecutionTimeoutSeconds, Mode=TwoWay}"
+                                                               Minimum="0" Maximum="3600" SpinButtonPlacementMode="Hidden" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1">
+                                                    <TextBlock Text="最小间隔（秒）" Style="{StaticResource FieldCaption}" />
+                                                    <NumberBox Value="{Binding MinIntervalSeconds, Mode=TwoWay}"
+                                                               Minimum="0" Maximum="86400" SpinButtonPlacementMode="Hidden" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="2">
+                                                    <TextBlock Text="每小时上限" Style="{StaticResource FieldCaption}" />
+                                                    <NumberBox Value="{Binding MaxRunsPerHour, Mode=TwoWay}"
+                                                               Minimum="1" Maximum="1000" SpinButtonPlacementMode="Hidden" />
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="3">
+                                                    <TextBlock Text="连续上限" Style="{StaticResource FieldCaption}" />
+                                                    <NumberBox Value="{Binding MaxConsecutiveRuns, Mode=TwoWay}"
+                                                               Minimum="1" Maximum="1000" SpinButtonPlacementMode="Hidden" />
+                                                </StackPanel>
+                                            </Grid>
+                                            <ToggleSwitch Header="以管理员运行" OnContent="是" OffContent="否"
+                                                          IsOn="{Binding RunAsAdministrator, Mode=TwoWay}" />
+                                            <ToggleSwitch Header="已运行时跳过" OnContent="是" OffContent="否"
+                                                          IsOn="{Binding SkipIfAlreadyRunning, Mode=TwoWay}" />
+                                            <ToggleSwitch Header="超时后结束" OnContent="是" OffContent="否"
+                                                          IsOn="{Binding KillOnTimeout, Mode=TwoWay}" />
+                                            <ToggleSwitch Header="等待退出" OnContent="是" OffContent="否"
+                                                          IsOn="{Binding WaitForExit, Mode=TwoWay}" />
+                                            <ToggleSwitch Header="启用该命令" OnContent="启用" OffContent="停用"
+                                                          IsOn="{Binding Enabled, Mode=TwoWay}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="以太网">
+                    <StackPanel Padding="0,8,0,8">
+                        <ToggleSwitch Header="启用以太网监控" OnContent="开启" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.EthernetEnabled, Mode=TwoWay}" />
+                        <ToggleSwitch Header="链路在但无法上网时执行校园网认证" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.EthernetAuthenticateWhenOffline, Mode=TwoWay}" />
+                        <TextBlock Text="以太网失败阈值" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.EthernetFailureThreshold, Mode=TwoWay}"
+                                   Minimum="1" Maximum="100" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="链路建立后的宽限（秒）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.EthernetLinkUpGraceSeconds, Mode=TwoWay}"
+                                   Minimum="0" Maximum="600" SpinButtonPlacementMode="Compact" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="启动与托盘">
+                    <StackPanel Padding="0,8,0,8">
+                        <ToggleSwitch Header="开机启动（HKCU Run）" OnContent="开启" OffContent="关闭"
+                                      IsOn="{x:Bind ViewModel.Settings.RunAtLogon, Mode=TwoWay}" />
+                        <ToggleSwitch Header="启动时最小化" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.StartMinimized, Mode=TwoWay}" />
+                        <ToggleSwitch Header="最小化到托盘" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.MinimizeToTray, Mode=TwoWay}" />
+                        <ToggleSwitch Header="关闭按钮隐藏到托盘（否则退出程序）" OnContent="隐藏到托盘" OffContent="退出程序"
+                                      IsOn="{x:Bind ViewModel.Settings.CloseToTray, Mode=TwoWay}" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="日志">
+                    <StackPanel Padding="0,8,0,8">
+                        <TextBlock Text="最低日志等级" Style="{StaticResource FieldCaption}" />
+                        <ComboBox SelectedIndex="{x:Bind ViewModel.Settings.LogLevelIndex, Mode=TwoWay}"
+                                  ItemsSource="{x:Bind ViewModel.Settings.LogLevels}" />
+                        <ToggleSwitch Header="写入文件" OnContent="是" OffContent="否"
+                                      IsOn="{x:Bind ViewModel.Settings.LogWriteToFile, Mode=TwoWay}" />
+                        <TextBlock Text="保留天数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.LogRetentionDays, Mode=TwoWay}"
+                                   Minimum="1" Maximum="3650" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="单文件大小上限（KB）" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.LogMaxFileSizeKb, Mode=TwoWay}"
+                                   Minimum="64" Maximum="262144" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="最大文件数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.LogMaxFiles, Mode=TwoWay}"
+                                   Minimum="1" Maximum="1000" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="界面日志缓冲条数" Style="{StaticResource FieldCaption}" />
+                        <NumberBox Value="{x:Bind ViewModel.Settings.LogUiBufferSize, Mode=TwoWay}"
+                                   Minimum="100" Maximum="100000" SpinButtonPlacementMode="Compact" />
+                        <TextBlock Text="日志中不记录任何 Wi-Fi 密码；外部命令的参数内容也不会写入日志。"
+                                   Style="{StaticResource BodyText}"
+                                   Foreground="{ThemeResource AppTextSecondary}" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="高级（设备过滤）">
+                    <StackPanel Padding="0,8,0,8">
+                        <TextBlock Text="额外排除规则（每行一个通配符，匹配 DeviceInstanceId 或设备名）"
+                                   Style="{StaticResource FieldCaption}" />
+                        <TextBox Text="{x:Bind ViewModel.Settings.InterfaceDenyList, Mode=TwoWay}"
+                                 AcceptsReturn="True" Height="90" TextWrapping="Wrap" />
+                        <TextBlock Text="被过滤的设备仍会显示在“无线网卡”页的检测列表中，并标注过滤原因。"
+                                   Style="{StaticResource BodyText}"
+                                   Foreground="{ThemeResource AppTextSecondary}" />
+                    </StackPanel>
+                </Expander>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

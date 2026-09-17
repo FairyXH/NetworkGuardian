@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="NetworkGuardian.App.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{ThemeResource AppSubtleBackground}"
+                BorderBrush="{ThemeResource AppCardBorder}"
+                BorderThickness="0,0,0,1"
+                Padding="20,12">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock Text="NetworkGuardian" Style="{StaticResource PageTitle}" Margin="0" />
+                    <TextBlock x:Name="HeaderDetailText"
+                               Text="{x:Bind ViewModel.HeaderDetail, Mode=OneWay}"
+                               Style="{StaticResource BodyText}"
+                               Foreground="{ThemeResource AppTextSecondary}" />
+                </StackPanel>
+
+                <TextBlock x:Name="HeaderStatusText"
+                           Grid.Column="1"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource ValueText}"
+                           Text="{x:Bind ViewModel.HeaderStatus, Mode=OneWay}" />
+
+                <Button x:Name="PauseButton"
+                        Grid.Column="2"
+                        VerticalAlignment="Center"
+                        Content="{x:Bind ViewModel.PauseButtonText, Mode=OneWay}"
+                        Click="OnPauseClicked" />
+
+                <Button x:Name="TestButton"
+                        Grid.Column="3"
+                        VerticalAlignment="Center"
+                        Content="连通性测试"
+                        Click="OnConnectivityTestClicked" />
+            </Grid>
+        </Border>
+
+        <NavigationView x:Name="NavView"
+                        Grid.Row="1"
+                        IsBackButtonVisible="Collapsed"
+                        IsSettingsVisible="False"
+                        PaneDisplayMode="Left"
+                        OpenPaneLength="200"
+                        SelectionChanged="OnNavigationSelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="总览" Tag="dashboard" IsSelected="True">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE80F;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="无线网卡" Tag="wireless">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE701;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="以太网" Tag="ethernet">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE839;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="设置" Tag="settings">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE713;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Content="日志" Tag="logs">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE8A5;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <Frame x:Name="ContentFrame" />
+        </NavigationView>
+
+        <Border x:Name="ToastBorder"
+                Grid.Row="2"
+                Background="{ThemeResource AppSubtleBackground}"
+                BorderBrush="{ThemeResource AppCardBorder}"
+                BorderThickness="0,1,0,0"
+                Padding="20,8"
+                Visibility="Collapsed">
+            <TextBlock x:Name="ToastText"
+                       Style="{StaticResource BodyText}"
+                       Foreground="{ThemeResource AppTextSecondary}" />
+        </Border>
+    </Grid>
+</Window>
