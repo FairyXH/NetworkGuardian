@@ -1,0 +1,21 @@
+## .NET / build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+artifacts/
+publish/
+TestResults/
+*.binlog
+build.log
+
+## Logs produced by local smoke tests
+*.log
+!docs/*.log
+
+## OS
+Thumbs.db
+desktop.ini

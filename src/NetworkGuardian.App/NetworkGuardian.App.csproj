@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <RootNamespace>NetworkGuardian.App</RootNamespace>
+    <AssemblyName>NetworkGuardian</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <SelfContained>false</SelfContained>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <EnableDefaultXamlItems>true</EnableDefaultXamlItems>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>false</PublishTrimmed>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetworkGuardian.Core\NetworkGuardian.Core.csproj" />
+    <ProjectReference Include="..\NetworkGuardian.Windows\NetworkGuardian.Windows.csproj" />
+    <ProjectReference Include="..\NetworkGuardian.Infrastructure\NetworkGuardian.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!-- The privileged helper ships next to the app so it can be launched on demand. -->
+    <HelperSourceDir>$(MSBuildThisFileDirectory)..\NetworkGuardian.Helper\bin\$(Configuration)\net8.0-windows10.0.19041.0\win-x64\</HelperSourceDir>
+  </PropertyGroup>
+
+  <Target Name="CopyPrivilegedHelper" AfterTargets="Build"
+          Condition="Exists('$(HelperSourceDir)NetworkGuardian.Helper.exe')">
+    <ItemGroup>
+      <HelperFiles Include="$(HelperSourceDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HelperFiles)"
+          DestinationFiles="@(HelperFiles->'$(OutDir)helper\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
