@@ -8,6 +8,7 @@ obj/
 .idea/
 artifacts/
 publish/
+release/
 TestResults/
 *.binlog
 build.log

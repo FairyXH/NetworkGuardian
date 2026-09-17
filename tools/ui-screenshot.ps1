@@ -11,7 +11,8 @@
 param(
     [int]$Seconds = 25,
     [string]$Out = '',
-    [string]$Page = ''
+    [string]$Page = '',
+    [string]$ExePath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -105,9 +106,12 @@ public static class GuardianWindow
 [void][GuardianWindow]::SetProcessDpiAwarenessContext([IntPtr](-4))
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$exe = Get-ChildItem -Path (Join-Path $repoRoot 'src\NetworkGuardian.App\bin') -Filter 'NetworkGuardian.exe' -Recurse -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1 -ExpandProperty FullName
+$exe = $ExePath
+if ([string]::IsNullOrWhiteSpace($exe)) {
+    $exe = Get-ChildItem -Path (Join-Path $repoRoot 'src\NetworkGuardian.App\bin') -Filter 'NetworkGuardian.exe' -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+}
 
 if (-not $exe) { throw 'NetworkGuardian.exe was not found - build the solution first.' }
 

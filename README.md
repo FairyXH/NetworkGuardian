@@ -333,6 +333,45 @@ pwsh -NoProfile -File tools\shutdown-test.ps1
 pwsh -NoProfile -File tools\diagnose-xaml-error.ps1
 ```
 
+### 14.1 发布打包（自包含，目标机器无需任何开发环境）
+
+```powershell
+# 1) 打包：Release 构建 + 测试 + 发布到 release\
+pwsh -NoProfile -File tools\build-release.ps1
+
+# 2) 验证：把包复制到中性目录，用干净环境（PATH 无 dotnet、无 DOTNET_ROOT）启动并测试提权助手
+pwsh -NoProfile -File tools\verify-release.ps1
+pwsh -NoProfile -File tools\verify-release.ps1 -InstanceId 'USB\VID_0BDA&PID_8153\001000001'   # 额外跑一次真实设备查询
+```
+
+`release\` 目录结构（约 249 MB，515 个文件）：
+
+```
+release\
+  NetworkGuardian.exe           主程序（自包含：.NET 8 + Windows App SDK 运行时随之发布）
+  NetworkGuardian.dll / *.json  托管程序集与部署清单
+  coreclr.dll, hostfxr.dll ...  .NET 运行时
+  Microsoft.WindowsAppRuntime.dll, Microsoft.ui.xaml.dll ... Windows App SDK 运行时
+  helper\
+    NetworkGuardian.Helper.exe  提权助手（单文件自包含压缩包，约 40 MB）
+  发布说明.txt                   面向使用者的运行/权限/位置权限说明
+```
+
+打包要点与已验证项：
+
+- **不依赖任何已安装运行时**：`NetworkGuardian.runtimeconfig.json` 使用 `includedFrameworks`，
+  包内自带 `coreclr.dll` / `Microsoft.WindowsAppRuntime.dll`；目标机不需要 .NET、Windows App Runtime、
+  Visual Studio 或任何 SDK 组件。
+- **助手同样自包含**：用单文件 + 压缩发布，避免再复制一份完整 .NET 运行时（95 MB → 40 MB）；
+  提权执行时首次运行会解压到 `%TEMP%\.net\`。
+- **不含 PDB**：`-p:DebugType=none -p:DebugSymbols=false`，发布包内无调试符号。
+- **无构建树路径**：部署清单中不包含仓库绝对路径（`tools\verify-release.ps1` 会检查）。
+- **实测通过**（`tools\verify-release.ps1`，15/15）：包复制到 `%TEMP%` 中性目录、`PATH=C:\Windows\system32;C:\Windows`、
+  `DOTNET_ROOT` 未设置的环境下启动，进程存活、WinUI 窗口创建、日志写入、首次运行生成配置；
+  提权助手从包内运行并返回协议响应（未知设备优雅失败 `DeviceNotFound`，真实设备查询 `Succeeded`，`helperElevated=True`）。
+
+> `release/` 已在 `.gitignore` 中，发布包不入库（体积大且可由上述脚本随时重建）。
+
 架构分层（测试与原生代码解耦）：
 
 ```
