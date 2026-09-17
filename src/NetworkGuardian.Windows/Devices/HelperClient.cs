@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using System.Security.Principal;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Helper;
+using NetworkGuardian.Core.Models;
 
 namespace NetworkGuardian.Windows.Devices;
 
@@ -20,18 +20,7 @@ public sealed class HelperClient
 
     /// <summary>True when the current process already has administrator rights.</summary>
     public static bool IsProcessElevated()
-    {
-        try
-        {
-            using var identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
-        }
-        catch (Exception)
-        {
-            return false;
-        }
-    }
+        => NetworkGuardian.Windows.Privileges.ProcessElevation.IsElevated();
 
     public static string? ResolveHelperPath()
     {
@@ -70,7 +59,7 @@ public sealed class HelperClient
                 Success = false,
                 Operation = request.Operation,
                 DeviceInstanceId = request.DeviceInstanceId,
-                Outcome = nameof(NetworkGuardian.Core.Models.DeviceOperationOutcome.NotSupported),
+                Outcome = nameof(DeviceOperationOutcome.NotSupported),
                 Message = "NetworkGuardian.Helper.exe was not found next to the application.",
                 Detail = "Build the NetworkGuardian.Helper project (it is copied to the helper subfolder of the app output).",
             };
@@ -160,8 +149,8 @@ public sealed class HelperClient
         Operation = request.Operation,
         DeviceInstanceId = request.DeviceInstanceId,
         Outcome = exitCode == 1223
-            ? nameof(NetworkGuardian.Core.Models.DeviceOperationOutcome.AccessDenied)
-            : nameof(NetworkGuardian.Core.Models.DeviceOperationOutcome.Failed),
+            ? nameof(DeviceOperationOutcome.AccessDenied)
+            : nameof(DeviceOperationOutcome.Failed),
         Message = message,
         NativeErrorCode = exitCode,
     };
