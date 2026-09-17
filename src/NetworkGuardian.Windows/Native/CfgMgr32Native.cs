@@ -35,25 +35,27 @@ internal static class CfgMgr32Native
     internal const uint DN_PRESENT = 0x00000000;
     internal const uint DN_PRIVATE_PROBLEM = 0x00008000;
 
-    // CM_DRP_* property selectors.
-    internal const uint CM_DRP_DEVICEDESC = 1;
-    internal const uint CM_DRP_HARDWAREID = 2;
-    internal const uint CM_DRP_COMPATIBLEIDS = 3;
-    internal const uint CM_DRP_SERVICE = 5;
-    internal const uint CM_DRP_CLASS = 6;
-    internal const uint CM_DRP_CLASSGUID = 7;
-    internal const uint CM_DRP_DRIVER = 8;
-    internal const uint CM_DRP_CONFIGFLAGS = 9;
-    internal const uint CM_DRP_MFG = 10;
-    internal const uint CM_DRP_FRIENDLYNAME = 12;
-    internal const uint CM_DRP_LOCATION_INFORMATION = 13;
-    internal const uint CM_DRP_CAPABILITIES = 15;
-    internal const uint CM_DRP_BUSTYPEGUID = 19;
-    internal const uint CM_DRP_BUSNUMBER = 21;
-    internal const uint CM_DRP_ENUMERATOR_NAME = 22;
-    internal const uint CM_DRP_ADDRESS = 28;
-    internal const uint CM_DRP_INSTALL_STATE = 34;
-    internal const uint CM_DRP_LOCATION_PATHS = 35;
+    // CM_DRP_* property selectors, copied verbatim from um/cfgmgr32.h (SDK 10.0.26100.0).
+    // These are deliberately not the SPDRP_* values from setupapi.h: SPDRP_DRIVER is 0x09 while
+    // CM_DRP_DRIVER is 0x0A, and mixing the two silently reads the wrong property.
+    internal const uint CM_DRP_DEVICEDESC = 0x00000001;
+    internal const uint CM_DRP_HARDWAREID = 0x00000002;
+    internal const uint CM_DRP_COMPATIBLEIDS = 0x00000003;
+    internal const uint CM_DRP_SERVICE = 0x00000005;
+    internal const uint CM_DRP_CLASS = 0x00000008;
+    internal const uint CM_DRP_CLASSGUID = 0x00000009;
+    internal const uint CM_DRP_DRIVER = 0x0000000A;
+    internal const uint CM_DRP_CONFIGFLAGS = 0x0000000B;
+    internal const uint CM_DRP_MFG = 0x0000000C;
+    internal const uint CM_DRP_FRIENDLYNAME = 0x0000000D;
+    internal const uint CM_DRP_LOCATION_INFORMATION = 0x0000000E;
+    internal const uint CM_DRP_CAPABILITIES = 0x00000010;
+    internal const uint CM_DRP_BUSTYPEGUID = 0x00000014;
+    internal const uint CM_DRP_BUSNUMBER = 0x00000016;
+    internal const uint CM_DRP_ENUMERATOR_NAME = 0x00000017;
+    internal const uint CM_DRP_ADDRESS = 0x0000001D;
+    internal const uint CM_DRP_INSTALL_STATE = 0x00000023;
+    internal const uint CM_DRP_LOCATION_PATHS = 0x00000024;
 
     internal const uint CM_REG_SZ = 1;
     internal const uint CM_REG_MULTI_SZ = 7;

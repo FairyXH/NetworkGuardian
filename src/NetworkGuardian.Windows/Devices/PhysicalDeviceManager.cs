@@ -60,11 +60,17 @@ public sealed class PhysicalDeviceManager : IDeviceManager
 
         foreach (var device in devices)
         {
-            _logger.LogDebug("  {InstanceId} => {Category} physical={Physical} rule={Rule}",
+            // The NetCfgInstanceId is what links a PnP node to a Native Wi-Fi interface GUID, so it is
+            // part of the diagnostic line: without it a failed correlation is impossible to debug.
+            _logger.LogDebug(
+                "  {InstanceId} => {Category} physical={Physical} rule={Rule} service={Service} mediaType={MediaType} netCfg={NetCfg}",
                 device.Record.DeviceInstanceId,
                 device.Classification.Category,
                 device.Classification.IsPhysical,
-                device.Classification.Rule);
+                device.Classification.Rule,
+                device.Record.Service ?? "-",
+                device.Record.PhysicalMediaType?.ToString() ?? "-",
+                device.Record.NetCfgInstanceId ?? "-");
         }
 
         return Task.FromResult<IReadOnlyList<ManagedDevice>>(devices);

@@ -54,6 +54,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     private bool _forceProbe = true;
     private bool _manualScanRequested;
     private IReadOnlyDictionary<Guid, PnpDeviceRecord> _deviceByNetCfgGuid = new Dictionary<Guid, PnpDeviceRecord>();
+
+    /// <summary>WLAN interfaces whose PnP record could not be correlated, warned about only once.</summary>
+    private readonly HashSet<Guid> _unmatchedWlanInterfaces = new();
     private IReadOnlyList<ManagedDevice> _devicesSnapshot = Array.Empty<ManagedDevice>();
     private Dictionary<Guid, List<string>> _profilesByAdapter = new();
     private ConnectivityProbeReport _globalProbe;
@@ -342,6 +345,9 @@ public sealed class GuardianHostService : IAsyncDisposable
             .GroupBy(d => Guid.Parse(d.Record.NetCfgInstanceId!))
             .ToDictionary(g => g.Key, g => g.First().Record);
 
+        // A fresh enumeration may resolve interfaces that were previously unmatched.
+        _unmatchedWlanInterfaces.Clear();
+
         var profiles = new Dictionary<Guid, List<string>>();
         foreach (var adapter in _wifi.GetAdapters())
         {
@@ -428,10 +434,19 @@ public sealed class GuardianHostService : IAsyncDisposable
             }
             else
             {
-                _logger.LogWarning(
-                    "WLAN interface {Guid} has no matching PnP device record; treating it as physical. " +
-                    "Check the device enumeration if this is unexpected.",
-                    adapter.InterfaceGuid);
+                // The adapter state is rebuilt on every cycle, so the warning is emitted once per
+                // interface and only repeated when the enumeration changes.
+                if (_unmatchedWlanInterfaces.Add(adapter.InterfaceGuid))
+                {
+                    _logger.LogWarning(
+                        "WLAN interface {Guid} has no matching PnP device record; treating it as physical. " +
+                        "Check the device enumeration if this is unexpected.",
+                        adapter.InterfaceGuid);
+                }
+                else
+                {
+                    _logger.LogDebug("WLAN interface {Guid}: still no matching PnP record", adapter.InterfaceGuid);
+                }
             }
 
             var connection = _wifi.GetConnection(adapter.InterfaceGuid);

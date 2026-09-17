@@ -10,11 +10,24 @@
     <Platforms>x64</Platforms>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PlatformTarget>x64</PlatformTarget>
-    <SelfContained>false</SelfContained>
+    <!--
+      The .NET runtime and the Windows App SDK runtime both travel with the app. This is what makes
+      the executable start on a machine whose Microsoft.WindowsAppRuntime.1.8 package is older than
+      the one the SDK package asks for (the bootstrapper would otherwise show
+      "This application could not be started"). Framework-dependent deployment is possible by
+      setting both flags to false once a matching Windows App Runtime is installed.
+    -->
+    <SelfContained>true</SelfContained>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <!--
+      The Windows App SDK runtime is carried next to the executable. That removes the dependency on
+      a matching Microsoft.WindowsAppRuntime.* framework package being installed, which is the most
+      common reason an unpackaged WinUI 3 app shows "This application could not be started".
+      Set to false to go back to a framework-dependent deployment.
+    -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <EnableDefaultXamlItems>true</EnableDefaultXamlItems>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
