@@ -135,6 +135,10 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     public string LogDirectory => GuardianPaths.LogDirectory;
 
+    /// <summary>Logs a failure that happened in a UI action so it is visible in the log as well as the UI.</summary>
+    public void LogUiFailure(string message) =>
+        _logger.LogError("UI action failed: {Message}", message);
+
     public LocationPermissionSnapshot LocationPermission => _location.Read();
 
     public IReadOnlyList<ManagedDevice> Devices => _devicesSnapshot;
@@ -985,9 +989,10 @@ public sealed class GuardianHostService : IAsyncDisposable
         _cycleGate.Dispose();
         _cts?.Dispose();
 
+        _logger.LogInformation("Guardian host disposed");
+
+        // The logger factory owns the file writer and the sink, so it is disposed last.
         _fileLogger.Dispose();
         _loggerFactory.Dispose();
-
-        _logger.LogInformation("Guardian host disposed");
     }
 }

@@ -37,7 +37,7 @@ public sealed partial class SettingsPage : Page
 
     private async void OnBrowseCampusAuthClicked(object sender, RoutedEventArgs e)
     {
-        var path = await StorageFilePicker.PickExecutableAsync(OwnerHandle);
+        var path = await PickAsync(() => StorageFilePicker.PickExecutableAsync(OwnerHandle));
         if (!string.IsNullOrEmpty(path))
         {
             ViewModel.Settings.CampusAuthPath = path;
@@ -46,7 +46,7 @@ public sealed partial class SettingsPage : Page
 
     private async void OnBrowseCampusAuthWorkDirClicked(object sender, RoutedEventArgs e)
     {
-        var path = await StorageFilePicker.PickFolderAsync(OwnerHandle);
+        var path = await PickAsync(() => StorageFilePicker.PickFolderAsync(OwnerHandle));
         if (!string.IsNullOrEmpty(path))
         {
             ViewModel.Settings.CampusAuthWorkingDirectory = path;
@@ -70,7 +70,7 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var path = await StorageFilePicker.PickExecutableAsync(OwnerHandle);
+        var path = await PickAsync(() => StorageFilePicker.PickExecutableAsync(OwnerHandle));
         if (!string.IsNullOrEmpty(path))
         {
             command.ExecutablePath = path;
@@ -84,10 +84,27 @@ public sealed partial class SettingsPage : Page
             return;
         }
 
-        var path = await StorageFilePicker.PickFolderAsync(OwnerHandle);
+        var path = await PickAsync(() => StorageFilePicker.PickFolderAsync(OwnerHandle));
         if (!string.IsNullOrEmpty(path))
         {
             command.WorkingDirectory = path;
+        }
+    }
+
+    /// <summary>
+    /// The shell pickers can fail (COM activation, access denied); an exception escaping an async void
+    /// handler would terminate the process.
+    /// </summary>
+    private async Task<string?> PickAsync(Func<Task<string?>> pick)
+    {
+        try
+        {
+            return await pick();
+        }
+        catch (Exception ex)
+        {
+            ViewModel.ReportError($"选择文件失败：{ex.Message}");
+            return null;
         }
     }
 }

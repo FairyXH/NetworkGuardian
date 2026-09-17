@@ -117,6 +117,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public void RaiseToast(string message) => ToastRequested?.Invoke(this, message);
 
+    /// <summary>
+    /// Reports a failure raised from a UI event handler: it is logged through the host and shown to
+    /// the user instead of escaping as an unhandled async void exception.
+    /// </summary>
+    public void ReportError(string message)
+    {
+        Host.LogUiFailure(message);
+        RaiseToast(message);
+    }
+
     private void OnNotification(object? sender, string message)
     {
         try
