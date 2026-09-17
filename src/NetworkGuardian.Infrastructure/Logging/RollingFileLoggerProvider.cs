@@ -295,28 +295,4 @@ public sealed class RollingFileLoggerProvider : ILoggerProvider
     }
 }
 
-/// <summary>Builds the application logger factory from <see cref="LoggingSettings"/>.</summary>
-public static class GuardianLoggerFactory
-{
-    public static ILoggerFactory Create(
-        LoggingSettings settings,
-        ILogSink sink,
-        string logDirectory,
-        out RollingFileLoggerProvider provider)
-    {
-        var created = new RollingFileLoggerProvider(logDirectory, "networkguardian", sink, settings)
-        {
-            MinimumLevel = settings.MinimumLevel,
-            Enabled = true,
-        };
 
-        provider = created;
-
-        return LoggerFactory.Create(builder =>
-        {
-            builder.ClearProviders();
-            builder.AddProvider(created);
-            builder.SetMinimumLevel(LogLevel.Trace);
-        });
-    }
-}

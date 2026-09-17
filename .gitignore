@@ -9,6 +9,9 @@ obj/
 artifacts/
 publish/
 release/
+portable/
+portable-out/
+portable-map/
 NetworkGuardian-*.zip
 TestResults/
 *.binlog

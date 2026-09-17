@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!--
+      Plain net8.0-windows: a versioned Windows TFM would reference Microsoft.Windows.SDK.NET.dll (the
+      ~24 MB WinRT projection), which Native AOT cannot use. The UI in this project is drawn with GDI
+      through P/Invoke, so there is nothing to project.
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>NetworkGuardian.Portable</RootNamespace>
+    <AssemblyName>NetworkGuardian</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- PAINTSTRUCT and friends carry fixed buffers; the interop layer is inherently unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!--
+      CA1806: the return values of GDI/user32 drawing calls carry no information we can act on, and
+      every such call in this project is deliberately fire-and-forget.
+      CA2020: the IntPtr -> int conversions unpack LPARAM mouse coordinates; wrapping them in
+      checked() would only add a branch to a hot path that cannot overflow by construction.
+    -->
+    <NoWarn>$(NoWarn);CA1806;CA2020</NoWarn>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!--
+      Native AOT + size tuning. This is the switch that removes both the ~60 MB .NET runtime and the
+      ~90 MB WinUI/Windows App SDK payload, which is the whole point of the portable build:
+      a single self-contained exe around 5 MB that starts on a machine with no runtime installed.
+    -->
+    <PublishAot>true</PublishAot>
+    <!-- A native AOT publish is always a single self-contained exe; asking for PublishSingleFile
+         as well is rejected by the ILCompiler targets. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <StackTraceSupport>false</StackTraceSupport>
+    <StripSymbols>true</StripSymbols>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetworkGuardian.Core\NetworkGuardian.Core.csproj" />
+    <ProjectReference Include="..\NetworkGuardian.Windows\NetworkGuardian.Windows.csproj" />
+    <ProjectReference Include="..\NetworkGuardian.Infrastructure\NetworkGuardian.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <!--
+      The privileged helper ships next to the portable exe. Release packaging passes HelperPublishDir
+      (a native AOT helper publish output, ~2 MB); a plain build falls back to the most recent helper
+      build. Both the solution (Platform=x64 -> bin\x64\<Config>) and project (bin\<Config>) layouts
+      are probed because they differ.
+    -->
+    <HelperProjectDir>$(MSBuildThisFileDirectory)..\NetworkGuardian.Helper\</HelperProjectDir>
+    <HelperSourceDir Condition="'$(HelperPublishDir)' != ''">$(HelperPublishDir)</HelperSourceDir>
+    <HelperSourceDir Condition="'$(HelperSourceDir)' == '' AND Exists('$(HelperProjectDir)bin\x64\$(Configuration)\net8.0-windows\win-x64\NetworkGuardian.Helper.exe')">$(HelperProjectDir)bin\x64\$(Configuration)\net8.0-windows\win-x64\</HelperSourceDir>
+    <HelperSourceDir Condition="'$(HelperSourceDir)' == '' AND Exists('$(HelperProjectDir)bin\$(Configuration)\net8.0-windows\win-x64\NetworkGuardian.Helper.exe')">$(HelperProjectDir)bin\$(Configuration)\net8.0-windows\win-x64\</HelperSourceDir>
+  </PropertyGroup>
+
+  <Target Name="CopyPrivilegedHelper" AfterTargets="Build"
+          Condition="Exists('$(HelperSourceDir)NetworkGuardian.Helper.exe')">
+    <ItemGroup>
+      <HelperFiles Include="$(HelperSourceDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HelperFiles)"
+          DestinationFiles="@(HelperFiles->'$(OutDir)helper\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Publish does not pick up files copied by a custom Build target, so copy again into the publish
+       folder when a helper publish output was supplied. -->
+  <Target Name="CopyPrivilegedHelperToPublish" AfterTargets="Publish"
+          Condition="'$(HelperPublishDir)' != '' AND Exists('$(HelperPublishDir)NetworkGuardian.Helper.exe')">
+    <ItemGroup>
+      <HelperPublishFiles Include="$(HelperPublishDir)**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(HelperPublishFiles)"
+          DestinationFiles="@(HelperPublishFiles->'$(PublishDir)helper\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

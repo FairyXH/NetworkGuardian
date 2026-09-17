@@ -12,7 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+    <!--
+      Abstractions only. The DI based LoggerFactory from Microsoft.Extensions.Logging is reflection
+      based and therefore off limits for Native AOT; the host wires the single file logger directly.
+    -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
   </ItemGroup>
 
