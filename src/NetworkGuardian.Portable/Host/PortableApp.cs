@@ -43,20 +43,34 @@ internal sealed class PortableApp
 
     public string StartPage { get; private set; } = "dashboard";
 
-    public static async Task<int> RunAsync(string[] args)
+    /// <summary>
+    /// Creates the window, pumps its messages and finally shuts everything down on the calling thread.
+    /// </summary>
+    /// <remarks>
+    /// This must not be an <c>async</c> method that returns to the thread pool: a Win32 message loop
+    /// has to run on the thread that owns the window (and this is the process main thread). Waiting
+    /// for the asynchronous setup steps here is safe because none of them needs this thread.
+    /// </remarks>
+    public static int Run(string[] args)
     {
+        // The in-memory sink has to be created first: the file logger mirrors every record into it,
+        // and the Logs page reads it.
+        var logSink = new InMemoryLogSink(2000);
+        var fileLogger = new RollingFileLoggerProvider(
+            GuardianPaths.LogDirectory, "networkguardian", logSink, settings: null);
+
         var app = new PortableApp(
             new JsonConfigStore(GuardianPaths.ConfigFile),
-            new InMemoryLogSink(2000),
-            new RollingFileLoggerProvider(GuardianPaths.LogDirectory, "networkguardian", null, null));
+            logSink,
+            fileLogger);
 
-        await app.RunCoreAsync(args).ConfigureAwait(false);
+        app.RunCore(args);
         return 0;
     }
 
-    private async Task RunCoreAsync(string[] args)
+    private void RunCore(string[] args)
     {
-        var config = await _configStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+        var config = _configStore.LoadAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // The sink and the file logger are created before the configuration is known, so they are
         // re-created with the real settings once it has been loaded.
@@ -82,6 +96,7 @@ internal sealed class PortableApp
 
         StartPage = ReadOption(args, "--page") ?? "dashboard";
 
+        _logger.LogInformation("UI: creating the guardian host");
         _host = new GuardianHostService(_configStore, _loggerFactory, _fileLogger, _logSink);
         _host.Notification += (_, message) => _window?.ShowToast(message);
         _host.SnapshotUpdated += (_, snapshot) =>
@@ -92,17 +107,21 @@ internal sealed class PortableApp
             _window?.RequestRefresh();
         };
 
+        _logger.LogInformation("UI: creating the main window");
         _window = new MainWindow(this, _host, Pages.Build(), StartPage);
+        _logger.LogInformation("UI: window created");
         SetupTray();
+        _logger.LogInformation("UI: tray setup finished");
 
         if (!StartMinimized)
         {
             _window.Show();
+            _logger.LogInformation("UI: window shown");
         }
 
         try
         {
-            await _host.StartAsync(CancellationToken.None).ConfigureAwait(false);
+            _host.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
@@ -111,9 +130,22 @@ internal sealed class PortableApp
         }
 
         _logger.LogInformation("NetworkGuardian started (startMinimized={StartMinimized}, page={Page})", StartMinimized, StartPage);
+        _logger.LogInformation("UI: entering the message loop");
 
         RunMessageLoop();
-        await ShutdownAsync().ConfigureAwait(false);
+        _logger.LogInformation("UI: message loop finished");
+
+        // The window is destroyed by WM_APP_QUIT on its owning thread; this only releases its GDI
+        // objects (and never runs while a paint could still be in flight).
+        _window?.Dispose();
+        _window = null;
+
+        ShutdownAsync().GetAwaiter().GetResult();
+
+        // Last write has happened (the log line above and "NetworkGuardian stopped" are in), so the
+        // writer can be closed. Disposing it any earlier makes the provider silently reopen a new
+        // file for the next line.
+        _fileLogger.Dispose();
     }
 
     /// <summary>Pump until WM_QUIT. The window and the tray icon live on this thread.</summary>
@@ -151,6 +183,7 @@ internal sealed class PortableApp
             };
 
             _tray.Show();
+            _logger.LogInformation("UI: tray icon shown");
         }
         catch (Exception ex)
         {
@@ -237,10 +270,12 @@ internal sealed class PortableApp
             return;
         }
 
+        // Keep the window reference: ShutdownAsync clears the field before the quit is posted.
+        var window = _window;
         await ShutdownAsync().ConfigureAwait(false);
 
         // PostQuitMessage is thread local, so the UI thread has to run it.
-        _window?.PostQuit();
+        window?.PostQuit();
     }
 
     /// <summary>Saves the configuration and applies everything the UI changed.</summary>
@@ -321,11 +356,6 @@ internal sealed class PortableApp
         }
 
         _logger.LogInformation("NetworkGuardian stopped");
-        _window?.Dispose();
-        _window = null;
-
-        // The file writer is disposed last so the shutdown lines above reach the log file.
-        _fileLogger.Dispose();
     }
 
     private static string? ReadOption(string[] args, string name)

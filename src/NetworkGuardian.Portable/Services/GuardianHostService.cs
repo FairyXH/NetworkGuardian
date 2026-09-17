@@ -987,8 +987,8 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         _logger.LogInformation("Guardian host disposed");
 
-        // The logger factory owns the file writer and the sink, so it is disposed last.
-        _fileLogger.Dispose();
-        _loggerFactory.Dispose();
+        // The file writer and the log sink are owned by the application host, not by this service:
+        // disposing them here would (a) lose every line the host writes afterwards - the provider
+        // silently reopens a new file - and (b) hide the shutdown sequence from the log.
     }
 }

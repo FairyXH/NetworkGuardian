@@ -147,4 +147,30 @@ internal static class Format
 
     public static string LocalTime(DateTimeOffset? value) =>
         value is { } time ? time.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : "—";
+
+    /// <summary>
+    /// Display name for a Wi-Fi adapter. The Native Wi-Fi description is often a single letter
+    /// (the driver's own interface name), so the PnP friendly name is preferred when it exists.
+    /// </summary>
+    public static string AdapterName(GuardianSnapshot snapshot, WifiAdapterRuntimeState adapter)
+    {
+        if (adapter.DeviceInstanceId is { Length: > 0 } instanceId)
+        {
+            foreach (var device in snapshot.WifiDevices)
+            {
+                if (!string.Equals(device.Record.DeviceInstanceId, instanceId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var name = device.Record.FriendlyName ?? device.Record.DeviceDescription;
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    return name;
+                }
+            }
+        }
+
+        return adapter.Description;
+    }
 }

@@ -24,6 +24,8 @@
       checked() would only add a branch to a hot path that cannot overflow by construction.
     -->
     <NoWarn>$(NoWarn);CA1806;CA2020</NoWarn>
+    <!-- Referenced projects still produce PDBs; the portable package must not contain any. -->
+    <AllowedReferenceRelatedFileExtensions>none</AllowedReferenceRelatedFileExtensions>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
     <EventSourceSupport>false</EventSourceSupport>

@@ -44,7 +44,7 @@ internal sealed class LogsPage : IPage
         y += ctx.Scale(22);
 
         // ---------- filters ----------
-        var filterRect = new Rectangle(area.Left, y, area.Width, ctx.Scale(16 + 30 + 52 + 16));
+        var filterRect = new Rectangle(area.Left, y, area.Width, ctx.Scale(16 + 48 + 32 + 36 + 12 + 16));
         canvas.Card(filterRect);
         var x = filterRect.Left + ctx.Scale(16);
         var cy = filterRect.Top + ctx.Scale(14);
@@ -62,18 +62,21 @@ internal sealed class LogsPage : IPage
             _search,
             value => _search = value);
 
+        // One control row per line: the three action buttons must never run past the card edge.
         var toggleTop = cy + ctx.Scale(52);
         Widgets.Toggle(ctx, x, toggleTop, fieldWidth, "自动滚动到最新", _autoScroll, () => _autoScroll = !_autoScroll);
 
-        var actionX = x + ((fieldWidth + ctx.Scale(12)) * 2);
-        var refresh = Widgets.Button(ctx, actionX, toggleTop + ctx.Scale(2), "刷新", () => ctx.Window.Invalidate());
-        Widgets.Button(ctx, refresh.Right + ctx.Scale(8), toggleTop + ctx.Scale(2), "清空缓冲", () =>
+        var actionTop = toggleTop + ctx.Scale(36);
+        var refresh = Widgets.Button(ctx, x, actionTop, "刷新", () => ctx.Window.Invalidate());
+        var clearRect = new Rectangle(
+            refresh.Right + ctx.Scale(8), actionTop, Widgets.MeasureButtonWidth(ctx, "清空缓冲"), ctx.Scale(32));
+        Widgets.ButtonAt(ctx, clearRect, "清空缓冲", () =>
         {
             ctx.Host.LogSink.Clear();
             ctx.Window.ShowToast("已清空内存日志缓冲（文件日志不受影响）");
         });
-        Widgets.Button(ctx, refresh.Right + ctx.Scale(8) + Widgets.MeasureButtonWidth(ctx, "清空缓冲") + ctx.Scale(8), toggleTop + ctx.Scale(2),
-            "打开日志目录", () => ctx.Host.OpenLogFolder());
+
+        Widgets.Button(ctx, clearRect.Right + ctx.Scale(8), actionTop, "打开日志目录", () => ctx.Host.OpenLogFolder());
 
         y = filterRect.Bottom + ctx.Scale(12);
 

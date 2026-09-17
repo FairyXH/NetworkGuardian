@@ -67,7 +67,7 @@ internal static class Program
             }
 
             GuardianPaths.EnsureCreated();
-            return PortableApp.RunAsync(args).GetAwaiter().GetResult();
+            return PortableApp.Run(args);
         }
         catch (Exception ex)
         {

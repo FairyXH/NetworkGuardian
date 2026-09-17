@@ -403,6 +403,9 @@ internal sealed class MainWindow
                 return IntPtr.Zero;
 
             case (uint)WM_APP_QUIT:
+                // Destroy on the owning thread so WM_DESTROY can clean up (editor, timer), then let
+                // the message loop return.
+                DestroyWindow(_hwnd);
                 PostQuitMessage(0);
                 return IntPtr.Zero;
 

@@ -156,7 +156,8 @@ internal sealed class WirelessPage : IPage
         var cy = card.Top + ctx.Scale(14);
         var buttonsLeft = card.Right - ctx.Scale(16);
 
-        canvas.Text(adapter.Description, new Rectangle(x, cy, width - ctx.Scale(150), ctx.Scale(24)), Palette.TextPrimary, TextStyle.Section);
+        var adapterName = Format.AdapterName(snapshot, adapter);
+        canvas.Text(adapterName, new Rectangle(x, cy, width - ctx.Scale(150), ctx.Scale(24)), Palette.TextPrimary, TextStyle.Section);
         cy += ctx.Scale(28);
 
         var connection = adapter.Connection;

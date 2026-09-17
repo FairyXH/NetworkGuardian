@@ -60,7 +60,7 @@ internal sealed class DashboardPage : IPage
         var wifiSummary = snapshot.WifiAdapters.Count == 0
             ? "未发现物理无线网卡"
             : string.Join("；", snapshot.WifiAdapters.Select(a =>
-                $"{a.Description}: {(a.IsConnected ? $"{a.CurrentSsid}（{a.SignalQuality}%）" : "未连接")}"));
+                $"{Format.AdapterName(snapshot, a)}: {(a.IsConnected ? $"{a.CurrentSsid}（{a.SignalQuality}%）" : "未连接")}"));
 
         var cards = new (string Title, string Value, string Detail, Rgb? Color)[]
         {
