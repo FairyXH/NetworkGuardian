@@ -84,12 +84,29 @@ public sealed class RollingFileLoggerProvider : ILoggerProvider
                     Roll();
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Logging must never take the application down; drop the record instead.
+                // Logging must never take the application down; the failure is recorded instead of
+                // thrown, and published to the sink so it is still visible in the UI.
+                if (LastWriteError != ex.Message)
+                {
+                    LastWriteError = ex.Message;
+                    _sink?.Publish(new LogRecord(
+                        DateTimeOffset.UtcNow,
+                        GuardianLogLevel.Error,
+                        "NetworkGuardian.Infrastructure.Logging.RollingFileLoggerProvider",
+                        $"日志文件写入失败，已跳过该条记录：{ex.Message}",
+                        ex.ToString()));
+                }
             }
         }
     }
+
+    /// <summary>
+    /// The most recent file write failure. A failing log file is invisible by definition, so the
+    /// failure is also published to the in-app sink where the logs page can show it.
+    /// </summary>
+    public string? LastWriteError { get; private set; }
 
     private void EnsureWriter()
     {
@@ -107,6 +124,15 @@ public sealed class RollingFileLoggerProvider : ILoggerProvider
         _fileIndex = 0;
 
         var path = BuildPath(_currentDate, _fileIndex);
+
+        // The directory may not exist yet on the very first run, which would otherwise silently drop
+        // every record written before the configuration store creates it.
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
         while (File.Exists(path))
         {
             _fileIndex++;
