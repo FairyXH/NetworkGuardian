@@ -1245,6 +1245,11 @@ public sealed class NativeWifiManager : INativeWifiService
         Check<WLAN_ASSOCIATION_ATTRIBUTES>(68);
         Check<WLAN_SECURITY_ATTRIBUTES>(16);
 
+        // The radio state struct is written back through WlanSetInterface(radio_state), so a wrong
+        // size would silently corrupt it: 4 byte count + 64 PHYs x 12 bytes.
+        Check<WLAN_PHY_RADIO_STATE>(12);
+        Check<WLAN_RADIO_STATE>(772);
+
         foreach (var problem in problems)
         {
             _logger.LogError("Native struct layout mismatch: {Problem}", problem);

@@ -1,9 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
-    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
-    <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <!--
+      Plain net8.0-windows on purpose: a versioned Windows TFM references Microsoft.Windows.SDK.NET.dll
+      (the ~24 MB WinRT projection), which Native AOT cannot use. Every Windows capability in this
+      project goes through P/Invoke.
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>NetworkGuardian.Windows</RootNamespace>
     <AssemblyName>NetworkGuardian.Windows</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

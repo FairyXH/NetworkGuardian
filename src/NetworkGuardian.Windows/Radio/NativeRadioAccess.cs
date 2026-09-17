@@ -10,11 +10,10 @@ namespace NetworkGuardian.Windows.Radio;
 public sealed record RadioStateReadResult(bool? SoftwareOn, bool? HardwareOn, uint PhyCount, string? Detail);
 
 /// <summary>
-/// Native fallback for Wi-Fi radio state, used when <c>Windows.Devices.Radios</c> is not reachable
-/// from an unpackaged process. It opens its own WLAN client handle so it never interferes with the
-/// handle owned by <see cref="Wlan.NativeWifiManager"/>.
+/// Native Wi-Fi radio state access. It opens its own WLAN client handle so it never interferes with
+/// the handle owned by <see cref="Wlan.NativeWifiManager"/>.
 /// </summary>
-public sealed class NativeRadioAccess : IDisposable
+public sealed class NativeRadioAccess : IRadioStateAccess, IDisposable
 {
     private readonly ILogger<NativeRadioAccess> _logger;
     private readonly object _gate = new();

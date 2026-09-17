@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
-    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>NetworkGuardian.Tests</RootNamespace>
     <AssemblyName>NetworkGuardian.Tests</AssemblyName>
     <IsPackable>false</IsPackable>
     <Platforms>x64</Platforms>
+    <!-- The layout tests read the fixed buffers inside the native structs directly. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <NoWarn>$(NoWarn);CA1861;CA1707;xUnit1030;CA2007</NoWarn>
   </PropertyGroup>

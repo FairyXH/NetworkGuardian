@@ -69,7 +69,10 @@ public sealed record RadioOperationResult
     public string? Failure { get; init; }
 }
 
-/// <summary>Controls the Windows-wide Wi-Fi switch through <c>Windows.Devices.Radios</c>.</summary>
+/// <summary>
+/// Controls the Windows-wide Wi-Fi switch through Native Wi-Fi
+/// (<c>wlan_intf_opcode_radio_state</c>).
+/// </summary>
 public interface IWifiRadioController
 {
     Task<WifiRadioSnapshot> GetAsync(CancellationToken cancellationToken);
