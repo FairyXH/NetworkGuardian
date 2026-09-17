@@ -305,7 +305,18 @@ public sealed class GuardianDecisionEngine
             .Where(d => d.Record.IsPresent && d.Classification.IsPhysical &&
                         d.Classification.Category == DeviceCategory.PhysicalWifi)
             .ToList();
-        var disabledDevices = wifiDevices.Where(d => !d.IsEnabled).ToList();
+        // Only genuinely disabled devices (CM problem code 22/21) are candidates. A device that failed
+        // to start for another reason is broken, not disabled: enabling it is not a repair and would
+        // just produce a state change plus log noise every cycle.
+        var disabledDevices = wifiDevices.Where(d => d.IsDisabled).ToList();
+
+        foreach (var faulted in wifiDevices.Where(d => !d.IsEnabled && !d.IsDisabled))
+        {
+            notes.Add(
+                $"Physical Wi-Fi device {faulted.Record.DeviceInstanceId} reports problem code " +
+                $"{faulted.Record.ProblemCode} (driver fault, not disabled); device repair is left to " +
+                "Windows. Check the adapter in Device Manager.");
+        }
 
         if (disabledDevices.Count > 0 && config.General.AutoEnableWifiDevices)
         {

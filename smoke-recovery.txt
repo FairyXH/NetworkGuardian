@@ -1,0 +1,129 @@
+exe         : D:\Files\Develop\Windows\NetworkGuardian\src\NetworkGuardian.App\bin\Debug\net8.0-windows10.0.19041.0\win-x64\NetworkGuardian.exe
+config root : D:\Users\Administrator\Appdata\Local\Temp\ng-smoke-5061bc7e
+recovery    : True
+pid         : 61668
+alive after 75s : True
+stopped     : force killed
+
+--- networkguardian-20260917-000.log (22156 bytes) ---
+2026-09-17 22:58:25.128 [INF] [Application] App: NetworkGuardian starting (log directory D:\Users\Administrator\Appdata\Local\Temp\ng-smoke-5061bc7e\Logs)
+2026-09-17 22:58:25.144 [WRN] [Application] App: Configuration note: probeEndpoints was empty; default endpoints restored.
+2026-09-17 22:58:25.144 [WRN] [Application] App: Configuration note: general.enumerationRefreshSeconds=20 is below the minimum 30; clamped.
+2026-09-17 22:58:25.149 [INF] [WiFi] NativeWifiManager: WLAN client handle opened (negotiated version 2)
+2026-09-17 22:58:25.149 [INF] [WiFi] NativeWifiManager: Registered WLAN notifications for ACM and MSM sources
+2026-09-17 22:58:25.153 [INF] [WiFi] NativeWifiManager: WLAN interface discovered: A (c7bd53a9-fb3a-47e4-a3b2-54b7836004ea)
+2026-09-17 22:58:25.291 [INF] [Application] TrayIcon: Tray icon created
+2026-09-17 22:58:25.302 [DBG] [WiFi] NativeWifiManager: All Native Wi-Fi structures match the expected native layout
+2026-09-17 22:58:25.304 [INF] [Device] DeviceNotificationWatcher: Registered PnP device notifications for the network setup class
+2026-09-17 22:58:25.321 [INF] [WiFi] WifiRadioController: Wi-Fi radio 'WLAN 3' discovered in state On
+2026-09-17 22:58:25.322 [INF] [Application] GuardianHostService: Guardian host started (config D:\Users\Administrator\Appdata\Local\Temp\ng-smoke-5061bc7e\config.json)
+2026-09-17 22:58:25.378 [INF] [Application] App: NetworkGuardian started (startMinimized=True)
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager: PnP enumeration: 21 network class node(s), 5 physical, 16 filtered out
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   BTH\MS_BTHPAN\6&2DA398F5&1&2 => Other physical=False rule=no-lan-media-type service=BthPan mediaType=10 netCfg={CB6F9525-84CF-4B47-8042-E0297E017797}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   BTH\MS_BTHPAN\7&368CB19F&0&2 => Other physical=False rule=no-lan-media-type service=BthPan mediaType=10 netCfg={3EFC3B69-C50E-4D48-B17D-508240A550FB}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   PCI\VEN_10EC&DEV_8168&SUBSYS_0BF71028&REV_15\01000000684CE00000 => PhysicalEthernet physical=True rule=physical-media-type service=rt68cx21 mediaType=14 netCfg={D0811367-5724-4C95-882F-5E70E6534368}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3 => PhysicalWifi physical=True rule=physical-media-type service=Netwtw14 mediaType=9 netCfg={4EE4A295-DB04-424F-8F46-E3B98F79CAE2}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   ROOT\VMWARE\0000 => Virtual physical=False rule=software-enumerator service=VMnetAdapter mediaType=14 netCfg={F8F66514-5890-4A07-B128-A8064B855812}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   ROOT\VMWARE\0001 => Virtual physical=False rule=software-enumerator service=VMnetAdapter mediaType=14 netCfg={81DE9A3A-345A-48CE-AAFD-9D5A6BD33BAE}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_AGILEVPNMINIPORT => Virtual physical=False rule=software-enumerator service=RasAgileVpn mediaType=0 netCfg={47DCD100-72DD-4A77-AA88-B12DA4E26CA3}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_L2TPMINIPORT => Virtual physical=False rule=software-enumerator service=Rasl2tp mediaType=0 netCfg={A0D18B0C-AD63-46AD-A54C-B8D433620E8D}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANBH => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={4C776ED2-406D-4853-BB6D-9CFDEAF1D34B}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANIP => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={21522952-240B-4203-AC03-1286348B483D}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANIPV6 => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={B26922F1-39C3-49FB-AED6-C7FE68432983}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_PPPOEMINIPORT => Virtual physical=False rule=software-enumerator service=RasPppoe mediaType=0 netCfg={8AB00C1B-191A-4506-9FD7-AA0BA242A479}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_PPTPMINIPORT => Virtual physical=False rule=software-enumerator service=PptpMiniport mediaType=0 netCfg={C205D17B-5690-47AE-A806-DE43E86F721B}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_SSTPMINIPORT => Virtual physical=False rule=software-enumerator service=RasSstp mediaType=0 netCfg={D598C905-3216-4A93-8E01-D29977BCAC3A}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   USB\VID_0BDA&PID_8153\001000001 => PhysicalEthernet physical=True rule=physical-media-type service=rtu53cx22x64 mediaType=14 netCfg={84EAAAE2-B6CF-49D6-8896-9FBF1A0134B1}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   USB\VID_0E8D&PID_7961\000000000 => PhysicalWifi physical=True rule=physical-media-type service=mtkwl6eux mediaType=9 netCfg={F6EA3477-AB5E-43D4-BB36-829EE95B55AF}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   USB\VID_368B&PID_8D81&MI_02\6&28B24B5D&0&0002 => PhysicalWifi physical=True rule=wlansvc-correlation service=aicusbwifi mediaType=9 netCfg={C7BD53A9-FB3A-47E4-A3B2-54B7836004EA}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\4&21B84657&1&15 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={7E247FAB-A8EC-4A76-80AD-9D697C836BA3}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\4&21B84657&1&16 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={B282C0D5-CFC7-4308-B8EF-6C06FFCDAC49}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\7&A8F3ECF&0&13 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={70D368A2-807F-40EA-8B2A-5C14EAE87848}
+2026-09-17 22:58:25.388 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\7&A8F3ECF&0&14 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={84716300-6079-4DC4-9DF9-53ADA9871837}
+2026-09-17 22:58:25.393 [DBG] [Application] GuardianHostService: Adapter c7bd53a9-fb3a-47e4-a3b2-54b7836004ea: 4 saved profile(s), state Disconnected
+2026-09-17 22:58:25.393 [INF] [Application] GuardianHostService: Enumeration complete: 1 WLAN interface(s), 21 network device(s), 5 classified physical
+2026-09-17 22:58:27.922 [DBG] [Network] ConnectivityProbe: Connectivity probe on default: online 3/5 in 2525ms
+2026-09-17 22:58:30.444 [DBG] [Network] ConnectivityProbe: Connectivity probe on 172.18.28.6: online 3/5 in 2512ms
+2026-09-17 22:58:30.461 [INF] [Application] GuardianDecisionEngine: Internet restored (probe online 3/5)
+2026-09-17 22:58:30.501 [WRN] [Device] PhysicalDeviceManager: Skipping enable of PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3: problem code 43 is not 'disabled'
+2026-09-17 22:58:30.502 [INF] [Device] PhysicalDeviceManager: Process is elevated; enabling PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3 directly
+2026-09-17 22:58:30.533 [INF] [Device] PhysicalDeviceManager: CM_Enable_DevNode(PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3) returned CR_SUCCESS
+2026-09-17 22:58:30.534 [DBG] [Application] GuardianDecisionEngine: Device operation enable success=True
+2026-09-17 22:58:30.534 [INF] [Application] GuardianHostService: Enabled physical Wi-Fi device PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3: Request accepted; the device is starting.
+2026-09-17 22:58:36.548 [DBG] [Application] GuardianHostService: Waiting 6s: waiting for the re-enabled Wi-Fi device to register its WLAN interface
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager: PnP enumeration: 21 network class node(s), 5 physical, 16 filtered out
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   BTH\MS_BTHPAN\6&2DA398F5&1&2 => Other physical=False rule=no-lan-media-type service=BthPan mediaType=10 netCfg={CB6F9525-84CF-4B47-8042-E0297E017797}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   BTH\MS_BTHPAN\7&368CB19F&0&2 => Other physical=False rule=no-lan-media-type service=BthPan mediaType=10 netCfg={3EFC3B69-C50E-4D48-B17D-508240A550FB}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   PCI\VEN_10EC&DEV_8168&SUBSYS_0BF71028&REV_15\01000000684CE00000 => PhysicalEthernet physical=True rule=physical-media-type service=rt68cx21 mediaType=14 netCfg={D0811367-5724-4C95-882F-5E70E6534368}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3 => PhysicalWifi physical=True rule=physical-media-type service=Netwtw14 mediaType=9 netCfg={4EE4A295-DB04-424F-8F46-E3B98F79CAE2}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   ROOT\VMWARE\0000 => Virtual physical=False rule=software-enumerator service=VMnetAdapter mediaType=14 netCfg={F8F66514-5890-4A07-B128-A8064B855812}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   ROOT\VMWARE\0001 => Virtual physical=False rule=software-enumerator service=VMnetAdapter mediaType=14 netCfg={81DE9A3A-345A-48CE-AAFD-9D5A6BD33BAE}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_AGILEVPNMINIPORT => Virtual physical=False rule=software-enumerator service=RasAgileVpn mediaType=0 netCfg={47DCD100-72DD-4A77-AA88-B12DA4E26CA3}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_L2TPMINIPORT => Virtual physical=False rule=software-enumerator service=Rasl2tp mediaType=0 netCfg={A0D18B0C-AD63-46AD-A54C-B8D433620E8D}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANBH => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={4C776ED2-406D-4853-BB6D-9CFDEAF1D34B}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANIP => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={21522952-240B-4203-AC03-1286348B483D}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANIPV6 => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={B26922F1-39C3-49FB-AED6-C7FE68432983}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_PPPOEMINIPORT => Virtual physical=False rule=software-enumerator service=RasPppoe mediaType=0 netCfg={8AB00C1B-191A-4506-9FD7-AA0BA242A479}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_PPTPMINIPORT => Virtual physical=False rule=software-enumerator service=PptpMiniport mediaType=0 netCfg={C205D17B-5690-47AE-A806-DE43E86F721B}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_SSTPMINIPORT => Virtual physical=False rule=software-enumerator service=RasSstp mediaType=0 netCfg={D598C905-3216-4A93-8E01-D29977BCAC3A}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   USB\VID_0BDA&PID_8153\001000001 => PhysicalEthernet physical=True rule=physical-media-type service=rtu53cx22x64 mediaType=14 netCfg={84EAAAE2-B6CF-49D6-8896-9FBF1A0134B1}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   USB\VID_0E8D&PID_7961\000000000 => PhysicalWifi physical=True rule=physical-media-type service=mtkwl6eux mediaType=9 netCfg={F6EA3477-AB5E-43D4-BB36-829EE95B55AF}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   USB\VID_368B&PID_8D81&MI_02\6&28B24B5D&0&0002 => PhysicalWifi physical=True rule=wlansvc-correlation service=aicusbwifi mediaType=9 netCfg={C7BD53A9-FB3A-47E4-A3B2-54B7836004EA}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\4&21B84657&1&15 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={7E247FAB-A8EC-4A76-80AD-9D697C836BA3}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\4&21B84657&1&16 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={B282C0D5-CFC7-4308-B8EF-6C06FFCDAC49}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\7&A8F3ECF&0&13 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={70D368A2-807F-40EA-8B2A-5C14EAE87848}
+2026-09-17 22:58:42.593 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\7&A8F3ECF&0&14 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={84716300-6079-4DC4-9DF9-53ADA9871837}
+2026-09-17 22:58:42.593 [DBG] [Application] GuardianHostService: Adapter c7bd53a9-fb3a-47e4-a3b2-54b7836004ea: 4 saved profile(s), state Disconnected
+2026-09-17 22:58:42.593 [INF] [Application] GuardianHostService: Enumeration complete: 1 WLAN interface(s), 21 network device(s), 5 classified physical
+2026-09-17 22:58:48.845 [DBG] [Network] ConnectivityProbe: Connectivity probe on default: online 3/5 in 2506ms
+2026-09-17 22:58:51.357 [DBG] [Network] ConnectivityProbe: Connectivity probe on 172.18.28.6: online 3/5 in 2508ms
+2026-09-17 22:58:51.384 [WRN] [Device] PhysicalDeviceManager: Skipping enable of PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3: problem code 43 is not 'disabled'
+2026-09-17 22:58:51.384 [INF] [Device] PhysicalDeviceManager: Process is elevated; enabling PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3 directly
+2026-09-17 22:58:51.406 [INF] [Device] PhysicalDeviceManager: CM_Enable_DevNode(PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3) returned CR_SUCCESS
+2026-09-17 22:58:51.406 [DBG] [Application] GuardianDecisionEngine: Device operation enable success=True
+2026-09-17 22:58:51.406 [INF] [Application] GuardianHostService: Enabled physical Wi-Fi device PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3: Request accepted; the device is starting.
+2026-09-17 22:58:57.417 [DBG] [Application] GuardianHostService: Waiting 6s: waiting for the re-enabled Wi-Fi device to register its WLAN interface
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager: PnP enumeration: 21 network class node(s), 5 physical, 16 filtered out
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   BTH\MS_BTHPAN\6&2DA398F5&1&2 => Other physical=False rule=no-lan-media-type service=BthPan mediaType=10 netCfg={CB6F9525-84CF-4B47-8042-E0297E017797}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   BTH\MS_BTHPAN\7&368CB19F&0&2 => Other physical=False rule=no-lan-media-type service=BthPan mediaType=10 netCfg={3EFC3B69-C50E-4D48-B17D-508240A550FB}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   PCI\VEN_10EC&DEV_8168&SUBSYS_0BF71028&REV_15\01000000684CE00000 => PhysicalEthernet physical=True rule=physical-media-type service=rt68cx21 mediaType=14 netCfg={D0811367-5724-4C95-882F-5E70E6534368}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   PCI\VEN_8086&DEV_7A70&SUBSYS_40708086&REV_11\3&11583659&0&A3 => PhysicalWifi physical=True rule=physical-media-type service=Netwtw14 mediaType=9 netCfg={4EE4A295-DB04-424F-8F46-E3B98F79CAE2}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   ROOT\VMWARE\0000 => Virtual physical=False rule=software-enumerator service=VMnetAdapter mediaType=14 netCfg={F8F66514-5890-4A07-B128-A8064B855812}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   ROOT\VMWARE\0001 => Virtual physical=False rule=software-enumerator service=VMnetAdapter mediaType=14 netCfg={81DE9A3A-345A-48CE-AAFD-9D5A6BD33BAE}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_AGILEVPNMINIPORT => Virtual physical=False rule=software-enumerator service=RasAgileVpn mediaType=0 netCfg={47DCD100-72DD-4A77-AA88-B12DA4E26CA3}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_L2TPMINIPORT => Virtual physical=False rule=software-enumerator service=Rasl2tp mediaType=0 netCfg={A0D18B0C-AD63-46AD-A54C-B8D433620E8D}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANBH => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={4C776ED2-406D-4853-BB6D-9CFDEAF1D34B}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANIP => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={21522952-240B-4203-AC03-1286348B483D}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_NDISWANIPV6 => Virtual physical=False rule=software-enumerator service=NdisWan mediaType=0 netCfg={B26922F1-39C3-49FB-AED6-C7FE68432983}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_PPPOEMINIPORT => Virtual physical=False rule=software-enumerator service=RasPppoe mediaType=0 netCfg={8AB00C1B-191A-4506-9FD7-AA0BA242A479}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_PPTPMINIPORT => Virtual physical=False rule=software-enumerator service=PptpMiniport mediaType=0 netCfg={C205D17B-5690-47AE-A806-DE43E86F721B}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   SWD\MSRRAS\MS_SSTPMINIPORT => Virtual physical=False rule=software-enumerator service=RasSstp mediaType=0 netCfg={D598C905-3216-4A93-8E01-D29977BCAC3A}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   USB\VID_0BDA&PID_8153\001000001 => PhysicalEthernet physical=True rule=physical-media-type service=rtu53cx22x64 mediaType=14 netCfg={84EAAAE2-B6CF-49D6-8896-9FBF1A0134B1}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   USB\VID_0E8D&PID_7961\000000000 => PhysicalWifi physical=True rule=physical-media-type service=mtkwl6eux mediaType=9 netCfg={F6EA3477-AB5E-43D4-BB36-829EE95B55AF}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   USB\VID_368B&PID_8D81&MI_02\6&28B24B5D&0&0002 => PhysicalWifi physical=True rule=wlansvc-correlation service=aicusbwifi mediaType=9 netCfg={C7BD53A9-FB3A-47E4-A3B2-54B7836004EA}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\4&21B84657&1&15 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={7E247FAB-A8EC-4A76-80AD-9D697C836BA3}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\4&21B84657&1&16 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={B282C0D5-CFC7-4308-B8EF-6C06FFCDAC49}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\7&A8F3ECF&0&13 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={70D368A2-807F-40EA-8B2A-5C14EAE87848}
+2026-09-17 22:59:03.448 [DBG] [Device] PhysicalDeviceManager:   {5D624F94-8850-40C3-A3FA-A4FD2080BAF3}\VWIFIMP_WFD\7&A8F3ECF&0&14 => Virtual physical=False rule=virtual-wifi-bus service=vwifimp mediaType=9 netCfg={84716300-6079-4DC4-9DF9-53ADA9871837}
+2026-09-17 22:59:03.448 [DBG] [Application] GuardianHostService: Adapter c7bd53a9-fb3a-47e4-a3b2-54b7836004ea: 4 saved profile(s), state Disconnected
+2026-09-17 22:59:03.448 [INF] [Application] GuardianHostService: Enumeration complete: 1 WLAN interface(s), 21 network device(s), 5 classified physical
+2026-09-17 22:59:04.368 [INF] [WiFi] NativeWifiManager: Scan on c7bd53a9-fb3a-47e4-a3b2-54b7836004ea finished in 0.9s with 13 network(s)
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   ZhangAndroid 100% rssi=-39 Band5GHz bssid=82:3E:CB:82:ED:E6 profile=ZhangAndroid
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   ZhangAndroid 100% rssi=-39 Band5GHz bssid=82:3E:CB:82:ED:E6 profile=ZhangAndroid
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   氚 78% rssi=-56 Band2_4GHz bssid=2C:B2:1A:B0:68:66 profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   HXXY-WiFi 68% rssi=-61 Band2_4GHz bssid=24:F2:7F:02:58:80 profile=HXXY-WiFi
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   wy 68% rssi=-61 Band2_4GHz bssid=FC:AB:90:6C:18:08 profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   HXXY-WiFi 68% rssi=-61 Band2_4GHz bssid=24:F2:7F:02:58:80 profile=HXXY-WiFi
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   ChinaNet-nqhg 58% rssi=-66 Band2_4GHz bssid=38:E1:AA:04:CE:6F profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   GSLY-JG 44% rssi=-73 Band2_4GHz bssid=4C:EF:56:02:82:38 profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   GSLY-XS 38% rssi=-76 Band5GHz bssid=4C:EF:56:0A:82:38 profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   GSLY-GUEST 24% rssi=-83 Band5GHz bssid=4C:EF:56:92:82:18 profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   XMEDU_WIFI 24% rssi=-83 Band5GHz bssid=4C:EF:56:9A:82:18 profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   wy_5G 16% rssi=-87 Band5GHz bssid=FC:AB:90:6C:18:0C profile=-
+2026-09-17 22:59:04.368 [DBG] [WiFi] NativeWifiManager:   ZTE_BF3025 14% rssi=-88 Band5GHz bssid=5C:7D:AE:BF:30:25 profile=-
+2026-09-17 22:59:04.394 [INF] [Application] GuardianHostService: Recovery action: A: connecting to ZhangAndroid (100%, signal=100, +8.0 highBand(Band5GHz))
+2026-09-17 22:59:04.396 [INF] [WiFi] NativeWifiManager: WlanConnect: adapter=c7bd53a9-fb3a-47e4-a3b2-54b7836004ea profile=ZhangAndroid ssid=ZhangAndroid bssid=any
+2026-09-17 22:59:05.316 [INF] [Application] GuardianDecisionEngine: Connect succeeded on c7bd53a9-fb3a-47e4-a3b2-54b7836004ea using ZhangAndroid
+2026-09-17 22:59:25.331 [DBG] [Application] GuardianHostService: Waiting 20s: waiting for association and DHCP
+
+artifacts   : D:\Users\Administrator\Appdata\Local\Temp\ng-smoke-5061bc7e

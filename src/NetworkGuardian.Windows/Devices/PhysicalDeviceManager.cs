@@ -104,6 +104,20 @@ public sealed class PhysicalDeviceManager : IDeviceManager
             // and repeated attempts create noise, so report the real reason instead.
             _logger.LogWarning("Skipping enable of {Device}: problem code {Problem} is not 'disabled'",
                 deviceInstanceId, record.ProblemCode);
+
+            // Returning is essential: falling through would send CM_Enable_DevNode to a device that is
+            // not disabled, which is both pointless and a real state change on the machine.
+            return new DeviceOperationResult
+            {
+                DeviceInstanceId = deviceInstanceId,
+                Operation = "enable",
+                Outcome = DeviceOperationOutcome.NotSupported,
+                StartedAfter = record.IsStarted,
+                ProblemCodeAfter = record.ProblemCode,
+                Detail = $"The device reports problem code {record.ProblemCode}, which is a driver fault " +
+                         "rather than a disabled state; enabling it is not the right repair.",
+                Elevated = HelperClient.IsProcessElevated(),
+            };
         }
 
         if (HelperClient.IsProcessElevated())
