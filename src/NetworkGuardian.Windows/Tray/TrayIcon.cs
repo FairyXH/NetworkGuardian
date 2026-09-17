@@ -312,7 +312,9 @@ public sealed class TrayIcon : IDisposable
             {
                 case WM_TRAY_CALLBACK:
                 {
-                    var notification = (int)lParam;
+                    // LOWORD(lParam) carries the notification; the conversion is intentional and cannot
+                    // overflow because the message id is always a small value.
+                    var notification = unchecked((int)(long)lParam);
                     switch (notification)
                     {
                         case WM_LBUTTONUP:

@@ -11,9 +11,11 @@
     <!--
       CA1416: platform compatibility is enforced by the per-project target frameworks instead.
       CA1822/CA1873/CA1848: micro-optimisation style rules that add noise without changing behaviour.
+      CA1859/CA1861/CA1826: allocation/lookup micro-optimisations on cold paths (monitor cycle,
+      tray menu) that are not worth weakening the interfaces for.
       CS1591: XML documentation is intentionally partial.
     -->
-    <NoWarn>$(NoWarn);CA1416;CS1591;CA1822;CA1873;CA1848;CA1303;CA1031;CA2007;CA1062;CA5394</NoWarn>
+    <NoWarn>$(NoWarn);CA1416;CS1591;CA1822;CA1873;CA1848;CA1303;CA1031;CA2007;CA1062;CA5394;CA1859;CA1861;CA1826</NoWarn>
     <InvariantGlobalization>false</InvariantGlobalization>
     <Product>NetworkGuardian</Product>
     <Company>NetworkGuardian</Company>
