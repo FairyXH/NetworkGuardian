@@ -26,7 +26,9 @@ public sealed class EthernetViewModel : ObservableObject
             var row = new InterfaceRowViewModel(iface);
             AllInterfaces.Add(row);
 
-            if (iface.Kind == InterfaceKind.Ethernet)
+            // The "physical Ethernet" card must not list virtual adapters or the Bluetooth PAN, which
+            // also report an 802.3 interface type.
+            if (iface.Kind == InterfaceKind.Ethernet && iface.IsPhysicalDevice != false)
             {
                 EthernetInterfaces.Add(row);
             }
@@ -38,9 +40,10 @@ public sealed class EthernetViewModel : ObservableObject
             EthernetDevices.Add(new DeviceRowViewModel(device));
         }
 
-        var up = snapshot.Interfaces.Count(i => i.Kind == InterfaceKind.Ethernet && i.IsUp);
+        var up = snapshot.Interfaces.Count(i =>
+            i.Kind == InterfaceKind.Ethernet && i.IsPhysicalDevice != false && i.IsUp);
         var withInternet = snapshot.Interfaces.Count(i =>
-            i.Kind == InterfaceKind.Ethernet && i.Probe?.IsOnline == true);
+            i.Kind == InterfaceKind.Ethernet && i.IsPhysicalDevice != false && i.Probe?.IsOnline == true);
         Summary = $"{EthernetInterfaces.Count} 个物理以太网，{up} 个链路已连接，{withInternet} 个可访问外网";
     }
 }

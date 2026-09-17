@@ -359,8 +359,11 @@ public sealed class GuardianDecisionEngine
         }
 
         // ---------- Ethernet / campus authentication ----------
+        // Only physical Ethernet interfaces are considered: virtual adapters (VMware, Hyper-V, WSL,
+        // loopback, Bluetooth PAN) are up with a gateway on most machines and would otherwise trigger
+        // campus authentication that cannot possibly work.
         var ethernetInterfaces = input.Interfaces
-            .Where(i => i.Kind == InterfaceKind.Ethernet)
+            .Where(i => i.Kind == InterfaceKind.Ethernet && i.IsPhysicalDevice != false)
             .ToList();
         var ethernetEligible = ethernetInterfaces.Any(i => i.IsUp || i.HasUsableIpv4);
         var ethernetWithInternet = ethernetInterfaces.Any(i => i.Probe?.IsOnline == true);

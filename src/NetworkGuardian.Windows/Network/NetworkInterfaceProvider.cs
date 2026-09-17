@@ -111,6 +111,7 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
             WlanInterfaceGuid = kind == InterfaceKind.Wifi ? netCfgGuid : null,
             DeviceInstanceId = deviceRecord?.DeviceInstanceId,
             IsUp = isUp,
+            IsPhysicalDevice = classification?.IsPhysical,
             IsPresent = adapter.OperStatus != IfOperStatusNotPresent,
             HasUsableIpv4 = ipv4.Count > 0 && !ipv4.All(IsApipa),
             HasIpv6 = ipv6.Count > 0,

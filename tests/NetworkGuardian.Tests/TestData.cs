@@ -69,12 +69,14 @@ internal static class TestData
         bool hasAddress = true,
         bool hasGateway = true,
         ConnectivityProbeReport? probe = null,
+        bool? isPhysical = true,
         string id = "luid:1001") => new()
     {
         Id = id,
         Name = "Ethernet",
         Description = "Intel(R) Ethernet Connection",
         Kind = InterfaceKind.Ethernet,
+        IsPhysicalDevice = isPhysical,
         IsUp = up,
         IsPresent = true,
         HasUsableIpv4 = hasAddress,

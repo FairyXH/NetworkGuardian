@@ -1,11 +1,15 @@
-# Launches the app, waits for its main window and captures only that window.
+# Launches the app, finds its window, shows it and captures only that window.
 #
 # Only the NetworkGuardian window rectangle is captured - never the rest of the desktop.
 #
-# Usage: pwsh -NoProfile -File tools/ui-screenshot.ps1 [-Seconds 20] [-Out path.png]
+# The window is located with EnumWindows (class WinUIDesktopWin32WindowClass, title prefix
+# "NetworkGuardian") instead of Process.MainWindowHandle, because minimize-to-tray can hide the
+# window during startup. It is then restored explicitly, raised with HWND_TOPMOST and captured.
+#
+# Usage: pwsh -NoProfile -File tools/ui-screenshot.ps1 [-Page wireless] [-Out path.png] [-Seconds 25]
 
 param(
-    [int]$Seconds = 20,
+    [int]$Seconds = 25,
     [string]$Out = '',
     [string]$Page = ''
 )
@@ -14,43 +18,45 @@ $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Drawing
 
-# Without this the hosting shell is DPI-virtualised and GetWindowRect returns scaled coordinates,
-# which makes the captured region smaller than the real window.
 Add-Type @'
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 
-public static class WinDpi
+public static class GuardianWindow
 {
-    [DllImport("user32.dll")]
-    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
-}
-'@
-[void][WinDpi]::SetProcessDpiAwarenessContext([IntPtr](-4))
+    public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
 
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class WinRect
-{
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder text, int count);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int command);
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
 
     [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll")]
-    public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
-
-    [DllImport("user32.dll")]
-    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
     public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
@@ -58,11 +64,45 @@ public static class WinRect
     public const uint SWP_NOMOVE = 0x0002;
     public const uint SWP_NOSIZE = 0x0001;
     public const uint SWP_SHOWWINDOW = 0x0040;
+    public const int SW_SHOWNORMAL = 1;
 
-    [DllImport("gdi32.dll")]
-    public static extern uint GetPixel(IntPtr hdc, int nXPos, int nYPos);
+    /// <summary>Finds the main WinUI window of a process, restoring it if it was hidden to the tray.</summary>
+    public static IntPtr Find(uint pid, bool restore)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((hWnd, _) =>
+        {
+            GetWindowThreadProcessId(hWnd, out var owner);
+            if (owner != pid) { return true; }
+
+            var cls = new StringBuilder(256);
+            GetClassName(hWnd, cls, cls.Capacity);
+            if (!cls.ToString().Equals("WinUIDesktopWin32WindowClass", StringComparison.Ordinal)) { return true; }
+
+            var title = new StringBuilder(512);
+            GetWindowText(hWnd, title, title.Capacity);
+            if (!title.ToString().StartsWith("NetworkGuardian", StringComparison.Ordinal)) { return true; }
+
+            found = hWnd;
+            if (restore && !IsWindowVisible(hWnd))
+            {
+                ShowWindow(hWnd, SW_SHOWNORMAL);
+            }
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    public static string TitleOf(IntPtr hWnd)
+    {
+        var title = new StringBuilder(512);
+        GetWindowText(hWnd, title, title.Capacity);
+        return title.ToString();
+    }
 }
 '@
+
+[void][GuardianWindow]::SetProcessDpiAwarenessContext([IntPtr](-4))
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $exe = Get-ChildItem -Path (Join-Path $repoRoot 'src\NetworkGuardian.App\bin') -Filter 'NetworkGuardian.exe' -Recurse -ErrorAction SilentlyContinue |
@@ -72,7 +112,7 @@ $exe = Get-ChildItem -Path (Join-Path $repoRoot 'src\NetworkGuardian.App\bin') -
 if (-not $exe) { throw 'NetworkGuardian.exe was not found - build the solution first.' }
 
 if ([string]::IsNullOrWhiteSpace($Out)) {
-    $Out = Join-Path $repoRoot 'docs\ui-dashboard.png'
+    $Out = Join-Path $repoRoot ('docs\ui-' + ($(if ($Page) { $Page } else { 'dashboard' })) + '.png')
 }
 
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Out) | Out-Null
@@ -83,6 +123,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $root 'Logs') | Out-Null
     Set-Content -Path (Join-Path $root 'config.json') -Encoding utf8
 
 $env:NETWORKGUARDIAN_CONFIG_ROOT = $root
+
 $exeArgs = @()
 if (-not [string]::IsNullOrWhiteSpace($Page)) {
     $exeArgs = @('--page', $Page)
@@ -100,49 +141,48 @@ try {
         $process.Refresh()
         if ($process.HasExited) { throw "process exited with code $($process.ExitCode)" }
 
-        $handle = $process.MainWindowHandle
+        $handle = [GuardianWindow]::Find([uint32]$process.Id, $true)
         if ($handle -ne [IntPtr]::Zero) {
-            $title = $process.MainWindowTitle
+            $title = [GuardianWindow]::TitleOf($handle)
             if ($title -like '*could not be started*') { throw "the app failed to start: $title" }
-            if ([WinRect]::IsWindowVisible($handle)) { break }
+            break
         }
     }
 
-    if ($handle -eq [IntPtr]::Zero) { throw 'no main window appeared' }
+    if ($handle -eq [IntPtr]::Zero) { throw 'no NetworkGuardian window appeared' }
 
-    # Give the first snapshot and layout pass time to complete.
+    # Let the first snapshot and layout pass complete.
     Start-Sleep -Seconds 6
 
-    $rect = New-Object WinRect+RECT
-    if (-not [WinRect]::GetWindowRect($handle, [ref]$rect)) { throw 'GetWindowRect failed' }
+    $rect = New-Object GuardianWindow+RECT
+    if (-not [GuardianWindow]::GetWindowRect($handle, [ref]$rect)) { throw 'GetWindowRect failed' }
 
     $width = $rect.Right - $rect.Left
     $height = $rect.Bottom - $rect.Top
     Write-Host "window      : ${width}x${height} at $($rect.Left),$($rect.Top)"
-    Write-Host "title       : $($process.MainWindowTitle)"
+    Write-Host "title       : $([GuardianWindow]::TitleOf($handle))"
 
     $bitmap = New-Object System.Drawing.Bitmap $width, $height
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
 
-    # WinUI content is composed by DirectComposition, so PrintWindow returns a black frame. The window
-    # is raised with HWND_TOPMOST instead (no focus steal) and its own rectangle is copied from the
-    # screen; nothing outside the window is captured.
-    [WinRect]::SetWindowPos($handle, [WinRect]::HWND_TOPMOST, 0, 0, 0, 0,
-        ([WinRect]::SWP_NOMOVE -bor [WinRect]::SWP_NOSIZE -bor [WinRect]::SWP_SHOWWINDOW)) | Out-Null
+    # WinUI renders through DirectComposition, so PrintWindow returns black. Raise our own window
+    # (without stealing focus) and copy only its rectangle from the screen.
+    [void][GuardianWindow]::SetWindowPos($handle, [GuardianWindow]::HWND_TOPMOST, 0, 0, 0, 0,
+        ([GuardianWindow]::SWP_NOMOVE -bor [GuardianWindow]::SWP_NOSIZE -bor [GuardianWindow]::SWP_SHOWWINDOW))
     Start-Sleep -Milliseconds 1200
 
     try {
         $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
     }
     finally {
-        [WinRect]::SetWindowPos($handle, [WinRect]::HWND_NOTOPMOST, 0, 0, 0, 0,
-            ([WinRect]::SWP_NOMOVE -bor [WinRect]::SWP_NOSIZE)) | Out-Null
+        [void][GuardianWindow]::SetWindowPos($handle, [GuardianWindow]::HWND_NOTOPMOST, 0, 0, 0, 0,
+            ([GuardianWindow]::SWP_NOMOVE -bor [GuardianWindow]::SWP_NOSIZE))
     }
 
     $bitmap.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 
-    # A uniform image means the body was not rendered (or the window was still occluded), which has to
-    # be reported instead of being passed off as a verified UI.
+    # A uniform image means the window was occluded or not rendered: report it instead of passing the
+    # capture off as verified UI.
     $samples = @{}
     for ($y = 10; $y -lt $height - 10; $y += 40) {
         for ($x = 10; $x -lt $width - 10; $x += 40) {

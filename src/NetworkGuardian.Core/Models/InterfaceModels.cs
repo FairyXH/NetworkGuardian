@@ -21,6 +21,12 @@ public sealed record InterfaceRuntimeState
 
     public bool IsUp { get; init; }
 
+    /// <summary>
+    /// PnP verdict for this interface: true = physical adapter, false = virtual/software adapter,
+    /// null = no PnP record could be correlated. Only physical interfaces may drive recovery.
+    /// </summary>
+    public bool? IsPhysicalDevice { get; init; }
+
     public bool IsPresent { get; init; }
 
     public bool HasUsableIpv4 { get; init; }
