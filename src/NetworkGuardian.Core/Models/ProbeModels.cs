@@ -80,7 +80,7 @@ public sealed record DefaultRouteInfo
 
     public required uint InterfaceIndex { get; init; }
 
-    public uint? InterfaceLuid { get; init; }
+    public ulong? InterfaceLuid { get; init; }
 
     public required string NextHop { get; init; }
 
