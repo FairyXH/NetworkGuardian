@@ -71,7 +71,7 @@ public sealed class HelperClient
 
         try
         {
-            await File.WriteAllTextAsync(requestPath, HelperProtocol.Serialize(request), Encoding.UTF8, cancellationToken)
+            await File.WriteAllTextAsync(requestPath, HelperProtocol.SerializeRequest(request), Encoding.UTF8, cancellationToken)
                 .ConfigureAwait(false);
 
             var startInfo = new ProcessStartInfo
@@ -114,7 +114,7 @@ public sealed class HelperClient
             }
 
             var json = await File.ReadAllTextAsync(responsePath, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-            var response = HelperProtocol.Deserialize<HelperResponse>(json);
+            var response = HelperProtocol.DeserializeResponse(json);
             if (response is null)
             {
                 return Failure(request, "The helper response could not be parsed.", null);

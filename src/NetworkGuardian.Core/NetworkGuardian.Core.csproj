@@ -11,6 +11,9 @@
     <!-- Logging abstractions only: keeps Core dependency-free of concrete logging backends
          while still allowing Microsoft.Extensions.Logging in the host. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+    <!-- Explicit reference: the JSON source generator and the AOT analyzer need the package, and the
+         framework copy alone does not expose the generator to the build. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
 </Project>

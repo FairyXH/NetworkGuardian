@@ -1,31 +1,20 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using NetworkGuardian.Core.Serialization;
 
 namespace NetworkGuardian.Core.Configuration;
 
-/// <summary>Centralized JSON policy so every component reads/writes the same document shape.</summary>
+/// <summary>
+/// Centralized JSON policy so every component reads/writes the same document shape.
+/// </summary>
+/// <remarks>
+/// The serializer metadata is generated at compile time (see <see cref="NetworkGuardianJsonContext"/>),
+/// which is what makes the configuration readable and writable from a Native AOT process.
+/// </remarks>
 public static class ConfigJson
 {
-    public static readonly JsonSerializerOptions Options = Create();
+    public static JsonSerializerOptions Options => NetworkGuardianJson.Options;
 
-    public static JsonSerializerOptions Create()
-    {
-        var options = new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            PropertyNameCaseInsensitive = true,
-            ReadCommentHandling = JsonCommentHandling.Skip,
-            AllowTrailingCommas = true,
-            DefaultIgnoreCondition = JsonIgnoreCondition.Never,
-        };
+    public static string Serialize(GuardianConfig config) => NetworkGuardianJson.Serialize(config);
 
-        options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true));
-        return options;
-    }
-
-    public static string Serialize(GuardianConfig config) => JsonSerializer.Serialize(config, Options);
-
-    public static GuardianConfig? Deserialize(string json) =>
-        JsonSerializer.Deserialize<GuardianConfig>(json, Options);
+    public static GuardianConfig? Deserialize(string json) => NetworkGuardianJson.Deserialize<GuardianConfig>(json);
 }

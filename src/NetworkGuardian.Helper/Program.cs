@@ -51,7 +51,7 @@ internal static class Program
             }
 
             var json = File.ReadAllText(requestPath, Encoding.UTF8);
-            request = HelperProtocol.Deserialize<HelperRequest>(json);
+            request = HelperProtocol.DeserializeRequest(json);
         }
         catch (Exception ex)
         {
@@ -176,7 +176,7 @@ internal static class Program
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(path, HelperProtocol.Serialize(response), new UTF8Encoding(false));
+            File.WriteAllText(path, HelperProtocol.SerializeResponse(response), new UTF8Encoding(false));
         }
         catch (Exception ex)
         {

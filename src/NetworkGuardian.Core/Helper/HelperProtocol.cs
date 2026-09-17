@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using NetworkGuardian.Core.Serialization;
 
 namespace NetworkGuardian.Core.Helper;
 
@@ -73,17 +73,14 @@ public static class HelperProtocol
 {
     public const int Version = 1;
 
-    public static readonly JsonSerializerOptions Json = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-        ReadCommentHandling = JsonCommentHandling.Skip,
-        AllowTrailingCommas = true,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: true) },
-    };
+    /// <summary>Same source generated policy as the configuration document.</summary>
+    public static JsonSerializerOptions Json => NetworkGuardianJson.Options;
 
-    public static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Json);
+    public static string SerializeRequest(HelperRequest request) => NetworkGuardianJson.Serialize(request);
 
-    public static T? Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, Json);
+    public static string SerializeResponse(HelperResponse response) => NetworkGuardianJson.Serialize(response);
+
+    public static HelperRequest? DeserializeRequest(string json) => NetworkGuardianJson.Deserialize<HelperRequest>(json);
+
+    public static HelperResponse? DeserializeResponse(string json) => NetworkGuardianJson.Deserialize<HelperResponse>(json);
 }

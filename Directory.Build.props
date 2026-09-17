@@ -24,9 +24,8 @@
     <FileVersion>0.9.0.0</FileVersion>
     <InformationalVersion>0.9.0</InformationalVersion>
     <!--
-      NeutralLanguage is deliberately left unset: the WinUI XAML compiler performs satellite
-      resource lookups for the neutral language and fails with WMC9999 on some machines when it is
-      pinned to a non-English culture.
+      NeutralLanguage is deliberately left unset. The UI strings are inline; satellite resources are
+      neither shipped nor looked up, so pinning a neutral language would only add resource probing.
     -->
   </PropertyGroup>
 
