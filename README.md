@@ -19,9 +19,9 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 
 | 制品 | 体积 | 说明 |
 | --- | --- | --- |
-| `portable\NetworkGuardian.exe` | **7.8 MB** | 主程序：单个原生 exe，内置 .NET 运行时（Native AOT），目标机无需安装 .NET / Windows App Runtime / VS |
-| `portable\helper\NetworkGuardian.Helper.exe` | **2.8 MB** | 提权助手（同为 Native AOT 单文件），只在启用被禁用网卡或执行 `runAsAdministrator` 命令时被调用 |
-| `portable\发布说明.txt` | — | 面向使用者的运行 / 权限 / 位置权限说明 |
+| `release\NetworkGuardian.exe` | **7.8 MB** | 主程序：单个原生 exe，内置 .NET 运行时（Native AOT），目标机无需安装 .NET / Windows App Runtime / VS |
+| `release\helper\NetworkGuardian.Helper.exe` | **2.8 MB** | 提权助手（同为 Native AOT 单文件），只在启用被禁用网卡或执行 `runAsAdministrator` 命令时被调用 |
+| `release\发布说明.txt` | — | 面向使用者的运行 / 权限 / 位置权限说明 |
 | `NetworkGuardian-0.9.0-win-x64.zip` | 5.15 MB | 可选传输压缩包（内含版本号顶层目录） |
 
 对比：改造前的 WinUI 3 自包含发布包是 **248.8 MB / 515 个文件**。
@@ -64,7 +64,7 @@ dotnet build NetworkGuardian.sln -c Release
 dotnet test  tests\NetworkGuardian.Tests\NetworkGuardian.Tests.csproj -c Release
 
 # 一键：Release 构建（0 警告）→ 测试 → 助手 AOT → 主程序 AOT → 体积门限 → 可选压缩包
-pwsh -NoProfile -File tools\build-portable.ps1            # 产出 portable\
+pwsh -NoProfile -File tools\build-portable.ps1            # 产出 release\（已 gitignore）
 pwsh -NoProfile -File tools\build-portable.ps1 -Zip       # 额外产出 NetworkGuardian-0.9.0-win-x64.zip
 pwsh -NoProfile -File tools\build-portable.ps1 -SkipTests # 只重新打包
 
@@ -80,10 +80,10 @@ pwsh -NoProfile -File tools\verify-portable.ps1 -InstanceId 'USB\VID_0BDA&PID_81
 
 ```powershell
 # 直接双击，或：
-portable\NetworkGuardian.exe                  # 默认最小化到托盘（可在设置页关闭）
-portable\NetworkGuardian.exe --page wireless  # dashboard | wireless | ethernet | settings | logs
-portable\NetworkGuardian.exe --visible        # 强制显示窗口（即使配置为启动时最小化）
-portable\NetworkGuardian.exe --minimized      # 明确以托盘方式启动
+release\NetworkGuardian.exe                  # 默认最小化到托盘（可在设置页关闭）
+release\NetworkGuardian.exe --page wireless  # dashboard | wireless | ethernet | settings | logs
+release\NetworkGuardian.exe --visible        # 强制显示窗口（即使配置为启动时最小化）
+release\NetworkGuardian.exe --minimized      # 明确以托盘方式启动
 ```
 
 自查 / 自动化用的环境变量：

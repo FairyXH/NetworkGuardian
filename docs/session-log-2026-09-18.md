@@ -78,8 +78,8 @@ tests/NetworkGuardian.Tests         196 个测试
 | 第一步 | Native AOT 骨架（Core/Windows/Infrastructure + 自绘窗口 + 总览页） | 8.31 MB | 去掉 WinUI/WinRT，改用 AOT；此时仍带 `System.Text.RegularExpressions` 与关联 PDB |
 | 第二步 | 去掉正则引擎（自写 glob 与 token 边界扫描） | 7.80 MB | 正则引擎及其反射路径约 -0.5 MB |
 | 第二步 | 提权助手改 Native AOT | 39.7 → **2.80 MB** | 不再随包复制第二份 .NET 运行时 |
-| 最终 | `portable\`（exe + helper + 发布说明） | **10.61 MB**（exe 7.80 MB） | 单文件、无 PDB、无 loose DLL/JSON |
-| 最终 | `NetworkGuardian-0.9.0-win-x64.zip` | 5.15 MB | 压缩后传输包（解压后 exe 哈希与 `portable\` 一致） |
+| 最终 | `release\`（exe + helper + 发布说明） | **10.61 MB**（exe 7.80 MB） | 单文件、无 PDB、无 loose DLL/JSON |
+| 最终 | `NetworkGuardian-0.9.0-win-x64.zip` | 5.15 MB | 压缩后传输包（解压后 exe 哈希与 `release\` 一致） |
 
 占比最大的剩余项：TLS/HTTP 栈（HTTP(S) 探测需要）、`System.Text.Json` 源生成、BCL 中的 `Task`/套接字/注册表/进程。
 按方案第 4.1 节的估算（6–8 MB）落在区间上沿；若砍掉 HTTPS 探测可再降到约 5 MB，但会失去「认证页重定向检测」能力，故保留。

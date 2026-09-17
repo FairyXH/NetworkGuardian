@@ -1,7 +1,7 @@
 # NetworkGuardian 小体积单文件便携版方案
 
 > **实施结果（2026-09-18）**：本方案已按第 4 节的路线落地，实际交付
-> **`portable\NetworkGuardian.exe` 7.80 MB 单文件**（提权助手 2.80 MB，包合计 10.61 MB，zip 5.15 MB），
+> **`release\NetworkGuardian.exe` 7.80 MB 单文件**（提权助手 2.80 MB，包合计 10.61 MB，zip 5.15 MB），
 > 对比改造前 WinUI 3 自包含包的 248.8 MB / 515 文件。落地过程中的实测数据、8 个缺陷与修复、
 > 真机验证证据见 [`session-log-2026-09-18.md`](session-log-2026-09-18.md)。
 > 与方案的两点差异：① 无线电改走原生 `wlanapi`（方案 4.3 的预判正确，未走「WinRT 主路径 + 原生回退」的过渡态）；

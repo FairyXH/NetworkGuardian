@@ -1,6 +1,6 @@
 # NetworkGuardian 文档索引
 
-当前交付形态是 **Native AOT 单文件便携版**（`portable\NetworkGuardian.exe`，7.8 MB，自绘 Win32 UI）。
+当前交付形态是 **Native AOT 单文件便携版**（`release\NetworkGuardian.exe`，7.8 MB，自绘 Win32 UI；`release\` 为发布目录，已在 `.gitignore` 内）。
 `docs\session-log-2026-09-17.md` 与其中的界面截图描述的是已被取代的 WinUI 3 版本，仅作历史参考。
 
 | 文件 | 内容 | 适用场景 |

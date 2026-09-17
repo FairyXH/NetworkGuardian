@@ -1,4 +1,5 @@
-# Verifies the portable package the way it will be used: copied to a neutral directory and started
+# Verifies the portable package (release\ by default) the way it will be used: copied to a neutral
+# directory and started
 # with a sanitised environment (no dotnet on PATH, no DOTNET_ROOT, isolated configuration root).
 #
 # Usage:
@@ -10,7 +11,7 @@
 # for real, graceful shutdown through WM_CLOSE and leftover-free cleanup.
 
 param(
-    [string]$PackageDir = 'portable',
+    [string]$PackageDir = 'release',
     [double]$MaxExeMb = 8.0,
     [int]$Seconds = 20,
     [string]$InstanceId = ''

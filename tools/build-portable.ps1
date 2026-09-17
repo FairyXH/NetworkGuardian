@@ -5,16 +5,16 @@
 #   pwsh -NoProfile -File tools/build-portable.ps1 -Zip            # ... plus a transfer archive
 #   pwsh -NoProfile -File tools/build-portable.ps1 -SkipTests      # quick iteration
 #
-# Produces (default):
-#   portable\NetworkGuardian.exe           native AOT single file, no runtime required
-#   portable\helper\NetworkGuardian.Helper.exe  native AOT helper (privileged device operations)
-#   portable\发布说明.txt
+# Produces (default, release\ is the project's release folder and is git-ignored):
+#   release\NetworkGuardian.exe                native AOT single file, no runtime required
+#   release\helper\NetworkGuardian.Helper.exe  native AOT helper (privileged device operations)
+#   release\发布说明.txt
 #
 # The size gate fails the build when the exe exceeds -MaxExeMb (default 8 MB).
 
 param(
     [string]$Configuration = 'Release',
-    [string]$OutputDir = 'portable',
+    [string]$OutputDir = 'release',
     [double]$MaxExeMb = 8.0,
     [switch]$SkipTests,
     [switch]$Zip
