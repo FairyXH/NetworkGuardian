@@ -681,7 +681,13 @@ public sealed class GuardianDecisionEngine
         // ---------- Overall state ----------
         if (actions.Count == 0)
         {
-            if (internetOnline)
+            // A user-controlled radio that we are not allowed to touch stays the headline state: it
+            // explains why nothing else is happening.
+            if (input.Radio.State == RadioState.Off && !config.General.AutoEnableWifiRadio)
+            {
+                _stateMachine.Transition(RecoveryState.WifiRadioOff, now, "Wi-Fi radio is off and must be enabled by the user");
+            }
+            else if (internetOnline)
             {
                 _stateMachine.Transition(RecoveryState.Healthy, now, "Internet is reachable");
             }

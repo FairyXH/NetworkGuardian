@@ -43,6 +43,20 @@ public sealed class JsonConfigStore : IConfigStore
 
     public bool RecoveredFromCorruption { get; private set; }
 
+    /// <summary>
+    /// Where an unparseable configuration file is preserved. It always lives next to the active
+    /// config file so that a custom root (or a test) never writes into the user's real profile.
+    /// </summary>
+    public string CorruptFilePath
+    {
+        get
+        {
+            var directory = Path.GetDirectoryName(ConfigPath);
+            var name = Path.GetFileNameWithoutExtension(ConfigPath) + ".invalid.json";
+            return string.IsNullOrEmpty(directory) ? name : Path.Combine(directory, name);
+        }
+    }
+
     public async Task<GuardianConfig> LoadAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -190,7 +204,7 @@ public sealed class JsonConfigStore : IConfigStore
         {
             if (File.Exists(ConfigPath))
             {
-                File.Copy(ConfigPath, GuardianPaths.ConfigCorruptFile, overwrite: true);
+                File.Copy(ConfigPath, CorruptFilePath, overwrite: true);
             }
         }
         catch (Exception ex)

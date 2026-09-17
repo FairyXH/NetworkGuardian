@@ -111,7 +111,8 @@ public static class WifiMapping
 
         if (mhz is >= 5925 and <= 7125)
         {
-            return (int)Math.Round((mhz - 5955) / 5);
+            // The 6 GHz plan starts at channel 1 = 5955 MHz.
+            return (int)Math.Round((mhz - 5955) / 5) + 1;
         }
 
         if (mhz is >= 57000 and <= 71000)

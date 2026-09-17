@@ -8,6 +8,7 @@
     <IsPackable>false</IsPackable>
     <Platforms>x64</Platforms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <NoWarn>$(NoWarn);CA1861;CA1707;xUnit1030;CA2007</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,6 +20,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetworkGuardian.Core\NetworkGuardian.Core.csproj" />
     <ProjectReference Include="..\..\src\NetworkGuardian.Infrastructure\NetworkGuardian.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\NetworkGuardian.Windows\NetworkGuardian.Windows.csproj" />
   </ItemGroup>
 
 </Project>

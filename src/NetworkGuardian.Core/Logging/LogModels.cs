@@ -34,7 +34,14 @@ public sealed record LogRecord(
 
     private static string ResolveChannel(string category)
     {
+        // Only the type name is inspected: matching the full namespace would make every category
+        // contain "Network" because of the NetworkGuardian root namespace.
         var value = category ?? string.Empty;
+        var lastDot = value.LastIndexOf('.');
+        if (lastDot >= 0 && lastDot < value.Length - 1)
+        {
+            value = value[(lastDot + 1)..];
+        }
 
         return value switch
         {
@@ -143,7 +150,7 @@ public sealed class InMemoryLogSink : ILogSink
         {
             var query = _records.Where(r => r.Level >= minimumLevel);
 
-            if (!string.IsNullOrWhiteSpace(channel) && !channel.Equals("All", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(channel) && !IsAnyChannel(channel))
             {
                 query = query.Where(r => r.Channel.Equals(channel, StringComparison.OrdinalIgnoreCase));
             }
@@ -166,4 +173,10 @@ public sealed class InMemoryLogSink : ILogSink
             _records.Dequeue();
         }
     }
+
+    /// <summary>The UI passes a display label for "no channel filter"; both spellings are accepted.</summary>
+    private static bool IsAnyChannel(string channel) =>
+        channel.Equals("All", StringComparison.OrdinalIgnoreCase) ||
+        channel.Equals("全部", StringComparison.OrdinalIgnoreCase) ||
+        channel.Equals("Any", StringComparison.OrdinalIgnoreCase);
 }
