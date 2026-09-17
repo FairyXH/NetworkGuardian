@@ -11,7 +11,7 @@
 | --- | --- |
 | 交付可用的 Windows 网络保活工具（C# + WinUI 3） | 完成，真机验证通过 |
 | 分阶段构建：Core 策略 → 原生互操作 → 基础设施 → 提权助手 → UI → 测试 | 完成 |
-| 独立审查（物理网卡限定、不主动切换、扫描/认证风暴、竞态、句柄、退出） | 完成，修掉 6 个真机才暴露的缺陷 |
+| 独立审查（物理网卡限定、不主动切换、扫描/认证风暴、竞态、句柄、退出） | 完成，修掉 7 个真机才暴露的缺陷 |
 | 构建自包含发布包，确保无开发环境设备可运行 | 完成，`release\` 248.8 MB + zip 118.5 MB，15/15 校验通过 |
 | 评估 ~10 MB 单文件便携 exe 的可行性 | 完成，见 `docs/portable-small-build-plan.md` |
 
@@ -141,6 +141,7 @@ Realtek PCIe/USB 有线网卡、VMware VMnet、蓝牙 PAN。
 ## 7. 提交历史（本次会话）
 
 ```
+0ed5de8 docs: session log and the small-portable-build plan
 0c106a3 docs: refresh the release-build screenshot from the shipped executable
 dd6ca73 feat(release): optional transfer archive with a versioned top-level folder
 8ca2e7c feat(release): self-contained release package with a verifying build script
