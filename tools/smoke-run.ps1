@@ -1,10 +1,10 @@
-# Launches the built NetworkGuardian app against a throwaway config root and reports what happened.
+# Launches the built portable NetworkGuardian against a throwaway configuration root and reports what
+# happened (device enumeration, radio state, probing, logging).
 #
 # Usage: pwsh -NoProfile -File tools/smoke-run.ps1 [-Recovery] [-Seconds 25]
 #
-# Without -Recovery the background recovery loop is switched off (AutomaticRecovery=false) so the
-# run only observes: enumeration, radio state, probing and logging are exercised, but nothing on the
-# machine is touched.
+# Without -Recovery the background recovery loop is switched off (automaticRecovery=false) so the run
+# only observes: nothing on the machine is touched.
 
 param(
     [switch]$Recovery,
@@ -15,14 +15,17 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
-# The output path differs between framework-dependent (bin\x64\...) and self-contained layouts, so
-# the executable is located instead of hardcoded.
-$exe = Get-ChildItem -Path (Join-Path $repoRoot 'src\NetworkGuardian.App\bin') -Filter 'NetworkGuardian.exe' -Recurse -ErrorAction SilentlyContinue |
+$exe = Get-ChildItem -Path (Join-Path $repoRoot 'src\NetworkGuardian.Portable\bin') -Filter 'NetworkGuardian.exe' -Recurse -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1 -ExpandProperty FullName
 
 if (-not $exe) {
-    throw 'NetworkGuardian.exe was not found - build the solution first.'
+    $published = Join-Path $repoRoot 'portable\NetworkGuardian.exe'
+    if (Test-Path $published) { $exe = $published }
+}
+
+if (-not $exe) {
+    throw 'NetworkGuardian.exe was not found - build the portable project first.'
 }
 
 Write-Host "exe         : $exe"
@@ -38,6 +41,10 @@ $config = @{
         healthSweepSeconds = 10
         enumerationRefreshSeconds = 20
     }
+    startup    = @{
+        startMinimized = $true
+        closeToTray = $false
+    }
     logging    = @{
         minimumLevel = 'debug'
         writeToFile = $true
@@ -50,6 +57,7 @@ Write-Host "config root : $root"
 Write-Host "recovery    : $([bool]$Recovery)"
 
 $env:NETWORKGUARDIAN_CONFIG_ROOT = $root
+$env:NETWORKGUARDIAN_INSTANCE_SUFFIX = '.smoke' + [Guid]::NewGuid().ToString('N').Substring(0, 5)
 $process = Start-Process -FilePath $exe -ArgumentList '--minimized' -PassThru
 Write-Host "pid         : $($process.Id)"
 
@@ -60,10 +68,10 @@ Write-Host "alive after ${Seconds}s : $alive"
 
 if ($alive) {
     $process.CloseMainWindow() | Out-Null
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 3
     if (-not $process.HasExited) {
         Stop-Process -Id $process.Id -Force
-        Write-Host 'stopped     : force killed'
+        Write-Host 'stopped     : force killed (the window is hidden in the tray, WM_CLOSE was not delivered)'
     }
     else {
         Write-Host 'stopped     : graceful close'
@@ -75,9 +83,10 @@ else {
 
 $logFile = Get-ChildItem $logs -Filter '*.log' -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($logFile) {
+    $lines = Get-Content $logFile.FullName
     Write-Host ''
-    Write-Host "--- $($logFile.Name) ($((Get-Item $logFile.FullName).Length) bytes) ---"
-    Get-Content $logFile.FullName | Select-Object -First 400
+    Write-Host "--- $($logFile.Name) ($($lines.Count) lines) ---"
+    $lines | Select-Object -First 400
 }
 else {
     Write-Host 'no log file was produced'

@@ -1,0 +1,67 @@
+NetworkGuardian 便携版（单文件，无需安装）
+==========================================
+
+这是什么
+--------
+NetworkGuardian 是一个 Windows 网络保活工具：持续监测物理以太网 / 无线网卡的链路、IP、路由与外网可达性，
+只在连接**真正失效**时才做最小必要的恢复动作（打开 Wi-Fi 无线电、启用被禁用的物理无线网卡、按网卡扫描、
+只连接已保存的配置、在校园网未认证时运行你自己配置的认证程序或命令行）。
+已经正常工作的连接不会被主动切换（粘性连接）。
+
+本目录是**自包含便携版**：单个 exe，内置 .NET 运行时（Native AOT 编译），
+目标机器无需安装 .NET、Windows App Runtime、Visual Studio 或任何 SDK 组件。
+
+文件
+----
+  NetworkGuardian.exe                  主程序（约 5-8 MB，双击即可运行）
+  helper\NetworkGuardian.Helper.exe    提权助手，仅在需要启用被禁用的网卡或执行 runAsAdministrator 命令时被调用
+  发布说明.txt                          本文件
+
+运行要求
+--------
+  * Windows 10 2004 (build 19041) 或更高，x64
+  * 主程序**不需要**管理员权限；只有上面两类操作会通过 UAC 助手执行一次
+
+使用
+----
+  1. 双击 NetworkGuardian.exe；默认启动后最小化到托盘（可在设置页关闭该行为）。
+  2. 首次运行会在 %LOCALAPPDATA%\NetworkGuardian\ 生成 config.json 与 Logs\。
+  3. 托盘图标：左键打开窗口，右键菜单可暂停/恢复自动恢复、运行连通性测试、重新扫描 Wi-Fi、
+     清除失败记录与冷却、打开日志目录、退出。
+  4. 「设置」页的改动先落在工作副本上，点「保存并应用」才会写入 config.json 并立即生效。
+
+位置权限（重要）
+----------------
+Windows 11 把 SSID / BSSID / RSSI 等网络标识放在位置隐私权限之后。没有权限时：
+
+  * 扫描通常仍然可用，但拿不到 BSSID / RSSI / 信道；
+  * 部分机器上连扫描都会被拒绝。
+
+开启方式：设置 → 隐私和安全性 → 位置 → 打开「定位服务」→ 打开「让桌面应用访问你的位置」→ 重启本程序。
+程序不会尝试绕过该权限，只会在总览页给出中文提示。
+
+权限与安全边界
+--------------
+  * 不导出 / 不显示 / 不记录 Wi-Fi 密码（配置文件中不存在任何密钥字段）；
+  * 不绕过 UAC；不修改系统安全策略；不做隐蔽持久化（开机启动只写当前用户的 HKCU\...\Run）；
+  * 不修改未知路由（接口度量管理默认关闭）；不自动加入陌生开放网络；不关闭防火墙；
+  * 日志只记录外部命令的路径与退出码，不记录参数内容。
+
+配置与日志位置
+--------------
+  %LOCALAPPDATA%\NetworkGuardian\config.json          配置（保存时留一份 config.backup.json）
+  %LOCALAPPDATA%\NetworkGuardian\config.invalid.json  无法解析时的隔离副本
+  %LOCALAPPDATA%\NetworkGuardian\Logs\*.log           滚动日志
+  环境变量 NETWORKGUARDIAN_CONFIG_ROOT 可整体替换上述根目录（测试用）
+
+卸载
+----
+  删除本目录即可；如需清理配置与日志，再删除 %LOCALAPPDATA%\NetworkGuardian\。
+  若曾开启「开机启动」，请在设置页关闭，或删除 HKCU\Software\Microsoft\Windows\CurrentVersion\Run 下的
+  NetworkGuardian 值。
+
+命令行参数（自查 / 自动化用）
+----------------------------
+  NetworkGuardian.exe --minimized            启动后隐藏到托盘
+  NetworkGuardian.exe --page wireless        直接打开指定页面：dashboard|wireless|ethernet|settings|logs
+  NetworkGuardian.exe --visible              强制显示窗口（即使配置为启动时最小化）

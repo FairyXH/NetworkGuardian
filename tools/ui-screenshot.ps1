@@ -113,7 +113,7 @@ try {
     }
 
     # Let the monitor loop publish at least one snapshot so the page shows real data.
-    Start-Sleep -Seconds 4
+    Start-Sleep -Seconds 8
 
     $client = New-Object NgCapture+RECT
     [void][NgCapture]::GetClientRect($handle, [ref]$client)
