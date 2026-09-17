@@ -108,6 +108,9 @@ internal static class IpHlpApiNative
         /// <summary>Union of ULONGLONG Alignment / (ULONG Length + IF_INDEX IfIndex).</summary>
         public ulong Alignment;
 
+        /// <summary>The IPv4 interface index, which is the low half of the alignment union.</summary>
+        public readonly uint IfIndex => (uint)(Alignment & 0xFFFFFFFF);
+
         public IntPtr Next;
         public IntPtr AdapterName;
         public IntPtr FirstUnicastAddress;
@@ -163,7 +166,10 @@ internal static class IpHlpApiNative
         [FieldOffset(0)] public ushort si_family;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    // Pack = 4 is required: the managed SOCKADDR_INET projection is 8-byte aligned while the native
+    // type is only 4-byte aligned. Without it this struct marshals as 112 bytes instead of the native
+    // 104, which makes every row in MIB_IPFORWARD_TABLE2 read at the wrong stride.
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
     internal struct MIB_IPFORWARD_ROW2
     {
         public ulong InterfaceLuid;

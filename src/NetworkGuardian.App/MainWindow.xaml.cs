@@ -38,12 +38,38 @@ public sealed partial class MainWindow : Window
         ViewModel = viewModel;
         ViewModel.ToastRequested += (_, message) => ShowToast(message);
 
-        ContentFrame.Navigate(typeof(DashboardPage));
+        // --page <tag> opens a specific page at startup. It exists so the pages can be captured and
+        // reviewed without driving the UI by hand.
+        var requested = ReadPageArgument() ?? "dashboard";
+        ContentFrame.Navigate(ResolvePageType(requested));
 
         NavView.SelectedItem = NavView.MenuItems
             .OfType<NavigationViewItem>()
-            .FirstOrDefault(item => (item.Tag as string) == "dashboard");
+            .FirstOrDefault(item => (item.Tag as string) == requested);
     }
+
+    private static string? ReadPageArgument()
+    {
+        var args = Environment.GetCommandLineArgs();
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (string.Equals(args[i], "--page", StringComparison.OrdinalIgnoreCase))
+            {
+                return args[i + 1];
+            }
+        }
+
+        return null;
+    }
+
+    private static Type ResolvePageType(string? tag) => tag switch
+    {
+        "wireless" => typeof(WirelessPage),
+        "ethernet" => typeof(EthernetPage),
+        "settings" => typeof(SettingsPage),
+        "logs" => typeof(LogsPage),
+        _ => typeof(DashboardPage),
+    };
 
     private void TryApplyBackdrop()
     {

@@ -58,6 +58,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     /// <summary>WLAN interfaces whose PnP record could not be correlated, warned about only once.</summary>
     private readonly HashSet<Guid> _unmatchedWlanInterfaces = new();
     private IReadOnlyList<ManagedDevice> _devicesSnapshot = Array.Empty<ManagedDevice>();
+
+    /// <summary>Routes captured while the interface states were built, reused by the snapshot.</summary>
+    private IReadOnlyList<DefaultRouteInfo> _defaultRoutes = Array.Empty<DefaultRouteInfo>();
     private Dictionary<Guid, List<string>> _profilesByAdapter = new();
     private ConnectivityProbeReport _globalProbe;
     private Dictionary<Guid, ConnectivityProbeReport> _wifiProbeByAdapter = new();
@@ -489,6 +492,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     {
         var interfaces = _interfaces.GetInterfaces();
         var routes = _interfaces.GetDefaultRoutes();
+        _defaultRoutes = routes;
         var result = new List<InterfaceRuntimeState>(interfaces.Count);
 
         foreach (var state in interfaces)
@@ -540,7 +544,9 @@ public sealed class GuardianHostService : IAsyncDisposable
             EthernetDevices = _devicesSnapshot
                 .Where(d => d.Classification.Category == DeviceCategory.PhysicalEthernet)
                 .ToList(),
-            DefaultRoutes = _interfaces.GetDefaultRoutes(),
+            // Reuse the enumeration performed while the interface states were built: the route table
+            // does not change between those two steps inside a single cycle.
+            DefaultRoutes = _defaultRoutes,
             PendingActions = decision.Actions,
             Notes = decision.Notes,
             LastRecoveryAction = _engine.LastRecoveryAction,

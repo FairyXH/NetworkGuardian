@@ -58,6 +58,12 @@ public sealed class DashboardViewModel : ObservableObject
 
     public string PendingActions { get => _pendingActions; private set => Set(ref _pendingActions, value); }
 
+    /// <summary>An on-link default route reports 0.0.0.0, which means "no next hop" rather than an address.</summary>
+    private static string FormatNextHop(string? nextHop) =>
+        string.IsNullOrWhiteSpace(nextHop) || nextHop == "0.0.0.0" || nextHop == "::"
+            ? "0.0.0.0（直接路由，无下一跳）"
+            : nextHop;
+
     public void Update(GuardianSnapshot snapshot)
     {
         InternetState = snapshot.GlobalProbe.IsOnline ? "在线" : "离线";
@@ -79,8 +85,8 @@ public sealed class DashboardViewModel : ObservableObject
         var route = snapshot.DefaultRoutes.FirstOrDefault();
         DefaultRoute = route is null
             ? "—"
-            : $"{route.NextHop}（接口 {route.InterfaceAlias ?? route.InterfaceLuid?.ToString() ?? "?"}，" +
-              $"metric {route.EffectiveMetric?.ToString() ?? "?"}）";
+            : $"{FormatNextHop(route.NextHop)}（{route.InterfaceAlias ?? "未知接口"}，" +
+              $"接口度量 {route.InterfaceMetric?.ToString() ?? "?"} + 路由度量 {route.RouteMetric?.ToString() ?? "?"}）";
 
         RadioState = snapshot.Radio.State switch
         {

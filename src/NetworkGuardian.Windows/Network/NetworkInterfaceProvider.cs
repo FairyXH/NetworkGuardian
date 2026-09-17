@@ -166,6 +166,8 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
     public IReadOnlyList<DefaultRouteInfo> GetDefaultRoutes()
     {
         var results = new List<DefaultRouteInfo>();
+        var adapterInfo = ReadAdapterAliases();
+        var unmatchedRoutes = 0;
         var status = GetIpForwardTable2(AF_INET, out var table);
         if (status != ERROR_SUCCESS || table == IntPtr.Zero)
         {
@@ -190,6 +192,14 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                 }
 
                 var nextHop = ToIpAddress(row.NextHop);
+                // Both keys are documented identifiers for the same interface; the LUID is preferred
+                // because it is unambiguous across address families.
+                var hasAdapter = adapterInfo.ByLuid.TryGetValue(row.InterfaceLuid, out var adapter);
+                if (!hasAdapter)
+                {
+                    hasAdapter = adapterInfo.ByIndex.TryGetValue(row.InterfaceIndex, out adapter);
+                }
+
                 results.Add(new DefaultRouteInfo
                 {
                     AddressFamily = row.NextHop.si_family,
@@ -197,9 +207,21 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                     InterfaceLuid = row.InterfaceLuid,
                     NextHop = nextHop?.ToString() ?? "0.0.0.0",
                     RouteMetric = (int)row.Metric,
-                    InterfaceMetric = null,
-                    InterfaceAlias = null,
+                    InterfaceMetric = hasAdapter ? adapter.Metric : null,
+                    InterfaceAlias = hasAdapter ? adapter.Alias : null,
                 });
+
+                if (!hasAdapter)
+                {
+                    unmatchedRoutes++;
+                }
+            }
+
+            if (unmatchedRoutes > 0)
+            {
+                _logger.LogDebug(
+                    "{Unmatched} of {Total} default route(s) could not be mapped to an adapter name",
+                    unmatchedRoutes, results.Count);
             }
         }
         catch (Exception ex)
@@ -212,6 +234,59 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Maps interface LUIDs to the friendly name and IPv4 metric reported by GetAdaptersAddresses, so
+    /// the route table can be presented with interface names instead of raw LUIDs.
+    /// </summary>
+    private (Dictionary<ulong, (string Alias, int Metric)> ByLuid, Dictionary<uint, (string Alias, int Metric)> ByIndex)
+        ReadAdapterAliases()
+    {
+        var byLuid = new Dictionary<ulong, (string Alias, int Metric)>();
+        var byIndex = new Dictionary<uint, (string Alias, int Metric)>();
+        var result = (byLuid, byIndex);
+
+        var addresses = ReadAdapterAddresses();
+        if (addresses == IntPtr.Zero)
+        {
+            return result;
+        }
+
+        try
+        {
+            var pointer = addresses;
+            var guard = 0;
+
+            while (pointer != IntPtr.Zero && guard++ < 512)
+            {
+                var adapter = Marshal.PtrToStructure<IP_ADAPTER_ADDRESSES>(pointer);
+                var friendlyName = ReadString(adapter.FriendlyName);
+
+                if (!string.IsNullOrEmpty(friendlyName))
+                {
+                    var entry = (friendlyName, (int)adapter.Ipv4Metric);
+
+                    if (adapter.Luid != 0)
+                    {
+                        byLuid[adapter.Luid] = entry;
+                    }
+
+                    if (adapter.IfIndex != 0)
+                    {
+                        byIndex[adapter.IfIndex] = entry;
+                    }
+                }
+
+                pointer = adapter.Next;
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(addresses);
+        }
+
+        return result;
     }
 
     /// <summary>

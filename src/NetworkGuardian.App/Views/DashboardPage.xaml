@@ -19,7 +19,7 @@
                     Style="{StaticResource CardBorder}"
                     Visibility="{x:Bind ViewModel.Dashboard.ShowLocationWarning, Mode=OneWay, Converter={StaticResource BoolToVisibility}}">
                 <StackPanel>
-                    <TextBlock Text="Windows 位置权限阻止了 Wi-Fi 扫描" Style="{StaticResource SectionTitle}"
+                    <TextBlock Text="Windows 位置权限限制" Style="{StaticResource SectionTitle}"
                                Foreground="{ThemeResource AppWarn}" />
                     <TextBlock Text="{x:Bind ViewModel.Dashboard.LocationWarning, Mode=OneWay}" Style="{StaticResource BodyText}" />
                 </StackPanel>

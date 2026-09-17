@@ -163,12 +163,32 @@ public sealed class LocationPermissionService : ILocationPermissionService
     {
         if (!snapshot.HasProblem)
         {
-            return "Location permission looks fine for Wi-Fi scanning.";
+            return "位置权限正常，Wi-Fi 扫描与 BSSID/RSSI 读取可用。";
         }
 
-        return "Windows blocked a Wi-Fi API that reveals network identifiers. Open " +
-               "Settings > Privacy & security > Location, enable 'Location services' and enable " +
-               "'Let desktop apps access your location', then restart NetworkGuardian. " +
-               "Windows 11 requires this for Wi-Fi scanning, BSSID and RSSI access.";
+        const string steps =
+            "打开「设置 > 隐私和安全性 > 位置」，启用「定位服务」以及「让桌面应用访问你的位置」，" +
+            "然后重启 NetworkGuardian。";
+
+        // Nothing has been denied yet, so the warning comes from the consent state alone.
+        if (!snapshot.ScanBlockedByPolicy)
+        {
+            var reason = snapshot.AppLocationAllowed == false
+                ? "位置权限当前未授予（consent store 为 Deny）"
+                : "定位服务当前已关闭";
+
+            return $"{reason}，Windows 可能拒绝 Wi-Fi 扫描与 BSSID/RSSI 读取。{steps}";
+        }
+
+        // Windows 11 blocks different amounts depending on which API is denied, so say exactly what
+        // still works instead of implying that Wi-Fi is completely unusable.
+        var statisticsStillWork = snapshot.BlockedOperation is not null &&
+                                  snapshot.BlockedOperation.Contains("NetworkBssList", StringComparison.OrdinalIgnoreCase);
+
+        return statisticsStillWork
+            ? $"Windows 只阻止了 BSSID/RSSI/信道等细节（{snapshot.BlockedOperation} 返回 ERROR_ACCESS_DENIED），" +
+              $"Wi-Fi 扫描与已保存网络的连接仍然可用。如需完整信息：{steps}"
+            : $"Windows 阻止了 Wi-Fi 扫描 API（{snapshot.BlockedOperation ?? "未知调用"} 返回 ERROR_ACCESS_DENIED），" +
+              $"扫描与 BSSID/RSSI 读取都会被拒绝。{steps}";
     }
 }

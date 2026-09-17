@@ -176,7 +176,42 @@ public sealed class LocationPermissionServiceTests
         var snapshot = service.Read();
 
         Assert.True(snapshot.HasProblem);
-        Assert.Contains("Location", LocationPermissionService.BuildGuidance(snapshot));
+        var guidance = LocationPermissionService.BuildGuidance(snapshot);
+        Assert.Contains("位置", guidance);
+        Assert.Contains("WlanGetNetworkBssList", guidance);
+
+        // Only the statistics APIs were denied, so the guidance must not claim that scanning is dead.
+        Assert.Contains("扫描与已保存网络的连接仍然可用", guidance);
+    }
+
+    [Fact]
+    public void ScanDenied_IsReportedAsABlockingProblem()
+    {
+        var service = new LocationPermissionService(() => new LocationPermissionSnapshot
+        {
+            ScanBlockedByPolicy = true,
+            BlockedOperation = "WlanScan",
+        });
+
+        var guidance = LocationPermissionService.BuildGuidance(service.Read());
+
+        Assert.Contains("WlanScan", guidance);
+        Assert.Contains("扫描", guidance);
+    }
+
+    [Fact]
+    public void ConsentDeniedWithoutADeniedApi_IsExplainedWithoutInventingAnOperation()
+    {
+        var service = new LocationPermissionService(() => new LocationPermissionSnapshot
+        {
+            AppLocationAllowed = false,
+            ScanBlockedByPolicy = false,
+        });
+
+        var guidance = LocationPermissionService.BuildGuidance(service.Read());
+
+        Assert.Contains("consent", guidance);
+        Assert.DoesNotContain("未知调用", guidance);
     }
 
     [Fact]

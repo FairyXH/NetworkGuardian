@@ -341,9 +341,8 @@ public sealed class NativeWifiManager : INativeWifiService
             {
                 ScanBlockedByPolicy = true,
                 BlockedOperation = operation,
-                Detail = "Windows returned ERROR_ACCESS_DENIED for a Wi-Fi API that reveals network " +
-                         "identifiers. Enable Settings > Privacy & security > Location > " +
-                         "'Let desktop apps access your location'.",
+                Detail = $"{operation} 返回 ERROR_ACCESS_DENIED：Windows 11 要求桌面应用具有位置权限" +
+                         "（设置 > 隐私和安全性 > 位置）。",
                 ObservedAtUtc = DateTimeOffset.UtcNow,
             };
         }
@@ -487,14 +486,15 @@ public sealed class NativeWifiManager : INativeWifiService
                 var itemPointer = IntPtr.Add(listPointer, ListHeaderSize + (i * itemSize));
                 var item = Marshal.PtrToStructure<WLAN_AVAILABLE_NETWORK>(itemPointer);
 
-                string profileName;
                 string ssid;
+                string profileName;
                 unsafe
                 {
-                    var profilePointer = item.strProfileName;
-                    profileName = profilePointer is null ? string.Empty : new string(profilePointer).Trim();
                     ssid = NativeStringHelper.ReadSsid(item.dot11Ssid.ucSSID, item.dot11Ssid.uSSIDLength);
                 }
+
+                // Read from the native buffer, not from the marshalled copy of the struct.
+                profileName = NativeStringHelper.ReadFixedString(itemPointer, 0, 256);
 
                 results.Add(new AvailableNetwork
                 {
@@ -656,15 +656,13 @@ public sealed class NativeWifiManager : INativeWifiService
             for (var i = 0; i < header.dwNumberOfItems; i++)
             {
                 var itemPointer = IntPtr.Add(listPointer, ListHeaderSize + (i * itemSize));
-                var item = Marshal.PtrToStructure<WLAN_PROFILE_INFO>(itemPointer);
-                unsafe
+
+                // The name is read straight out of the native buffer: reading it from a marshalled copy
+                // of the struct (new string(fixed char*)) returned only the first character.
+                var name = NativeStringHelper.ReadFixedString(itemPointer, 0, 256);
+                if (!string.IsNullOrEmpty(name))
                 {
-                    var namePointer = item.strProfileName;
-                    var name = namePointer is null ? string.Empty : new string(namePointer).Trim();
-                    if (!string.IsNullOrEmpty(name))
-                    {
-                        names.Add(name);
-                    }
+                    names.Add(name);
                 }
             }
 
@@ -734,13 +732,15 @@ public sealed class NativeWifiManager : INativeWifiService
             string bssid;
             unsafe
             {
-                var profilePointer = attributes.strProfileName;
-                profileName = profilePointer is null ? string.Empty : new string(profilePointer).Trim();
                 ssid = NativeStringHelper.ReadSsid(
                     attributes.wlanAssociationAttributes.dot11Ssid.ucSSID,
                     attributes.wlanAssociationAttributes.dot11Ssid.uSSIDLength);
                 bssid = NativeStringHelper.FormatMac(attributes.wlanAssociationAttributes.dot11Bssid);
             }
+
+            // strProfileName lives at offset 8 in WLAN_CONNECTION_ATTRIBUTES; read it from the native
+            // buffer instead of the marshalled copy.
+            profileName = NativeStringHelper.ReadFixedString(dataPointer, 8, 256);
 
             if (state != WifiConnectionState.Connected)
             {

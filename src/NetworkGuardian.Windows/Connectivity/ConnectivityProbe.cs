@@ -103,7 +103,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                     Target = endpoint.Target,
                     SourceAddress = request.SourceAddress,
                     Outcome = ProbeOutcome.UnknownFailure,
-                    Detail = $"{ex.GetType().Name}: {ex.Message}",
+                    Detail = DescribeFailure(ex),
                 });
             }
             finally
@@ -351,7 +351,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         {
             stopwatch.Stop();
             return Attempt(endpoint, request, ProbeOutcome.Timeout, stopwatch,
-                detail: $"HTTP request exceeded {timeout.TotalMilliseconds:F0}ms");
+                detail: $"HTTP 请求超时（>{timeout.TotalMilliseconds:F0}ms）");
         }
         catch (HttpRequestException ex)
         {
@@ -365,9 +365,25 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 }
                 : ProbeOutcome.UnknownFailure;
 
-            return Attempt(endpoint, request, outcome, stopwatch, detail: ex.Message);
+            return Attempt(endpoint, request, outcome, stopwatch, detail: DescribeFailure(ex));
         }
     }
+
+    /// <summary>
+    /// Turns a probe exception into a short, stable description for the UI. Raw exception text is
+    /// English, version specific and often multi-line, so it stays in the log instead of the status
+    /// card.
+    /// </summary>
+    private static string DescribeFailure(Exception exception) => exception switch
+    {
+        TaskCanceledException or TimeoutException or OperationCanceledException => "请求超时",
+        HttpRequestException { InnerException: System.Security.Authentication.AuthenticationException } => "TLS 握手失败",
+        HttpRequestException { InnerException: System.Net.Sockets.SocketException socket } =>
+            $"连接失败（{socket.SocketErrorCode}）",
+        HttpRequestException => "HTTP 请求失败",
+        System.Net.Sockets.SocketException socket => $"套接字错误（{socket.SocketErrorCode}）",
+        _ => "探测失败",
+    };
 
     private async Task<ProbeAttemptResult> DnsProbeAsync(
         ProbeEndpointSettings endpoint,
