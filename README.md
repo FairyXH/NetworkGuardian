@@ -6,6 +6,10 @@ Windows 网络保活工具（C# + WinUI 3）。持续监测物理以太网 / 无
 
 核心原则是 **稳定优先**：已经正常工作的连接不会被主动切换。
 
+> 文档导航：本文件是主文档；开发会话与真机验证证据见 [`docs/session-log-2026-09-17.md`](docs/session-log-2026-09-17.md)，
+> 小体积单文件便携版（Native AOT）方案与实测体积数据见 [`docs/portable-small-build-plan.md`](docs/portable-small-build-plan.md)，
+> 全部文档索引见 [`docs/README.md`](docs/README.md)。
+
 ---
 
 ## 1. 功能概览
