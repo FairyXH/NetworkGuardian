@@ -202,6 +202,58 @@ public sealed class PhysicalDeviceClassifierTests
         Assert.Equal("deny-list", result.Rule);
     }
 
+    [Theory]
+    // '*' matches any run including the empty one, '?' exactly one character, the rest is literal.
+    [InlineData(@"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0", @"PCI\VEN_8086&DEV_51F0*", true)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0", @"*VEN_8086*", true)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0", @"pci\ven_8086&dev_51f0*", true)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0", @"PCI\VEN_8086&DEV_51F?\*", true)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0", @"USB\VID_0BDA*", false)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0", @"PCI\VEN_8086&DEV_51F0", false)]
+    [InlineData(@"USB\VID_0BDA&PID_8153\001000001", @"*", true)]
+    [InlineData(@"USB\VID_0BDA&PID_8153\001000001", @"USB\VID_0BDA*\*", true)]
+    [InlineData(@"USB\VID_0BDA&PID_8153\001000001", @"USB\VID_0BDA&PID_8153\001000002", false)]
+    public void DenyListWildcards_BehaveLikeGlobs(string instanceId, string pattern, bool expected)
+    {
+        var record = TestData.Pnp(instanceId, friendlyName: "Adapter");
+
+        var result = _classifier.Classify(record, null, new[] { pattern });
+
+        Assert.Equal(!expected, result.IsPhysical);
+    }
+
+    [Theory]
+    // A virtual-vendor token only counts on an ASCII-letter/digit boundary; "tap" also swallows digits.
+    [InlineData(@"PCI\VEN_1AF4&DEV_1000&SUBSYS_TAP0901", true)]
+    [InlineData(@"PCI\VEN_1AF4&DEV_1000&SUBSYS_TAP6", true)]
+    [InlineData(@"PCI\VEN_1AF4&DEV_1000&REV_TAP", true)]
+    [InlineData(@"PCI\VEN_1AF4&DEV_1000&SUBSYS_WINTUN", true)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0&SUBSYS_MYROOTER", false)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0&SUBSYS_NPFX1001", false)]
+    [InlineData(@"PCI\VEN_8086&DEV_51F0", false)]
+    public void VirtualHardwareIds_AreDetectedOnTokenBoundaries(string hardwareId, bool expectVirtual)
+    {
+        var record = TestData.Pnp(
+            @"PCI\VEN_8086&DEV_51F0\3&11583659&0&A0",
+            enumerator: "PCI",
+            service: "netwtw14",
+            physicalMediaType: 9,
+            friendlyName: "Network Adapter",
+            hardwareIds: new[] { hardwareId });
+
+        var result = _classifier.Classify(record);
+
+        if (expectVirtual)
+        {
+            Assert.False(result.IsPhysical);
+            Assert.Equal("virtual-hardware-id", result.Rule);
+        }
+        else
+        {
+            Assert.True(result.IsPhysical);
+        }
+    }
+
     [Fact]
     public void AmbiguousDeviceWithoutPhysicalBus_IsNotManaged()
     {

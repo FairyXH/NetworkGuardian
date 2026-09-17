@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+
 using NetworkGuardian.Core.Models;
 
 namespace NetworkGuardian.Core.Policies;
@@ -53,9 +53,21 @@ public sealed class NetworkDeviceClassifier
         "wgvirtualadapter", "microsoftvirtualwifi",
     };
 
-    private static readonly Regex VirtualHardwareIdPattern = new(
-        @"(?<![a-z0-9])(root|swd|vwifimp|vms_mp|vmbus|vmxnet|vboxnet|tap\d*|tun|wintun|wireguard|npcap|npf|openvpn|netvsc|hyperv|pseudo|virtual|loopback|kdnic|teredo|isatap|6to4)(?![a-z0-9])",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    /// <summary>
+    /// Virtual-vendor tokens matched inside hardware ids: a token only counts when the character
+    /// before and after it is not an ASCII letter or digit, so <c>npf</c> does not match inside
+    /// another word. <c>tap</c> additionally swallows a trailing digit run (<c>tap0901</c>).
+    /// </summary>
+    /// <remarks>
+    /// This used to be a compiled regular expression; a hand written scan keeps the same semantics
+    /// without pulling the regex engine (~0.5 MB) and its reflection paths into a Native AOT build.
+    /// </remarks>
+    private static readonly string[] VirtualHardwareIdTokens =
+    {
+        "root", "swd", "vwifimp", "vms_mp", "vmbus", "vmxnet", "vboxnet", "tap", "tun", "wintun",
+        "wireguard", "npcap", "npf", "openvpn", "netvsc", "hyperv", "pseudo", "virtual", "loopback",
+        "kdnic", "teredo", "isatap", "6to4",
+    };
 
     private static readonly string[] VirtualNameKeywords =
     {
@@ -280,7 +292,7 @@ public sealed class NetworkDeviceClassifier
                 continue;
             }
 
-            if (VirtualHardwareIdPattern.IsMatch(id))
+            if (LooksVirtualHardwareId(id))
             {
                 matched = id;
                 return true;
@@ -345,9 +357,108 @@ public sealed class NetworkDeviceClassifier
             return false;
         }
 
-        var regex = "^" + Regex.Escape(pattern).Replace(@"\*", ".*").Replace(@"\?", ".") + "$";
-        return Regex.IsMatch(value, regex, RegexOptions.IgnoreCase);
+        if (string.IsNullOrEmpty(pattern))
+        {
+            return false;
+        }
+
+        // Linear glob match: '*' matches any run (including empty), '?' matches exactly one
+        // character, everything else is literal and compared case insensitively. Regex was used
+        // before, but the pattern language is tiny and the regex engine costs ~0.5 MB in a Native
+        // AOT build (and needs reflection for its compiled paths).
+        var valueIndex = 0;
+        var patternIndex = 0;
+        var starPatternIndex = -1;
+        var starValueIndex = 0;
+
+        while (valueIndex < value.Length)
+        {
+            if (patternIndex < pattern.Length &&
+                (pattern[patternIndex] == '?' || SameChar(pattern[patternIndex], value[valueIndex])))
+            {
+                valueIndex++;
+                patternIndex++;
+                continue;
+            }
+
+            if (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+            {
+                starPatternIndex = patternIndex;
+                starValueIndex = valueIndex;
+                patternIndex++;
+                continue;
+            }
+
+            if (starPatternIndex >= 0)
+            {
+                // Backtrack: let the last '*' swallow one more character.
+                patternIndex = starPatternIndex + 1;
+                valueIndex = ++starValueIndex;
+                continue;
+            }
+
+            return false;
+        }
+
+        while (patternIndex < pattern.Length && pattern[patternIndex] == '*')
+        {
+            patternIndex++;
+        }
+
+        return patternIndex == pattern.Length;
     }
+
+    private static bool SameChar(char left, char right) =>
+        left == right || char.ToUpperInvariant(left) == char.ToUpperInvariant(right);
+
+    /// <summary>Token scan used in place of the previous regex (see <see cref="VirtualHardwareIdTokens"/>).</summary>
+    private static bool LooksVirtualHardwareId(string? hardwareId)
+    {
+        if (string.IsNullOrEmpty(hardwareId))
+        {
+            return false;
+        }
+
+        foreach (var token in VirtualHardwareIdTokens)
+        {
+            var from = 0;
+            while (from <= hardwareId.Length - token.Length)
+            {
+                var index = hardwareId.IndexOf(token, from, StringComparison.OrdinalIgnoreCase);
+                if (index < 0)
+                {
+                    break;
+                }
+
+                var startOk = index == 0 || !IsAsciiAlphanumeric(hardwareId[index - 1]);
+                var end = index + token.Length;
+
+                // "tap\d*": a trailing digit run is part of the token (tap0901, tap6, ...).
+                if (token == "tap")
+                {
+                    while (end < hardwareId.Length && IsAsciiDigit(hardwareId[end]))
+                    {
+                        end++;
+                    }
+                }
+
+                var endOk = end >= hardwareId.Length || !IsAsciiAlphanumeric(hardwareId[end]);
+                if (startOk && endOk)
+                {
+                    return true;
+                }
+
+                from = index + 1;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAsciiDigit(char value) => value is >= '0' and <= '9';
+
+    private static bool IsAsciiAlphanumeric(char value) =>
+        IsAsciiDigit(value) || value is >= 'a' and <= 'z' or >= 'A' and <= 'Z';
 
     /// <summary>Derives the enumerator from an instance id such as <c>PCI\VEN_8086&amp;DEV_...</c>.</summary>
     public static string DeriveEnumerator(string instanceId)
