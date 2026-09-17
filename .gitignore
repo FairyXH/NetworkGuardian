@@ -9,6 +9,7 @@ obj/
 artifacts/
 publish/
 release/
+NetworkGuardian-*.zip
 TestResults/
 *.binlog
 build.log

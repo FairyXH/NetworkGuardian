@@ -8,7 +8,8 @@
 
 param(
     [string]$OutputDirectory = '',
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$Zip
 )
 
 $ErrorActionPreference = 'Stop'
@@ -192,6 +193,24 @@ NetworkGuardian $version - 发布包（自包含）
     $helperMb = [math]::Round(((Get-ChildItem (Join-Path $OutputDirectory 'helper') -Recurse -File | Measure-Object -Property Length -Sum).Sum) / 1MB, 1)
     $hash = (Get-FileHash (Join-Path $OutputDirectory 'NetworkGuardian.exe') -Algorithm SHA256).Hash
 
+    $zipPath = ''
+    if ($Zip) {
+        # An archive for transfer is written next to the repository, never inside the package itself.
+        # The contents are staged under a versioned folder so extracting the archive yields one tidy
+        # directory instead of scattering 500 files into the target folder.
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $shortVersion = (($version -split '\.')[0..2] -join '.')
+        $archiveName = "NetworkGuardian-$shortVersion-win-x64"
+        $zipPath = Join-Path $repoRoot ("$archiveName.zip")
+        $zipStage = Join-Path $stagingRoot $archiveName
+        New-Item -ItemType Directory -Force -Path $zipStage | Out-Null
+        Copy-Item -Path (Join-Path $OutputDirectory '*') -Destination $zipStage -Recurse -Force
+        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+        Write-Host "== archive" -ForegroundColor Cyan
+        [System.IO.Compression.ZipFile]::CreateFromDirectory(
+            $zipStage, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $true)
+    }
+
     Write-Host ''
     Write-Host 'release package ready' -ForegroundColor Green
     Write-Host "  path        : $OutputDirectory"
@@ -199,6 +218,10 @@ NetworkGuardian $version - 发布包（自包含）
     Write-Host "  files       : $($files.Count) (helper: $helperMb MB)"
     Write-Host "  total size  : $totalMb MB"
     Write-Host "  exe sha256  : $hash"
+    if ($zipPath) {
+        $zipMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
+        Write-Host "  archive     : $zipPath ($zipMb MB)"
+    }
     Write-Host '  next        : pwsh -NoProfile -File tools/verify-release.ps1'
 }
 finally {
