@@ -273,3 +273,78 @@ debug 级别记录鼠标坐标、命中索引、按下/抬起是否一致、当�
 | 发布产物点击回归（`tools\qa-ui-click.ps1`） | 导航切换、滚动后按钮点击均生效（见 10.1 / 10.2 证据） |
 
 仍未验证：真实 UAC 弹窗交互（自动化会弹窗，需人工点一次）、提权启用「已禁用」无线网卡的端到端。
+
+---
+
+## 11. 追加会话（同日）：网卡自动恢复的真实行为 + 一个 SSID 一张网卡
+
+用户报告两件事：① 在 Windows 网络设置里禁用的无线网卡没有被自动打开；② 两张无线网卡不应连接同一个 Wi-Fi，
+若已重复连接应断开信号较差的那张。
+
+### 11.1 先诊断：「被关闭」和「启动失败」是两回事
+
+真机（本机 3 张物理无线网卡）：
+
+| 网卡 | 真实状态 | 旧版程序的行为 |
+| --- | --- | --- |
+| Intel Wi-Fi 6 AX201（PCI） | `Status=Error`、`CM_PROB_FAILED_START`(**10**)，`ConfigFlags=0`（**未被禁用**） | 只写一条 UI note，日志里**完全没有痕迹** |
+| AIC8800D80（USB） | 正常，连接 HXXY-WiFi | 正常保活 |
+| MediaTek MT7961（USB） | 正常但驱动报 `powered down`，连不上 AP | 正常（无动作） |
+
+- 旧设计只对 problem code **22/21（真正被禁用）** 发 `CM_Enable_DevNode`；10/43 这类"驱动没起来"被判定为
+  "不是禁用，启用也没用"，只记一条注释。这条注释既不进日志，也不给出下一步，所以用户看到的就是"什么也没发生"。
+- 实测（提权助手，手工请求 `restart`）：对 AX201 做**禁用+启用**后仍是 `CM_PROB_FAILED_START`，
+  说明它是驱动层故障，不是"开关没打开"。
+- **顺带发现假成功**：`CM_Enable_DevNode` 返回 `CR_SUCCESS` 时旧代码一律报 `Succeeded`，
+  即使设备根本没启动（本机实测就复现了 `success=true, startedAfter=false, problemCodeAfter=10`）。
+
+### 11.2 改动
+
+| 项 | 内容 |
+| --- | --- |
+| 故障设备重启 | 新增 `RestartWifiDeviceAction`：对"存在但未运行"的物理无线网卡执行禁用+启用。每设备限流（≤3 次/小时、间隔 ≥120 秒、连续 2 次失败即停），动作后插入稳定等待 |
+| 新开关 | `general.autoRestartFaultedWifiDevices`（默认开）+ 设置页开关「故障无线网卡自动重启」 |
+| 如实报告 | `DeviceNodeOperations` 在 `CR_SUCCESS` 后再轮询最多 4 秒等 `DN_STARTED`；仍未启动则报 `Failed`，并写明"需要重装/回滚驱动，禁用/启用无法修复驱动故障" |
+| 一个 SSID 一张网卡 | `wifi.allowSameSsidOnMultipleAdapters` 默认改为 **false**，并新增 v4 迁移（`CurrentVersion=4`）把已有配置一并关掉 |
+| 冲突断开 | 决策引擎检测同一 SSID 被多张网卡连接，保留信号最强的一张（信号相同则按描述稳定取舍），对最弱的一张发 `DisconnectWifiAction`（限流 12 次/小时、间隔 ≥60 秒） |
+| 不许立刻重连 | `CandidateSelector` 的 `excludeSsid`（单值）扩展为 `excludeSsids`（集合）：被别人占用的 SSID 不再是候选，被断开的网卡会改用其它已保存网络，没有别的网络就保持空闲 |
+| 可观测性 | `GuardianHostService` 把决策 notes 写进日志（按"去掉数字后的文本"归类，同类每分钟最多一条），并在 `WM_*` 之外新增"重启设备"执行分支的信息/警告日志 |
+
+### 11.3 真机验证（发布产物 7.85 MB，`release\NetworkGuardian.exe`）
+
+**① 被禁用的网卡能自动启用**（直接验证用户投诉点）：手工 `Disable-PnpDevice` 禁用 MediaTek 网卡
+（`Status=Error, CM_PROB_DISABLED`），启动程序后 3 秒内：
+
+```
+09:31:03.830 Process is elevated; enabling USB\VID_0E8D&PID_7961\000000000 directly
+09:31:06.138 CM_Enable_DevNode(USB\VID_0E8D&PID_7961\000000000) returned CR_SUCCESS
+09:31:06.138 Enabled physical Wi-Fi device USB\VID_0E8D&PID_7961\000000000: Device started.
+```
+
+**② 故障网卡尝试重启并如实报失败**（AX201）：
+
+```
+10:00:43.605 Restarting physical Wi-Fi device PCI\VEN_8086&DEV_7A70… (Intel(R) Wi-Fi 6 AX201 160MHz);
+             problem code 10 means the driver did not start, so enabling alone would not help
+10:00:49.400 Restarting … did not bring it back: Failed … the device did not start within 4.0s
+             (problem code 10). … reinstall or roll back the adapter driver in Device Manager.
+```
+
+之后同一设备被限流（`minimum interval 120s not elapsed`），证明不会每轮反复动硬件。
+
+**③ 日志刷屏修复**：第一版 notes 日志按整行去重，但限流器的原因里带动态计数（"last run 22s ago"），
+4 分钟产生 266 条；改为"去掉数字后归类 + 同类每分钟至多一条"后，75 秒只有 6 条。
+
+**④ 配置迁移**：用户既有 `config.json`（version 3）启动后被迁移为 version 4，
+`allowSameSsidOnMultipleAdapters=false`、`autoRestartFaultedWifiDevices=true`。
+
+### 11.4 仍未在真机验证
+
+- **两张网卡连同一个 SSID 的断开行为**：本机只有 AIC8800D80 能连上该 AP（MediaTek 驱动报 `powered down`，
+  AX201 驱动启动失败），无法构造真实重复连接场景。该分支由 5 个单元测试锁定
+  （保留强者/断开弱者、信号相同时的稳定取舍、允许共享时不动作、不同 SSID 不干扰、被断开的网卡不会立刻重连回去）。
+  需要两台都能连上同一 AP 的网卡（或在别的机器上）做一次端到端确认。
+- **普通权限下的 UAC 交互**：本机会话是已提权的，`--helper` 直接执行、没有弹窗。真实用户环境下
+  每次提权动作都需要在 UAC 上点一次「是」——**这就是"没有自动打开"最可能的第二种原因**：
+  如果当时 UAC 弹窗未被确认（或程序未运行），网卡不会恢复。README 与发布说明已明确写出这一点，
+  并说明"要无人值守生效需要以管理员身份常驻（任务计划程序），程序不会自行配置"。

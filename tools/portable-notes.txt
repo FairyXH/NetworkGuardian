@@ -52,8 +52,18 @@ Windows 11 把 SSID / BSSID / RSSI 等网络标识放在位置隐私权限之后
 --------------
   %LOCALAPPDATA%\NetworkGuardian\config.json          配置（保存时留一份 config.backup.json）
   %LOCALAPPDATA%\NetworkGuardian\config.invalid.json  无法解析时的隔离副本
-  %LOCALAPPDATA%\NetworkGuardian\Logs\*.log           滚动日志
+  %LOCALAPPDATA%\NetworkGuardian\Logs\*.log           滚动日志（含"决策提示"，即程序看到但不动作的原因）
   环境变量 NETWORKGUARDIAN_CONFIG_ROOT 可整体替换上述根目录（测试用）
+
+无线网卡自动恢复（日志里都能查到原因）
+--------------------------------------
+  * 被禁用的物理无线网卡（设备管理器/网络设置里禁用，problem code 22/21）：自动启用。
+    普通权限下这一步会弹一次 UAC 确认，未确认则不会打开。
+  * 驱动启动失败（problem code 10/43 等，Windows 不会显示成"已禁用"）：尝试一次"禁用+启用"重启，
+    每块网卡最多 3 次/小时、间隔至少 120 秒、连续 2 次失败即停止；若设备仍未启动，日志会明确写出
+    "需要重装或回滚该网卡驱动"，不会谎报成功。
+  * 一个 SSID 只允许一张网卡连接：检测到两张网卡连接同一个 Wi-Fi 时，断开信号较弱的那张，
+    并阻止它立刻重连回去（它会改用其它已保存网络）。如需允许多张网卡共用同一 SSID，可在设置页打开。
 
 卸载
 ----
