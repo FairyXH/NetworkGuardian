@@ -12,6 +12,7 @@ using NetworkGuardian.Windows.Devices;
 using NetworkGuardian.Windows.Location;
 using NetworkGuardian.Windows.Network;
 using NetworkGuardian.Windows.Radio;
+using NetworkGuardian.Windows.Security;
 using NetworkGuardian.Windows.Wlan;
 
 namespace NetworkGuardian.Portable.Services;
@@ -38,6 +39,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly DeviceNotificationWatcher _deviceNotifications;
     private readonly NetworkDeviceClassifier _classifier = new();
     private readonly GuardianDecisionEngine _engine;
+    private readonly WifiNetworkVault _vault;
+    private readonly WifiProfileApplier _profiles;
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private readonly Random _jitter = new();
 
@@ -49,6 +52,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private Task? _radioWatchdog;
     private GuardianConfig _config;
     private GuardianSnapshot _snapshot;
     private DateTimeOffset _lastEnumerationUtc = DateTimeOffset.MinValue;
@@ -71,6 +75,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private Dictionary<Guid, ConnectivityProbeReport> _wifiProbeByAdapter = new();
     private Dictionary<string, ConnectivityProbeReport> _probeByInterfaceId = new();
     private Dictionary<Guid, (DateTimeOffset AtUtc, string Profile)> _lastConnectAttempt = new();
+    private WifiEapCatalog _eapCatalog = WifiEapCatalog.Empty;
     private bool _disposed;
 
     public GuardianHostService(
@@ -111,6 +116,15 @@ public sealed class GuardianHostService : IAsyncDisposable
             loggerFactory.CreateLogger<NetworkInterfaceProvider>());
 
         _engine = new GuardianDecisionEngine(_config, loggerFactory.CreateLogger<GuardianDecisionEngine>());
+
+        // The application's own wireless network library: the account for every 802.1X network the user
+        // maintains here, independent of what Windows stored. The password is DPAPI protected on disk.
+        _vault = new WifiNetworkVault(
+            GuardianPaths.WifiCredentialFile,
+            new DpapiSecretProtector(loggerFactory.CreateLogger<DpapiSecretProtector>()),
+            loggerFactory.CreateLogger<WifiNetworkVault>());
+
+        _profiles = new WifiProfileApplier(_wifi, loggerFactory.CreateLogger<WifiProfileApplier>());
 
         _globalProbe = ConnectivityProbeReport.NotAttempted(DateTimeOffset.UtcNow, "not-yet-run");
         _snapshot = GuardianSnapshot.Initial(_config, DateTimeOffset.UtcNow);
@@ -228,6 +242,18 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         _deviceNotifications.TryStart();
 
+        // The self-maintained wireless network library is loaded before the first cycle: the engine needs
+        // to know which 802.1X networks it can authenticate for.
+        await _vault.LoadAsync(cancellationToken).ConfigureAwait(false);
+        _eapCatalog = _vault.BuildCatalog();
+        _logger.LogInformation(
+            "自维护无线网络库已加载：{Count} 个网络（密码保护：{Protection}），文件 {Path}",
+            _vault.Count, _vault.ProtectionName, _vault.Path);
+        foreach (var issue in _vault.LastLoadIssues)
+        {
+            _logger.LogWarning("无线网络库提示：{Issue}", issue);
+        }
+
         if (_config.General.EnsureRadioOnAtStartup && _config.General.AutoEnableWifiRadio)
         {
             var radio = await _radio.GetAsync(cancellationToken).ConfigureAwait(false);
@@ -240,6 +266,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _loop = Task.Run(() => MonitorLoopAsync(_cts.Token), CancellationToken.None);
+        _radioWatchdog = Task.Run(() => RadioWatchdogLoopAsync(_cts.Token), CancellationToken.None);
 
         _logger.LogInformation("Guardian host started (config {Path})", _configStore.ConfigPath);
     }
@@ -280,6 +307,79 @@ public sealed class GuardianHostService : IAsyncDisposable
         ApplyConfigToComponents(config);
         RequestImmediateCycle();
         _logger.LogInformation("Configuration updated and saved to {Path}", _configStore.ConfigPath);
+    }
+
+    /// <summary>
+    /// Keeps every wireless adapter's software radio switch on.
+    /// </summary>
+    /// <remarks>
+    /// Windows keeps one switch per adapter, so an adapter switched off in Settings stays off for the whole
+    /// run unless something re-reads all of them. The monitor cycle is far too slow for that (its heartbeat
+    /// is the health sweep), and a Wi-Fi recovery that finds "no network" on a switched-off adapter never
+    /// starts. This loop therefore only does one thing, on its own cadence: read the per-adapter switches
+    /// and immediately switch a software-off radio back on.
+    /// <para>
+    /// Hardware-off radios are reported, never retried: no software can turn those on. While the user has
+    /// paused automatic recovery the loop stays out of the way, exactly like every other automatic action.
+    /// </para>
+    /// </remarks>
+    private async Task RadioWatchdogLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var interval = TimeSpan.FromSeconds(Math.Clamp(_config.General.RadioWatchdogSeconds, 1, 600));
+
+            try
+            {
+                var active = _config.General.AutomaticRecovery &&
+                             _config.General.RadioWatchdogEnabled &&
+                             _config.General.AutoEnableWifiRadio;
+
+                if (!active)
+                {
+                    _logger.LogDebug("无线电看门狗已关闭（automaticRecovery/radioWatchdogEnabled/autoEnableWifiRadio）");
+                }
+                else if (IsPaused)
+                {
+                    _logger.LogDebug("已暂停自动恢复：无线电看门狗不干预网卡软开关");
+                }
+                else
+                {
+                    var result = await _radio.SetEnabledAsync(true, cancellationToken).ConfigureAwait(false);
+
+                    if (result.StateChanged)
+                    {
+                        _logger.LogInformation("无线电看门狗：已把软件关闭的无线网卡重新打开");
+                        Notification?.Invoke(this, "已自动打开无线网卡的软开关");
+                        _forceEnumeration = true;
+                        _forceProbe = true;
+                    }
+                    else if (!result.Success && !string.IsNullOrWhiteSpace(result.Failure))
+                    {
+                        _logger.LogWarning("无线电看门狗未能打开软开关：{Failure}", result.Failure);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "无线电看门狗循环出错");
+            }
+
+            try
+            {
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+
+        _logger.LogInformation("无线电看门狗循环已停止");
     }
 
     private void ApplyConfigToComponents(GuardianConfig config)
@@ -376,6 +476,10 @@ public sealed class GuardianHostService : IAsyncDisposable
             var adapters = BuildAdapterStates();
             var interfaces = BuildInterfaceStates();
 
+            // The library can change while the program runs (the user edits an entry), so the engine gets a
+            // fresh summary of "which 802.1X networks can be authenticated" every cycle.
+            _eapCatalog = _vault.BuildCatalog();
+
             var input = new GuardianInput
             {
                 Now = DateTimeOffset.UtcNow,
@@ -388,6 +492,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 IsPaused = IsPaused,
                 ManualScanRequested = _manualScanRequested,
                 Location = _location.Read(),
+                EapCatalog = _eapCatalog,
             };
 
             _manualScanRequested = false;
@@ -766,12 +871,33 @@ public sealed class GuardianHostService : IAsyncDisposable
                 {
                     _lastConnectAttempt[connect.InterfaceGuid] = (DateTimeOffset.UtcNow, connect.ProfileName);
 
+                    // 802.1X: the account comes from the built-in library, so the profile (and the
+                    // credentials) are written to the adapter first. Windows is never asked to prompt.
+                    if (connect.UsesLibraryCredential)
+                    {
+                        var prepared = await EnsureLibraryProfileAsync(connect, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        if (!prepared.Success)
+                        {
+                            _engine.NotifyConnectResult(
+                                connect.InterfaceGuid, connect.ProfileName, success: false,
+                                prepared.Failure, DateTimeOffset.UtcNow, requiredEap: true);
+                            _logger.LogWarning(
+                                "未能为 {Ssid} 准备 802.1X 配置，连接未发起：{Failure}",
+                                connect.Ssid, prepared.Failure);
+                            Notification?.Invoke(this, $"{connect.Ssid}：802.1X 配置准备失败（{prepared.Failure}）");
+                            break;
+                        }
+                    }
+
                     var result = await _wifi.ConnectAsync(
                             connect.InterfaceGuid, connect.ProfileName, connect.Bssid, cancellationToken)
                         .ConfigureAwait(false);
 
                     _engine.NotifyConnectResult(
-                        connect.InterfaceGuid, connect.ProfileName, result.Success, result.Failure, DateTimeOffset.UtcNow);
+                        connect.InterfaceGuid, connect.ProfileName, result.Success, result.Failure,
+                        DateTimeOffset.UtcNow, connect.RequiresEap);
 
                     if (result.Success)
                     {
@@ -930,6 +1056,63 @@ public sealed class GuardianHostService : IAsyncDisposable
         _logger.LogInformation("Recovery action: {Description}", description);
     }
 
+    /// <summary>
+    /// Makes sure the adapter carries the 802.1X profile and the account of <paramref name="action"/>'s
+    /// network, taken from the built-in wireless network library.
+    /// </summary>
+    private async Task<WifiProfileApplyResult> EnsureLibraryProfileAsync(
+        ConnectWifiAction action,
+        CancellationToken cancellationToken)
+    {
+        var entry = _vault.Find(action.Ssid) ?? _vault.FindByProfile(action.ProfileName);
+        if (entry is null)
+        {
+            return WifiProfileApplyResult.Fail(
+                $"自维护无线网络库中没有「{action.Ssid}」的账号，无法进行 802.1X 认证");
+        }
+
+        if (!entry.Enabled)
+        {
+            return WifiProfileApplyResult.Fail($"「{action.Ssid}」在无线网络库中已被停用");
+        }
+
+        if (entry.PasswordDecryptionFailed)
+        {
+            return WifiProfileApplyResult.Fail(
+                $"「{action.Ssid}」保存的密码无法解密（可能来自其他用户或其他电脑），请在“网络凭据库”中重新填写");
+        }
+
+        if (!_config.Wifi.ApplyEapProfileOnConnect)
+        {
+            // The user disabled automatic writing on purpose: use whatever profile the adapter already has.
+            _logger.LogDebug("已关闭自动写入 802.1X 配置，直接使用网卡上的现有配置连接 {Ssid}", action.Ssid);
+            return new WifiProfileApplyResult { Success = true };
+        }
+
+        var result = _profiles.Apply(action.InterfaceGuid, entry, allowWrite: true);
+        if (!result.Success)
+        {
+            return result;
+        }
+
+        if (result.Changed)
+        {
+            _logger.LogInformation(
+                "已按自维护无线网络库写入 802.1X 配置：{Ssid}（账号 {Identity}，配置 {Profile}，凭证 {Credentials}）",
+                entry.Ssid, entry.Identity, result.ProfileWritten ? "已写入" : "无需更新",
+                result.UserDataWritten ? "已写入" : "无需更新");
+            Notification?.Invoke(this, $"{entry.Ssid}：已写入 802.1X 配置与账号");
+        }
+
+        // Remember that the entry is applied, so the next cycle does not rewrite the profile.
+        await _vault
+            .MarkAppliedAsync(entry.Id, result.AppliedFingerprint, DateTimeOffset.UtcNow, cancellationToken)
+            .ConfigureAwait(false);
+
+        _eapCatalog = _vault.BuildCatalog();
+        return result;
+    }
+
     // ---------- Manual operations used by the UI ----------
 
     public async Task<AdapterScanSnapshot> ScanAdapterAsync(Guid interfaceGuid, CancellationToken cancellationToken)
@@ -1041,6 +1224,103 @@ public sealed class GuardianHostService : IAsyncDisposable
         RequestImmediateCycle();
     }
 
+    // ---------- the self-maintained wireless network library (used by the UI) ----------
+
+    public string WifiLibraryPath => _vault.Path;
+
+    public string WifiLibraryProtection => _vault.ProtectionName;
+
+    public IReadOnlyList<string> WifiLibraryIssues => _vault.LastLoadIssues;
+
+    /// <summary>Entries of the library, passwords decrypted for editing. Copies, never the live objects.</summary>
+    public IReadOnlyList<WifiNetworkCredential> WifiLibraryEntries => _vault.Entries;
+
+    /// <summary>802.1X attempt counters of the current run, including the networks given up.</summary>
+    public IReadOnlyList<EapRetryStatus> EapRetryStatus => _engine.EapRetries.Snapshot();
+
+    /// <summary>
+    /// Persists edited library entries. Any changed entry is re-applied to Windows on the next connect, and
+    /// its 802.1X attempt counter is cleared, so a corrected password takes effect immediately instead of
+    /// after a restart.
+    /// </summary>
+    public async Task SaveWifiLibraryAsync(
+        IReadOnlyList<WifiNetworkCredential> entries,
+        CancellationToken cancellationToken)
+    {
+        await _vault.SaveAsync(entries, cancellationToken).ConfigureAwait(false);
+
+        var cleared = 0;
+        foreach (var entry in entries)
+        {
+            cleared += _engine.ClearEapRetries(entry.Ssid);
+        }
+
+        await _vault.LoadAsync(cancellationToken).ConfigureAwait(false);
+        _eapCatalog = _vault.BuildCatalog();
+
+        _logger.LogInformation(
+            "自维护无线网络库已保存：{Count} 个网络，清除 {Cleared} 条 802.1X 失败计数，{Catalog}",
+            _vault.Count, cleared, _eapCatalog.Describe());
+
+        _forceEnumeration = true;
+        RequestImmediateCycle();
+    }
+
+    /// <summary>
+    /// Writes one library entry to the given adapters (or every adapter) right away. Used by the UI button
+    /// so the user can push a corrected account without waiting for the next connect attempt.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ApplyWifiLibraryEntryAsync(
+        string entryId,
+        Guid? interfaceGuid,
+        CancellationToken cancellationToken)
+    {
+        var entry = _vault.Entries.FirstOrDefault(e => string.Equals(e.Id, entryId, StringComparison.Ordinal));
+        if (entry is null)
+        {
+            return new[] { "无线网络库中没有该条目" };
+        }
+
+        var adapters = interfaceGuid is { } guid
+            ? _wifi.GetAdapters().Where(a => a.InterfaceGuid == guid).ToList()
+            : _wifi.GetAdapters().ToList();
+
+        if (adapters.Count == 0)
+        {
+            return new[] { "没有可用的物理无线网卡" };
+        }
+
+        var results = new List<string>();
+        foreach (var adapter in adapters)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // A manual apply must not be skipped by the "already applied" marker.
+            entry.AppliedFingerprint = null;
+            entry.LastAppliedUtc = null;
+
+            var result = _profiles.Apply(adapter.InterfaceGuid, entry, allowWrite: true);
+            results.Add(result.Success
+                ? $"{adapter.Description}：已写入"
+                : $"{adapter.Description}：{result.Failure}");
+
+            if (result.Success)
+            {
+                await _vault.MarkAppliedAsync(entry.Id, result.AppliedFingerprint, DateTimeOffset.UtcNow,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        _forceEnumeration = true;
+        RequestImmediateCycle();
+        _logger.LogInformation("手动写入 802.1X 配置：{Results}", string.Join("；", results));
+        return results;
+    }
+
+    /// <summary>Removes the generated profile from one adapter (used when the user deletes an entry).</summary>
+    public WlanOperationResult RemoveWifiProfile(Guid interfaceGuid, string profileName) =>
+        _profiles.Remove(interfaceGuid, profileName);
+
     public void OpenLogFolder()
     {
         try
@@ -1077,6 +1357,11 @@ public sealed class GuardianHostService : IAsyncDisposable
             if (_loop is not null)
             {
                 await Task.WhenAny(_loop, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+            }
+
+            if (_radioWatchdog is not null)
+            {
+                await Task.WhenAny(_radioWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
             }
         }
         catch (Exception ex)

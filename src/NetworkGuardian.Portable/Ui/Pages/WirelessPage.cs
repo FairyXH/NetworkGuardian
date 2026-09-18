@@ -1,5 +1,6 @@
 using System.Drawing;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Wlan;
 
 namespace NetworkGuardian.Portable.Ui.Pages;
 
@@ -138,6 +139,16 @@ internal sealed class WirelessPage : IPage
         var networkCount = adapter.LastScan?.Networks.Count ?? 0;
         var networkRows = networkCount > 0 ? networkCount : 1;
         var profilesRows = Math.Max(1, (adapter.SavedProfiles.Count + 5) / 6);
+
+        // The 802.1X accounts come from the application's own library, not from Windows.
+        var librarySsids = ctx.Host.WifiLibraryEntries
+            .Where(e => e.Enabled)
+            .Select(e => e.Ssid)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var abandoned = ctx.Host.EapRetryStatus
+            .Where(s => s.Abandoned && s.InterfaceGuid == adapter.InterfaceGuid)
+            .Select(s => s.Ssid)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var cardHeight =
             ctx.Scale(16 + 24 + 8) +          // padding + title
@@ -278,13 +289,26 @@ internal sealed class WirelessPage : IPage
             foreach (var network in networks)
             {
                 var columnX = x;
+                var stateCell = network.HasProfile ? network.ProfileName ?? network.Ssid : "无配置（忽略）";
+                if (WifiProfileInspector.IsEnterpriseSecurity(network.Security))
+                {
+                    stateCell += librarySsids.Contains(network.Ssid)
+                        ? "｜802.1X：库中有账号"
+                        : "｜802.1X：库中无账号";
+
+                    if (abandoned.Contains(network.Ssid))
+                    {
+                        stateCell += "｜本次运行已临时放弃";
+                    }
+                }
+
                 var cells = new[]
                 {
                     network.Ssid,
                     $"{network.SignalQuality}%",
                     $"{network.Rssi} dBm",
                     network.Band == NetworkBand.Unknown ? "—" : $"{Format.Band(network.Band)} ch{network.Channel}",
-                    network.HasProfile ? network.ProfileName ?? network.Ssid : "无配置（忽略）",
+                    stateCell,
                 };
 
                 for (var i = 0; i < cells.Length; i++)

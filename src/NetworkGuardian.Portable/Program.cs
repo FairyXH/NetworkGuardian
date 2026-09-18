@@ -14,6 +14,7 @@ internal static class Pages
     {
         new DashboardPage(),
         new WirelessPage(),
+        new CredentialsPage(),
         new EthernetPage(),
         new SettingsPage(),
         new LogsPage(),
@@ -27,7 +28,7 @@ internal static class Pages
 /// QA switches used by the verification scripts:
 /// <list type="bullet">
 /// <item><c>--minimized</c>: start hidden in the tray.</item>
-/// <item><c>--page &lt;tag&gt;</c>: dashboard | wireless | ethernet | settings | logs.</item>
+/// <item><c>--page &lt;tag&gt;</c>: dashboard | wireless | credentials | ethernet | settings | logs.</item>
 /// <item><c>--visible</c>: force the window on screen (used together with the screenshot script).</item>
 /// </list>
 /// The configuration root can be redirected with <c>NETWORKGUARDIAN_CONFIG_ROOT</c> so a smoke test

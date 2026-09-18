@@ -162,4 +162,13 @@ public sealed record WifiCandidate
     public DateTimeOffset? LastConnectedUtc { get; init; }
 
     public int RecentConnectFailures { get; init; }
+
+    /// <summary>True when the network requires 802.1X/EAP authentication.</summary>
+    public bool RequiresEap { get; init; }
+
+    /// <summary>
+    /// True when the candidate was selected because the built-in library holds the account for it; the
+    /// host then writes the profile and the credentials from the library before connecting.
+    /// </summary>
+    public bool UsesLibraryCredential { get; init; }
 }

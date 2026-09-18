@@ -25,4 +25,10 @@ public sealed record GuardianInput
     public bool ManualScanRequested { get; init; }
 
     public LocationPermissionSnapshot Location { get; init; } = new() { ObservedAtUtc = default };
+
+    /// <summary>
+    /// Which SSIDs the built-in wireless network library can authenticate for. The engine is pure, so it
+    /// sees this summary (SSIDs only) instead of the library itself, which holds the passwords.
+    /// </summary>
+    public WifiEapCatalog EapCatalog { get; init; } = WifiEapCatalog.Empty;
 }

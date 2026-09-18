@@ -90,6 +90,8 @@ internal sealed class SettingsPage : IPage
         general.Toggle("允许自动启用被禁用的物理无线网卡", config.General.AutoEnableWifiDevices, v => config.General.AutoEnableWifiDevices = v);
         general.Toggle("故障无线网卡自动重启（禁用+启用，用于驱动启动失败）", config.General.AutoRestartFaultedWifiDevices, v => config.General.AutoRestartFaultedWifiDevices = v);
         general.Toggle("启动时确保无线电为开启", config.General.EnsureRadioOnAtStartup, v => config.General.EnsureRadioOnAtStartup = v);
+        general.Toggle("无线电看门狗：持续检查并打开所有无线网卡的软开关", config.General.RadioWatchdogEnabled, v => config.General.RadioWatchdogEnabled = v);
+        general.Number("软开关检查间隔（秒）", config.General.RadioWatchdogSeconds, 1, 600, v => config.General.RadioWatchdogSeconds = v);
         general.Number("巡检周期（秒）", config.General.HealthSweepSeconds, 5, 3600, v => config.General.HealthSweepSeconds = v);
         general.Number("设备枚举刷新周期（秒）", config.General.EnumerationRefreshSeconds, 30, 3600, v => config.General.EnumerationRefreshSeconds = v);
         general.Number("睡眠唤醒后的稳定等待（秒）", config.General.ResumeSettleSeconds, 0, 300, v => config.General.ResumeSettleSeconds = v);
@@ -182,6 +184,10 @@ internal sealed class SettingsPage : IPage
         wifi.Toggle("允许隐藏的已保存配置", config.Wifi.AllowHiddenProfiles, v => config.Wifi.AllowHiddenProfiles = v);
         wifi.Toggle("允许多张网卡连接同一个 SSID（关闭时重复连接中信号较弱的网卡会被断开）", config.Wifi.AllowSameSsidOnMultipleAdapters, v => config.Wifi.AllowSameSsidOnMultipleAdapters = v);
         wifi.Toggle("优先最近连接过的配置", config.Wifi.PreferRecentProfiles, v => config.Wifi.PreferRecentProfiles = v);
+        wifi.Toggle("企业级（802.1X/EAP）网络使用自维护无线网络库的账号密码", config.Wifi.UseCredentialLibraryForEap, v => config.Wifi.UseCredentialLibraryForEap = v);
+        wifi.Toggle("库中参数变化时自动重写系统配置（关闭则只连接不清写）", config.Wifi.ApplyEapProfileOnConnect, v => config.Wifi.ApplyEapProfileOnConnect = v);
+        wifi.Number("802.1X 失败重试上限（达到后本次运行放弃该网络）", config.Wifi.EapConnectMaxAttempts, 1, 50, v => config.Wifi.EapConnectMaxAttempts = v);
+        wifi.Note("账号密码在“网络凭据库”页面维护；密码以 DPAPI 加密保存，界面与日志均不显示明文。");
         wifi.Number("信号强度迟滞（百分点）", config.Wifi.SignalHysteresis, 0, 100, v => config.Wifi.SignalHysteresis = v);
         wifi.Number("最低可用信号（%）", config.Wifi.MinimumSignalQuality, 0, 100, v => config.Wifi.MinimumSignalQuality = v);
         wifi.Number("掉线后进入恢复的宽限期（秒）", config.Wifi.DisconnectGraceSeconds, 0, 600, v => config.Wifi.DisconnectGraceSeconds = v);

@@ -1,5 +1,6 @@
 using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Wlan;
 
 namespace NetworkGuardian.Core.Policies;
 
@@ -10,11 +11,20 @@ namespace NetworkGuardian.Core.Policies;
 /// </summary>
 public sealed class CandidateSelector
 {
-    private readonly ConnectFailureBlacklist _blacklist;
+    /// <summary>
+    /// Marks a rejection that the user has to see, not only a verbose log: a campus network that cannot
+    /// be joined because the account is missing (or was already given up) is the answer to "why does my
+    /// Wi-Fi not connect", so the engine always surfaces these.
+    /// </summary>
+    public const string EapRejectionPrefix = "[802.1X] ";
 
-    public CandidateSelector(ConnectFailureBlacklist blacklist)
+    private readonly ConnectFailureBlacklist _blacklist;
+    private readonly EapConnectRetryPolicy _eapRetries;
+
+    public CandidateSelector(ConnectFailureBlacklist blacklist, EapConnectRetryPolicy? eapRetries = null)
     {
         _blacklist = blacklist;
+        _eapRetries = eapRetries ?? new EapConnectRetryPolicy();
     }
 
     public IReadOnlyList<WifiCandidate> SelectCandidates(
@@ -25,8 +35,10 @@ public sealed class CandidateSelector
         DateTimeOffset now,
         out IReadOnlyList<string> rejectionReasons,
         string? lastSuccessfulProfile = null,
-        IReadOnlyCollection<string>? excludeSsids = null)
+        IReadOnlyCollection<string>? excludeSsids = null,
+        WifiEapCatalog? eapCatalog = null)
     {
+        var catalog = eapCatalog ?? WifiEapCatalog.Empty;
         var rejections = new List<string>();
         var profiles = new HashSet<string>(savedProfiles ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
 
@@ -108,6 +120,34 @@ public sealed class CandidateSelector
                 continue;
             }
 
+            // ---------- 802.1X/EAP networks ----------
+            // Such a network authenticates with the account in the built-in library, so an entry has to
+            // exist; and once the attempt budget is spent for this adapter the network is left alone for
+            // the rest of the run (the next start tries again). This check comes before the short-term
+            // blacklist on purpose: "given up for this run" is the final reason and should be the one the
+            // user (and the log) sees, not a ban that expires a few minutes later.
+            var requiresEap = WifiProfileInspector.IsEnterpriseSecurity(network.Security);
+            var usesLibraryCredential = false;
+
+            if (requiresEap && settings.UseCredentialLibraryForEap)
+            {
+                if (!catalog.HasCredential(network.Ssid))
+                {
+                    rejections.Add($"{EapRejectionPrefix}{network.Ssid}: 需要 802.1X 认证，" +
+                                   "但自维护无线网络库中没有该网络的账号（账号密码在“网络凭据库”中添加）");
+                    continue;
+                }
+
+                if (_eapRetries.IsAbandoned(interfaceGuid, network.Ssid))
+                {
+                    rejections.Add($"{EapRejectionPrefix}{network.Ssid}: 已按 802.1X 重试上限" +
+                                   $"（{_eapRetries.MaxAttempts} 次）临时放弃，本次运行不再尝试（重启程序后会继续尝试）");
+                    continue;
+                }
+
+                usesLibraryCredential = true;
+            }
+
             if (_blacklist.IsBlacklisted(interfaceGuid, profileName, now, out var remaining))
             {
                 rejections.Add($"{network.Ssid}: temporarily blacklisted for {remaining.TotalSeconds:F0}s after a connect failure");
@@ -129,6 +169,8 @@ public sealed class CandidateSelector
                 Score = score.Value,
                 ScoreReason = score.Reason + (failures > 0 ? $", priorFailures={failures}" : string.Empty),
                 RecentConnectFailures = failures,
+                RequiresEap = requiresEap,
+                UsesLibraryCredential = usesLibraryCredential,
             });
         }
 

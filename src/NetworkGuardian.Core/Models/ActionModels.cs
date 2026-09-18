@@ -78,6 +78,15 @@ public sealed record ConnectWifiAction : GuardianAction
 
     public string? Bssid { get; init; }
 
+    /// <summary>True when the network requires 802.1X/EAP authentication.</summary>
+    public bool RequiresEap { get; init; }
+
+    /// <summary>
+    /// True when the account comes from the built-in wireless network library, i.e. the host has to write
+    /// the profile and the credentials to the adapter before connecting.
+    /// </summary>
+    public bool UsesLibraryCredential { get; init; }
+
     public override string Describe() => $"Connect({InterfaceGuid:N} -> {ProfileName}/{Ssid}, {Reason})";
 }
 

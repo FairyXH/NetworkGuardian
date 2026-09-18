@@ -30,6 +30,12 @@ public sealed record EngineDiagnostics
 
     public required IReadOnlyList<string> BannedProfiles { get; init; }
 
+    /// <summary>
+    /// Networks given up for this run because their 802.1X account was rejected too often, as
+    /// <c>interfaceGuid|ssid|failures</c>.
+    /// </summary>
+    public required IReadOnlyList<string> EapAbandonedNetworks { get; init; }
+
     public required IReadOnlyDictionary<string, string> AdapterStates { get; init; }
 }
 
@@ -44,6 +50,7 @@ public sealed class GuardianDecisionEngine
     private readonly ILogger _logger;
     private readonly CandidateSelector _selector;
     private readonly ConnectFailureBlacklist _blacklist;
+    private readonly EapConnectRetryPolicy _eapRetries;
     private readonly NetworkDeviceClassifier _classifier;
     private readonly RecoveryStateMachine _stateMachine;
     private readonly Dictionary<Guid, AdapterPolicyState> _adapters = new();
@@ -69,7 +76,8 @@ public sealed class GuardianDecisionEngine
         var now = (clock ?? SystemClock.Instance).UtcNow;
 
         _blacklist = new ConnectFailureBlacklist(TimeSpan.FromSeconds(config.Recovery.ConnectFailureBlacklistSeconds));
-        _selector = new CandidateSelector(_blacklist);
+        _eapRetries = new EapConnectRetryPolicy(config.Wifi.EapConnectMaxAttempts);
+        _selector = new CandidateSelector(_blacklist, _eapRetries);
         _classifier = new NetworkDeviceClassifier();
         _stateMachine = new RecoveryStateMachine(now);
 
@@ -94,6 +102,12 @@ public sealed class GuardianDecisionEngine
 
     public ConnectFailureBlacklist Blacklist => _blacklist;
 
+    /// <summary>
+    /// Per-adapter 802.1X attempt counters. In-memory only: after the configured number of failures the
+    /// network is given up until the program restarts.
+    /// </summary>
+    public EapConnectRetryPolicy EapRetries => _eapRetries;
+
     public NetworkDeviceClassifier Classifier => _classifier;
 
     public string? LastRecoveryAction => _lastRecoveryAction;
@@ -116,6 +130,7 @@ public sealed class GuardianDecisionEngine
             _ethernetTracker.FailureThreshold = config.Ethernet.FailureThreshold;
             _ethernetTracker.RecoveryThreshold = config.Recovery.InternetRecoveryThreshold;
             _blacklist.BanDuration = TimeSpan.FromSeconds(config.Recovery.ConnectFailureBlacklistSeconds);
+            _eapRetries.MaxAttempts = config.Wifi.EapConnectMaxAttempts;
 
             _deviceEnableLimiter.MaxRunsPerHour = config.Recovery.MaxDeviceEnablePerHour;
             _deviceEnableLimiter.MinInterval = TimeSpan.FromSeconds(Math.Max(20, config.Recovery.DeviceEnableSettleSeconds * 3));
@@ -133,6 +148,7 @@ public sealed class GuardianDecisionEngine
         lock (_gate)
         {
             _blacklist.Reset();
+            _eapRetries.Reset();
             _internetTracker.Reset(now);
             _ethernetTracker.Reset(now);
             _recoveryBackoff.Reset();
@@ -152,6 +168,23 @@ public sealed class GuardianDecisionEngine
     }
 
     public void NotifyConnectResult(Guid interfaceGuid, string profileName, bool success, string? failure, DateTimeOffset now)
+        => NotifyConnectResult(interfaceGuid, profileName, success, failure, now, requiredEap: false);
+
+    /// <summary>
+    /// Records the outcome of one connect attempt.
+    /// </summary>
+    /// <param name="requiredEap">
+    /// True when the attempt used the built-in library's 802.1X account. Those attempts are counted per
+    /// adapter and SSID, and once the budget is spent the network is given up for the rest of the run -
+    /// a campus account that was rejected five times will not be rejected a sixth time.
+    /// </param>
+    public void NotifyConnectResult(
+        Guid interfaceGuid,
+        string profileName,
+        bool success,
+        string? failure,
+        DateTimeOffset now,
+        bool requiredEap)
     {
         lock (_gate)
         {
@@ -162,6 +195,7 @@ public sealed class GuardianDecisionEngine
             if (success)
             {
                 _blacklist.RecordSuccess(interfaceGuid, profileName, now);
+                _eapRetries.RecordSuccess(interfaceGuid, profileName);
                 state.LastSuccessfulConnectionUtc = now;
                 state.LastConnectedProfile = profileName;
                 state.ConnectLimiter.NotifySuccess();
@@ -170,9 +204,64 @@ public sealed class GuardianDecisionEngine
             else
             {
                 _blacklist.RecordFailure(interfaceGuid, profileName, now, failure);
-                _logger.LogWarning("Connect failed on {Adapter} using {Profile}: {Failure}",
-                    interfaceGuid, profileName, failure);
+
+                if (requiredEap)
+                {
+                    var outcome = _eapRetries.RecordFailure(interfaceGuid, profileName, now, failure);
+                    if (outcome.AbandonedNow)
+                    {
+                        _logger.LogWarning(
+                            "802.1X connect to {Profile} on {Adapter} failed {Failures} times; giving the " +
+                            "network up for this run. The next start will try again. Last failure: {Failure}",
+                            profileName, interfaceGuid, outcome.Failures, failure);
+                        RecordRecoveryAction(
+                            $"{profileName}：已连续 {outcome.Failures} 次 802.1X 认证失败，本次运行临时放弃" +
+                            "（重启程序后继续尝试）");
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "Connect with the library account failed on {Adapter} using {Profile} " +
+                            "({Failures}/{MaxAttempts}): {Failure}",
+                            interfaceGuid, profileName, outcome.Failures, _eapRetries.MaxAttempts, failure);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Connect failed on {Adapter} using {Profile}: {Failure}",
+                        interfaceGuid, profileName, failure);
+                }
             }
+        }
+    }
+
+    /// <summary>Clears the 802.1X counters of one SSID on every adapter, e.g. after the account was fixed.</summary>
+    public int ClearEapRetries(string ssid)
+    {
+        if (string.IsNullOrWhiteSpace(ssid))
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            var cleared = 0;
+            foreach (var status in _eapRetries.Snapshot())
+            {
+                if (string.Equals(status.Ssid, ssid, StringComparison.OrdinalIgnoreCase) &&
+                    _eapRetries.Forget(status.InterfaceGuid, status.Ssid))
+                {
+                    cleared++;
+                }
+            }
+
+            if (cleared > 0)
+            {
+                _logger.LogInformation("Cleared the 802.1X attempt counters of {Ssid} on {Count} adapter(s)",
+                    ssid, cleared);
+            }
+
+            return cleared;
         }
     }
 
@@ -732,12 +821,21 @@ public sealed class GuardianDecisionEngine
                 now,
                 out var rejections,
                 state.LastConnectedProfile ?? state.LastKnownSsid,
-                excludeSsids);
+                excludeSsids,
+                input.EapCatalog);
 
             if (config.Logging.VerboseNetwork && rejections.Count > 0)
             {
                 wifiNotes.Add($"{adapter.Description}: rejected {rejections.Count} network(s): " +
                               string.Join("; ", rejections.Take(5)));
+            }
+
+            // A campus network that cannot authenticate is the reason "my Wi-Fi does not connect", so
+            // those rejections are surfaced even without verbose logging.
+            foreach (var rejection in rejections.Where(r =>
+                         r.StartsWith(CandidateSelector.EapRejectionPrefix, StringComparison.Ordinal)))
+            {
+                wifiNotes.Add($"{adapter.Description}: {rejection[CandidateSelector.EapRejectionPrefix.Length..]}");
             }
 
             if (candidates.Count == 0)
@@ -774,7 +872,12 @@ public sealed class GuardianDecisionEngine
                     ProfileName = assignment.Candidate.ProfileName,
                     Ssid = assignment.Candidate.Ssid,
                     Bssid = assignment.Candidate.PreferredBssid,
-                    Reason = $"best candidate: {assignment.Candidate.ScoreReason}",
+                    RequiresEap = assignment.Candidate.RequiresEap,
+                    UsesLibraryCredential = assignment.Candidate.UsesLibraryCredential,
+                    Reason = $"best candidate: {assignment.Candidate.ScoreReason}" +
+                             (assignment.Candidate.UsesLibraryCredential
+                                 ? "；使用自维护无线网络库的 802.1X 账号"
+                                 : string.Empty),
                 });
 
                 _stateMachine.Transition(RecoveryState.WifiConnecting, now, "connecting a disconnected adapter");
@@ -989,6 +1092,10 @@ public sealed class GuardianDecisionEngine
                 LastCampusAuthUtc = _lastCampusAuthUtc,
                 NextRecoveryBackoff = _recoveryBackoff.DelayFor(Math.Min(_internetTracker.TotalFailures, 8)),
                 BannedProfiles = _blacklist.Snapshot(now),
+                EapAbandonedNetworks = _eapRetries.Snapshot()
+                    .Where(s => s.Abandoned)
+                    .Select(s => $"{s.InterfaceGuid:N}|{s.Ssid}|{s.Failures}")
+                    .ToList(),
                 AdapterStates = _adapters.ToDictionary(
                     kv => kv.Key.ToString("N"),
                     kv => kv.Value.Connectivity.ToString()),

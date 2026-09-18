@@ -176,7 +176,8 @@ internal static class TestData
         string? profileName = null,
         NetworkBand band = NetworkBand.Band5GHz,
         bool connectable = true,
-        WifiBssType bssType = WifiBssType.Infrastructure) => new()
+        WifiBssType bssType = WifiBssType.Infrastructure,
+        WifiSecurity security = WifiSecurity.Wpa2Personal) => new()
     {
         InterfaceGuid = guid,
         Ssid = ssid,
@@ -185,7 +186,7 @@ internal static class TestData
         FrequencyKhz = band == NetworkBand.Band5GHz ? 5_180_000 : 2_437_000,
         Channel = band == NetworkBand.Band5GHz ? 36 : 6,
         Band = band,
-        Security = WifiSecurity.Wpa2Personal,
+        Security = security,
         BssType = bssType,
         ProfileName = hasProfile ? profileName ?? ssid : null,
         HasProfile = hasProfile,
