@@ -41,8 +41,11 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private readonly Random _jitter = new();
 
-    /// <summary>Decision notes that are already in the log, so a persistent condition is logged once.</summary>
-    private readonly HashSet<string> _loggedNotes = new(StringComparer.Ordinal);
+    /// <summary>
+    /// When each class of decision note was last written, so a persistent condition (a faulted adapter,
+    /// a disabled device, a throttled limiter) does not repeat every cycle.
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _noteLogTimes = new(StringComparer.Ordinal);
 
     private CancellationTokenSource? _cts;
     private Task? _loop;
@@ -157,20 +160,52 @@ public sealed class GuardianHostService : IAsyncDisposable
     {
         if (notes.Count == 0)
         {
-            _loggedNotes.Clear();
+            _noteLogTimes.Clear();
             return;
         }
 
+        var now = DateTimeOffset.UtcNow;
+        var active = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var note in notes)
         {
-            if (_loggedNotes.Add(note))
+            var key = NoteKey(note);
+            active.Add(key);
+
+            // Limiter throttles report a fresh counter every cycle ("last run 22s ago", then "23s ago"),
+            // so notes are grouped by their text with the digits removed and logged at most once a
+            // minute; a single stuck condition used to fill the log with hundreds of identical lines.
+            if (_noteLogTimes.TryGetValue(key, out var last) && now - last < TimeSpan.FromSeconds(60))
             {
-                _logger.LogInformation("决策提示: {Note}", note);
+                continue;
+            }
+
+            _noteLogTimes[key] = now;
+            _logger.LogInformation("决策提示: {Note}", note);
+        }
+
+        // Forget classes that no longer apply, so a returning condition is reported again.
+        foreach (var key in _noteLogTimes.Keys.Where(k => !active.Contains(k)).ToList())
+        {
+            _noteLogTimes.Remove(key);
+        }
+    }
+
+    /// <summary>Identity of a note ignoring counters, so "last run 22s ago" and "23s ago" match.</summary>
+    private static string NoteKey(string note)
+    {
+        var length = Math.Min(note.Length, 64);
+        var chars = note[..length].ToCharArray();
+
+        for (var i = 0; i < chars.Length; i++)
+        {
+            if (char.IsDigit(chars[i]))
+            {
+                chars[i] = '#';
             }
         }
 
-        // Forget notes that no longer apply so they are reported again if the condition returns.
-        _loggedNotes.IntersectWith(notes);
+        return new string(chars);
     }
 
     public LocationPermissionSnapshot LocationPermission => _location.Read();
