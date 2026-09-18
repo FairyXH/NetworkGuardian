@@ -348,3 +348,76 @@ debug 级别记录鼠标坐标、命中索引、按下/抬起是否一致、当�
   每次提权动作都需要在 UAC 上点一次「是」——**这就是"没有自动打开"最可能的第二种原因**：
   如果当时 UAC 弹窗未被确认（或程序未运行），网卡不会恢复。README 与发布说明已明确写出这一点，
   并说明"要无人值守生效需要以管理员身份常驻（任务计划程序），程序不会自行配置"。
+
+---
+
+## 12. 追加会话（同日）：真正没打开的是「每块网卡的 Wi-Fi 分开关」
+
+用户进一步澄清：**不是驱动问题，也不是网络共享中心的适配器设置**，而是
+Windows 设置里 WLAN 页面中**每块无线网卡各自的开关**（例如「WLAN」「WLAN 3」）没有打开。
+
+### 12.1 定位：三种"开关"是三个不同的层
+
+| 层 | 现象 | 本机实测 |
+| --- | --- | --- |
+| 适配器启用/禁用（PnP） | 设备管理器里的「启用设备」，problem code 22 | 第 11 节已验证可自动启用 |
+| 驱动启动失败 | AX201 `CM_PROB_FAILED_START` | 禁用/启用无效，需要重装驱动 |
+| **设置页的每块网卡 Wi-Fi 开关** | `netsh` 显示 `Radio status: Software Off` | **本节要修的**：程序从未打开过它 |
+
+`netsh wlan show interfaces` 在 MediaTek 网卡上一直显示 `Software Off`（此前被误判为"驱动 powered down"），
+正是用户在设置里看到的关闭状态。Windows 设置的分开关对应 **WinRT `Windows.Devices.Radios` 的
+每网卡一个 Radio 对象**（名字与网卡一致：`WLAN`、`WLAN 3`），也就是 `radio_state`。
+
+### 12.2 三条写入路径的实际结论（都做了实验）
+
+1. **`wlanapi` `wlan_intf_opcode_radio_state`（旧实现）**：读只读**第一个** WLAN 接口
+   （`NativeRadioAccess` 里的注释就写着 "use the first available interface"），所以被关掉的第二块网卡
+   完全不可见；写则**两块 USB 网卡都返回 87（ERROR_INVALID_PARAMETER）**——用 driver 自己返回的
+   `WLAN_RADIO_STATE` 做读-改-写、接口 connected 或 disconnected、尺寸 76/772 都试过，全部 87。
+   即：这条路径在本机只能读、不能写。
+2. **手写 WinRT ABI（`Windows.Devices.Radios`）**：激活与枚举都能成功
+   （`RoGetActivationFactory` → `IRadioStatics.GetRadiosAsync` 返回的对象类名确实是
+   `Windows.Devices.Radios.Radio`），但**返回的 `IAsyncOperation` 指针的 vtable 不含继承的 `IAsyncInfo`
+   成员**：直接调用 slot 6 崩溃，必须 `QueryInterface(IAsyncInfo)`（`00000036-…`）后才能
+   `get_Id/get_Status/get_ErrorCode`；而取结果所需的 `IAsyncOperation` 视图是**参数化接口**（PIID 非固定），
+   `GetResults` 拿不到。Native AOT 又不能用 CsWinRT。**结论：这条路放弃**，相关代码已删除。
+3. **Windows 无线电管理器（Win32 COM，`um/RadioMgr.h`）**：`IMediaRadioManager` →
+   `IRadioInstanceCollection` → `IRadioInstance`，**全部同步**，且 `GetInstanceSignature` 直接返回
+   **WLAN 接口 GUID**（与 WLAN API 同一标识，不需要按名字匹配），`SetRadioState(DRS_RADIO_ON, 5)` 成功。
+
+coclass 在 SDK 头里没有声明，是在注册表里按类描述找到的：
+`HKLM\SOFTWARE\Classes\CLSID` → `{833A69FB-5E17-4893-85A5-1EF469217372}` = "Wlan Radio Manager"
+（"Radio Management API" `{581333F6-…}` 返回 `E_NOINTERFACE`，不是它）。
+
+### 12.3 改动
+
+| 项 | 内容 |
+| --- | --- |
+| 新 interop | `src/NetworkGuardian.Windows/Radio/RadioManagerInterop.cs`：`IMediaRadioManager`/`IRadioInstanceCollection`/`IRadioInstance` 的 vtable 调用（`IRadioInstance` = IUnknown + GetRadioManagerSignature/GetInstanceSignature/GetFriendlyName/GetRadioState/**SetRadioState**/IsMultiComm/IsAssociatingDevice） |
+| 逐块读取 | `IRadioStateAccess.ReadRadioInstances()`：得到每块网卡的开关状态；`RadioInstanceInfo` 把 `DEVICE_RADIO_STATE`（0 开、1 软件关、2 硬件关、3 两者）映射成 `IsOn/IsSoftwareOff/IsHardwareOff` |
+| 逐块打开 | `IRadioStateAccess.SetInstanceRadioOn(Guid)`：只对指定接口写入，写后回读校验；硬件开关关闭时返回"软件无法打开"而不是反复重试 |
+| 汇总与自动开启 | `WifiRadioController`：快照改为**所有网卡汇总**（任一关闭即为 Off，这才看得见被关掉的那块）；"打开 Wi-Fi"改为**逐块打开**，部分成功如实报告（"已打开 N 块，但仍有失败：…"） |
+| COM 公寓 | 在 MTA 线程上执行（UI 线程是 STA，`CoInitializeEx` 不能改公寓）；`CoUninitialize` 只在 `CoInitializeEx` 返回 `S_OK` 时配对调用——`S_FALSE` 也配对会导致公寓计数下溢，实测表现为下一次调用访问非法内存 |
+| 测试 | 4 个真机互操作测试（读取报告、已开时为幂等 no-op、未知接口失败、硬件开关如实报告）+ 3 个控制器测试（逐块打开且只碰关闭的那块、部分失败如实报告、某块关闭时汇总状态为 Off）。共 210/210 |
+
+### 12.4 真机验证（发布产物，7.87 MB）
+
+用 QA 脚本按 Windows 设置的方式关掉「WLAN」的开关（`Settings → Wi-Fi` 等价操作）：
+
+    powershell -File tools\qa-winrt-radio.ps1 -Name 'WLAN' -State Off
+    netsh wlan show interfaces   →  Radio status: Hardware On / Software Off
+
+启动发布产物后 44 毫秒内：
+
+    12:22:35.040 [INF] GuardianHostService: Wi-Fi radio is off at startup; requesting it to be turned on
+    12:22:35.084 [INF] WifiRadioController: Turned the software radio of 1 Wi-Fi adapter(s) back on
+
+验证结果：`netsh` 变为 **`Radio status: Hardware On / Software On`** —— 用户在设置里能看到那块网卡的开关被打开了。
+**这一项不需要管理员权限、不弹 UAC**（radio 是用户级设置），与第 11 节的 PnP 提权路径互补。
+
+### 12.5 仍未在真机验证
+
+- 硬件开关关闭（`DRS_HW_RADIO_OFF`）的情形：本机两块网卡都是"硬件开、软件关"，只能由单元测试覆盖
+  报错路径（`HardwareOffRadios_AreReportedAsUnchangeableBySoftware`）。
+- 不同 Windows 版本上 "Wlan Radio Manager" 的 CLSID：目前是硬编码已验证值；若某版本不同，会走
+  `ReadRadioInstances()` 为空 → `wlanapi` 兜底路径，并在日志里写明原因。

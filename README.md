@@ -42,7 +42,8 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 | 互联网可达性 | 多端点 TCP / HTTP(S) / DNS / 可选 ICMP 组合探测，能识别 Captive Portal 重定向 |
 | 校园网认证 | 用户自行配置可执行文件或命令行；带最小间隔、每小时上限、连续次数上限、超时与「已在运行则跳过」 |
 | 断网自定义命令 | `offlineCommands` 列表：断网时按阈值执行用户定义的命令行 |
-| Wi-Fi 无线电 | 通过原生 `wlanapi`（`wlan_intf_opcode_radio_state`）读写 Windows 的 Wi-Fi 总开关，处理后权限被拒 / 策略限制 / 硬件开关 |
+| Wi-Fi 无线电（总开关） | 关闭时读写 Windows 的 Wi-Fi 总开关；无法控制时如实报权限被拒 / 策略限制 / 硬件开关 |
+| 每块网卡的 Wi-Fi 分开关 | Windows 设置里每块无线网卡各有一个 Wi-Fi 开关（本例中的「WLAN」「WLAN 3」）。程序通过 **Windows 无线电管理器**（`IMediaRadioManager` / `IRadioInstance`）逐块读取，发现某块被关掉就把它打开（硬件开关关闭的会如实说明无法用软件打开）。`wlanapi` 的 `wlan_intf_opcode_radio_state` 在本机两块网卡上都返回 87（参数错误），只能读不能写，因此不再用于写入 |
 | 启用被禁用网卡 | 仅对确认物理、且处于「已禁用」（CM problem code 22/21）的无线网卡调用 `CM_Enable_DevNode`，由内置助手以 `--helper` 提权执行（普通权限下这一步会弹一次 UAC 确认） |
 | 故障网卡重启 | 驱动启动失败（problem code 10/43…，Windows 不显示为「已禁用」）的物理无线网卡会尝试一次「禁用+启用」重启：每设备限流（≤3 次/小时、间隔 ≥120 秒、连续 2 次失败即停）；设备仍未启动时如实报失败并提示重装/回滚驱动 |
 | 一个 SSID 一张网卡 | 默认不允许两张网卡连接同一个 SSID；检测到重复连接时断开信号较弱的那张，并阻止它立刻重连回去（设置页可改回允许） |
