@@ -27,6 +27,7 @@ namespace NetworkGuardian.Tests;
 /// The point of a wrong password is that it produces the failure this whole feature is about; a success
 /// would prove nothing about the retry budget.
 /// </remarks>
+[Collection(WifiHardwareCollection.Name)]
 public sealed class WifiEapConnectHardwareTests
 {
     private const string HardwareTestVariable = "NETWORKGUARDIAN_WIFI_HARDWARE_TESTS";
@@ -130,10 +131,19 @@ public sealed class WifiEapConnectHardwareTests
         }
         finally
         {
-            var removed = applier.Remove(adapter.InterfaceGuid, profileName);
-            var stillThere = wifi.GetProfileXml(adapter.InterfaceGuid, profileName);
-            _output.WriteLine($"cleanup: deleteSuccess={removed.Success} removed={stillThere is null}");
-            Assert.True(stillThere is null, "the test profile was not removed");
+            // Leave the adapter idle first: deleting a profile the adapter is still connecting with can
+            // succeed and then be reported again, which made this cleanup look like it had failed.
+            await wifi.DisconnectAsync(adapter.InterfaceGuid, CancellationToken.None);
+            await Task.Delay(TimeSpan.FromSeconds(2));
+
+            var removed = applier.RemoveEverywhere(profileName);
+            var leftovers = wifi.GetAdapters()
+                .Where(a => wifi.GetProfileXml(a.InterfaceGuid, profileName) is not null)
+                .Select(a => a.Description)
+                .ToList();
+
+            _output.WriteLine($"cleanup: {removed.Describe()} (leftovers: {string.Join(", ", leftovers)})");
+            Assert.Empty(leftovers);
 
             // The user's own profile for that SSID must still be there, untouched.
             var userProfile = wifi.GetProfileXml(adapter.InterfaceGuid, ssid);

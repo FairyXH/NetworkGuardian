@@ -206,6 +206,7 @@ WaitingForDHCP / VerifyingInternet / Recovering / Cooldown / Paused / Degraded /
 | 失败重试 | 每个「网卡 + SSID」独立计数，失败达到 `wifi.eapConnectMaxAttempts`（默认 5）后**本次运行放弃该网络**（仅内存，重启后继续尝试）。在库中修改该网络（例如改正密码）会立刻清零计数 |
 | 库中没有账号 | 不连接，并在日志/界面写明「需要 802.1X 认证，但自维护无线网络库中没有该网络的账号」 |
 | 库整体关闭 | `wifi.useCredentialLibraryForEap = false`：企业级网络仍按普通已保存配置连接，账号交给 Windows 自己处理 |
+| 删除已写入的配置 | 「从系统删除配置」按钮逐网卡删除并读回校验（`WifiProfileApplier.RemoveEverywhere`）。判断「哪张网卡上有这份配置」必须走 WLAN API：不带 `interface=` 的 `netsh wlan show profiles` 会把同一份用户配置列表按网卡重复打印，看起来像有多份 |
 
 ```jsonc
 {
@@ -393,9 +394,9 @@ src/NetworkGuardian.Infrastructure  配置存储、滚动文件日志、外部�
 src/NetworkGuardian.Portable        Native AOT 单文件应用：自绘 Win32 UI、GuardianHostService（监测循环 + 动作执行）、
                                     托盘、生命周期、单实例、--helper 提权模式
 src/NetworkGuardian.Helper          独立的助手 exe（分离部署选项；实现与 --helper 共用 HelperEntry）
-tests/NetworkGuardian.Tests         255 个单元测试（含 3 个真机用例：企业级配置写入/读取/删除、
-                                    企业级配置分类、真实 802.1X 失败计数，默认跳过，用
-                                    NETWORKGUARDIAN_WIFI_HARDWARE_TESTS=1 开启）
+tests/NetworkGuardian.Tests         257 个单元测试（含 4 个真机用例：企业级配置写入/读取/重写判定、
+                                    本机已有配置分类、真实 802.1X 失败计数、配置的可见范围与逐网卡删除，
+                                    默认跳过，用 NETWORKGUARDIAN_WIFI_HARDWARE_TESTS=1 开启）
 ```
 
 `GuardianHostService` 是唯一把策略与原生操作连起来的地方：按周期采集 `GuardianInput`，交给纯函数式的

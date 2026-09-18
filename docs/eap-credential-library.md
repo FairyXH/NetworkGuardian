@@ -132,8 +132,20 @@ pwsh -NoProfile -File tools\qa-radio-watchdog.ps1 -RadioIndex 2 -Rounds 3
 
 ## 9. 开发中暴露的问题与根因
 
+0. **用户配置会异步扩散到所有网卡，单卡删除会留下真实残留。** 真机测量
+   （`WifiProfileVisibilityExploration`）：刚写入时只有目标网卡的 `WlanGetProfile` 与
+   `netsh ... interface=` 能看到；数秒后另外两张网卡也会看到（每用户配置存储是机器级的，各接口视图异步跟进，
+   真机上 90 秒的连接测试结束时三张网卡都有）。另有坑：不带 `interface=` 的 `netsh wlan show profiles`
+   会按网卡把同一份用户配置列表重复打印，看起来像三份。结论：**清理必须逐网卡删除并读回确认**
+   （`WifiProfileApplier.RemoveEverywhere`，界面「从系统删除配置」按钮）；
+   硬件测试也必须串行执行——并行跑两个硬件测试时 `WlanSetProfile(overwrite: true)` 会返回
+   `ERROR_183`（文件已存在），共享 `wifi-hardware` 集合后恢复正常。
+
 1. **密码不能写在配置 XML 里**：凭据放 `EAPConfig` 会被 `WlanSetProfile` 以原因码 524289 拒绝；必须用
    `WlanSetProfileEapXmlUserData` 单独写。
+1b. **`WlanSetProfile(overwrite: true)` 仍可能返回 `ERROR_183`（文件已存在）**：当同名配置正被网卡使用
+   （例如上一轮运行遗留、网卡还在用它认证）时就会这样。此时先 `WlanDeleteProfile` 再写入（`overwrite: false`）
+   才能成功——否则一份旧配置会永久挡住新账号。真机上就是靠这个 fallback 才让测试从 ERROR_183 恢复。
 2. **EAP 用户数据 XML 无文档可循**：6 种手写形态全被 `0x80420019` 拒。正解是系统自带的 XSD
    （`C:\Windows\schemas\…`）：`EapMethod` 的类型元素在 `EapCommon` 命名空间、`Credentials` 里的 `Eap`
    在 `BaseEapUserPropertiesV1` 命名空间且**先 `<Type>` 再具体方法元素**、`Username` 大小写敏感。

@@ -18,6 +18,7 @@ namespace NetworkGuardian.Tests;
 /// creates - and removes - profiles in the current user's WLAN store; every test profile uses an SSID
 /// that is not the user's, so a leftover entry could never associate with anything.
 /// </remarks>
+[Collection(WifiHardwareCollection.Name)]
 public sealed class WifiProfileHardwareTests
 {
     private const string HardwareTestVariable = "NETWORKGUARDIAN_WIFI_HARDWARE_TESTS";
@@ -151,10 +152,18 @@ public sealed class WifiProfileHardwareTests
         {
             foreach (var (label, credential) in variants)
             {
-                var deleted = applier.Remove(adapter.InterfaceGuid, credential.EffectiveProfileName);
-                var stillThere = wifi.GetProfileXml(adapter.InterfaceGuid, credential.EffectiveProfileName);
-                _output.WriteLine($"cleanup {label}: deleteSuccess={deleted.Success} removed={stillThere is null}");
-                Assert.True(stillThere is null, $"{label}: the test profile was not removed");
+                // A profile written for the current user is listed by every WLAN interface while a delete
+                // only clears the one it was given, so cleanup must walk them all - leaving a copy behind is
+                // exactly what happened before this was noticed.
+                var removed = applier.RemoveEverywhere(credential.EffectiveProfileName);
+                var leftovers = wifi.GetAdapters()
+                    .Where(a => wifi.GetProfileXml(a.InterfaceGuid, credential.EffectiveProfileName) is not null)
+                    .Select(a => a.Description)
+                    .ToList();
+
+                _output.WriteLine($"cleanup {label}: {removed.Describe()} " +
+                                  $"(attempted={removed.Attempted}, leftovers={leftovers.Count}: {string.Join(", ", leftovers)})");
+                Assert.Empty(leftovers);
             }
         }
     }

@@ -36,7 +36,7 @@
 
 | 命令 | 断言 |
 | --- | --- |
-| `tools\build-portable.ps1` | 构建 0 警告 + 256 测试通过 + 单文件 ≤ 8.5 MB（包内只允许一个 exe）+ 无 PDB（门限理由与逐步实测见脚本头部） |
+| `tools\build-portable.ps1` | 构建 0 警告 + 257 测试通过 + 单文件 ≤ 8.5 MB（包内只允许一个 exe）+ 无 PDB（门限理由与逐步实测见脚本头部） |
 | `tools\verify-portable.ps1` | 中性目录 + 干净环境启动、窗口类存在、**窗口线程应答消息**、日志/配置副作用、**GUI 实例运行时 `--helper` 仍应答并真实执行**、关闭链路、无残留（33 项；体积门限从构建脚本读取） |
 | `tools\qa-radio-watchdog.ps1` | 真机软开关看门狗：关掉一块网卡的软开关，要求 3 秒内被重新打开，并断言日志出现看门狗行 |
 | `tools\qa-wifi-radio-winrt.ps1` | 读取/翻转单块网卡的软开关（无线电管理器路径，Windows PowerShell 5.1） |

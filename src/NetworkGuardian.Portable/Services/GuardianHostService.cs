@@ -1321,6 +1321,24 @@ public sealed class GuardianHostService : IAsyncDisposable
     public WlanOperationResult RemoveWifiProfile(Guid interfaceGuid, string profileName) =>
         _profiles.Remove(interfaceGuid, profileName);
 
+    /// <summary>
+    /// Removes the generated profile from every adapter and reports what was actually removed.
+    /// </summary>
+    /// <remarks>
+    /// "Remove it from the system" has to be adapter-aware: a profile written to one adapter lives on that
+    /// adapter, and the WLAN API is the only reliable way to ask which one still has it. The reported counts
+    /// come from an API read-back, so a delete that silently did nothing cannot look like cleanup.
+    /// </remarks>
+    public WifiProfileRemoveResult RemoveWifiProfileEverywhere(string profileName)
+    {
+        var result = _profiles.RemoveEverywhere(profileName);
+        _logger.LogInformation("删除系统内 802.1X 配置 {Profile}：{Result}", profileName, result.Describe());
+        Notification?.Invoke(this, $"{profileName}：{result.Describe()}");
+        _forceEnumeration = true;
+        RequestImmediateCycle();
+        return result;
+    }
+
     public void OpenLogFolder()
     {
         try

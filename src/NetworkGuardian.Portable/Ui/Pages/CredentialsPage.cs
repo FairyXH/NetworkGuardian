@@ -296,13 +296,32 @@ internal sealed class CredentialsPage : IPage
             _status = "已删除该网络，点击“保存并应用”生效（系统里已写入的配置不会自动删除）";
         });
 
+        // Removing the entry from the library and removing the profile from Windows are two different
+        // things: the profile was written per interface, so the cleanup button walks every adapter.
+        var purgeWidth = Widgets.MeasureButtonWidth(ctx, "从系统删除配置");
+        Widgets.ButtonAt(ctx, new Rectangle(x + applyWidth + removeWidth + ctx.Scale(16), cy, purgeWidth, ctx.Scale(32)),
+            "从系统删除配置",
+            () =>
+            {
+                var profileName = entry.EffectiveProfileName;
+                _status = $"正在从所有网卡删除 {profileName}…";
+                ctx.Window.RunBackground(async () =>
+                {
+                    var result = await Task.Run(() => ctx.Host.RemoveWifiProfileEverywhere(profileName))
+                        .ConfigureAwait(false);
+                    _status = $"{profileName}：{result.Describe()}";
+                });
+            },
+            enabled: !string.IsNullOrWhiteSpace(entry.EffectiveProfileName));
+
         canvas.Text(
             entry.Eap == WifiEapMethod.PeapMschapv2
                 ? "说明：账号密码通过 EAP 用户凭据写入 Windows；配置本身只声明服务器校验参数。"
                 : entry.Eap == WifiEapMethod.Tls
                     ? "说明：EAP-TLS 用客户端证书认证；填写指纹可固定使用某张证书，留空则由 Windows 选择。"
                     : "说明：自定义 XML 会原样写入 Windows；EAP-TTLS 需要系统安装对应 EAP 方法。",
-            new Rectangle(x + applyWidth + removeWidth + ctx.Scale(16), cy, Math.Max(ctx.Scale(120), width - applyWidth - removeWidth - ctx.Scale(16)), ctx.Scale(32)),
+            new Rectangle(x + applyWidth + removeWidth + purgeWidth + ctx.Scale(24), cy,
+                Math.Max(ctx.Scale(120), width - applyWidth - removeWidth - purgeWidth - ctx.Scale(24)), ctx.Scale(32)),
             Palette.TextMuted,
             TextStyle.Caption,
             wrap: TextWrap.Wrap);

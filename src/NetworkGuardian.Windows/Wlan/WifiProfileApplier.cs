@@ -34,6 +34,27 @@ public sealed record WifiProfileApplyResult
         new() { Success = false, Failure = failure, UpdateReason = reason };
 }
 
+/// <summary>Outcome of removing one profile from every adapter.</summary>
+public sealed record WifiProfileRemoveResult
+{
+    public required bool Success { get; init; }
+
+    /// <summary>Adapters that actually had the profile before the removal.</summary>
+    public int Attempted { get; init; }
+
+    public int Removed { get; init; }
+
+    /// <summary>Adapters that still had it after the removal; must be 0.</summary>
+    public int Remaining { get; init; }
+
+    public IReadOnlyList<string> Failures { get; init; } = Array.Empty<string>();
+
+    public string Describe() => Success
+        ? $"已从 {Removed} 张网卡删除该配置"
+        : $"删除不完整：处理 {Attempted} 张，仍剩余 {Remaining} 张" +
+          (Failures.Count > 0 ? $"（{string.Join("；", Failures)}）" : string.Empty);
+}
+
 /// <summary>
 /// Pushes a library entry into the Windows WLAN store: the connection profile plus, for
 /// PEAP-MSCHAPv2, the EAP user credentials. This is what "the application maintains the 802.1X account
@@ -106,6 +127,24 @@ public sealed class WifiProfileApplier
         if (reason != ProfileUpdateReason.UpToDate)
         {
             var write = _wifi.SetProfileXml(interfaceGuid, profileName, profileXml, overwrite: true);
+
+            // Measured: WlanSetProfile(overwrite: true) can still answer ERROR_ALREADY_EXISTS (183) when the
+            // existing profile is in use - for example a leftover from a previous run whose adapter is still
+            // authenticating with it. Deleting first and writing again is what Windows itself effectively
+            // offers here, and without it a stale profile blocks the account from ever being applied.
+            if (!write.Success && write.ErrorCode is 183 or 80)
+            {
+                _logger.LogWarning(
+                    "Profile {Profile} already exists on {Adapter} and could not be overwritten; deleting and writing again",
+                    profileName, interfaceGuid);
+
+                var remove = _wifi.DeleteProfile(interfaceGuid, profileName);
+                if (remove.Success)
+                {
+                    write = _wifi.SetProfileXml(interfaceGuid, profileName, profileXml, overwrite: false);
+                }
+            }
+
             if (!write.Success)
             {
                 return new WifiProfileApplyResult
@@ -183,9 +222,85 @@ public sealed class WifiProfileApplier
     }
 
 
-    /// <summary>Removes a profile from one adapter (used when a library entry is deleted).</summary>
+    /// <summary>Removes a profile from one adapter.</summary>
     public WlanOperationResult Remove(Guid interfaceGuid, string profileName) =>
         _wifi.DeleteProfile(interfaceGuid, profileName);
+
+    /// <summary>
+    /// Removes a profile from every adapter and verifies that none still reports it.
+    /// </summary>
+    /// <remarks>
+    /// Measured on hardware, and the reason this method walks every adapter:
+    /// <list type="bullet">
+    /// <item>immediately after <c>WlanSetProfile(..., WLAN_PROFILE_USER, ...)</c> only the target adapter
+    /// reports the profile (WLAN API and <c>netsh ... interface=</c> agree);</item>
+    /// <item>seconds later the other adapters report it too - the per-user profile store is machine wide and
+    /// the per-interface views catch up asynchronously (a test that spent ~90 s connecting ended up with the
+    /// profile on all three adapters).</item>
+    /// </list>
+    /// A single-adapter delete therefore leaves real leftovers behind (this happened here). Counts come from
+    /// an API read-back, so a delete that silently did nothing cannot look like cleanup.
+    /// </remarks>
+    public WifiProfileRemoveResult RemoveEverywhere(string profileName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(profileName);
+
+        var attempted = 0;
+        var removed = 0;
+        var failures = new List<string>();
+        var remaining = 0;
+
+        // Bounded retry: deleting a profile the adapter is in the middle of connecting with can succeed and
+        // then be reported again on the next read (measured while cleaning up a connect test), so a single
+        // pass is not enough to claim success - but a permanent failure must not be retried forever either.
+        for (var pass = 1; pass <= 3; pass++)
+        {
+            foreach (var adapter in _wifi.GetAdapters())
+            {
+                if (_wifi.GetProfileXml(adapter.InterfaceGuid, profileName) is null)
+                {
+                    continue;
+                }
+
+                attempted++;
+                var result = _wifi.DeleteProfile(adapter.InterfaceGuid, profileName);
+                if (result.Success)
+                {
+                    removed++;
+                    _logger.LogInformation(
+                        "Removed profile {Profile} from {Adapter} (pass {Pass})",
+                        profileName, adapter.InterfaceGuid, pass);
+                }
+                else
+                {
+                    failures.Add($"{adapter.Description}: {result.Failure}");
+                }
+            }
+
+            // Read back once more: a delete that reported success but left a copy must not look like cleanup.
+            remaining = _wifi.GetAdapters()
+                .Count(a => _wifi.GetProfileXml(a.InterfaceGuid, profileName) is not null);
+
+            if (remaining == 0)
+            {
+                break;
+            }
+
+            _logger.LogDebug(
+                "Profile {Profile} is still reported by {Remaining} adapter(s) after pass {Pass}",
+                profileName, remaining, pass);
+            Thread.Sleep(400);
+        }
+
+        return new WifiProfileRemoveResult
+        {
+            Success = remaining == 0,
+            Attempted = attempted,
+            Removed = removed,
+            Remaining = remaining,
+            Failures = failures,
+        };
+    }
 
     internal static string Describe(ProfileUpdateReason reason) => reason switch
     {
