@@ -707,6 +707,11 @@ internal sealed class MainWindow
         DrawContent(canvas, client);
         DrawToast(canvas, client);
 
+        // The canvas records one hit region per interactive control while it draws. Without this copy
+        // the window keeps an empty list and every click, hover and hand cursor silently does nothing
+        // (the layout itself still looks correct, which is what makes it easy to miss).
+        _hits.AddRange(canvas.Hits);
+
         canvas.Blit();
     }
 
