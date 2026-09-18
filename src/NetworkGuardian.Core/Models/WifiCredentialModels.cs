@@ -74,6 +74,14 @@ public sealed class WifiNetworkCredential
     /// <summary>Base64 DPAPI blob of the password, scoped to the current user.</summary>
     public string? PasswordProtected { get; set; }
 
+    /// <summary>
+    /// True when a stored password exists but could not be decrypted (another user, another machine,
+    /// or a reset DPAPI master key). The entry is kept, but it cannot authenticate until the password
+    /// is entered again.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool PasswordDecryptionFailed { get; set; }
+
     public DateTimeOffset? PasswordUpdatedUtc { get; set; }
 
     /// <summary>Use the signed-in Windows account instead of the stored identity.</summary>
@@ -84,6 +92,12 @@ public sealed class WifiNetworkCredential
 
     /// <summary>Trusted root CA SHA-1 thumbprints (40 hex characters, no separators).</summary>
     public List<string> TrustedRootCaThumbprints { get; set; } = new();
+
+    /// <summary>
+    /// Client certificate thumbprint for <see cref="WifiEapMethod.Tls"/>. Empty means "let Windows pick
+    /// a suitable certificate" (<c>SimpleCertSelection</c>).
+    /// </summary>
+    public string? CertificateThumbprint { get; set; }
 
     /// <summary>
     /// When true the user is never prompted for server validation. Only sensible with a configured

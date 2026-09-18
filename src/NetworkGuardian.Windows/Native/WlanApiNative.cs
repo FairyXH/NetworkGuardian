@@ -100,6 +100,26 @@ internal static unsafe class WlanApiNative
     internal const uint WlanAvailableNetworkConsoleUserProfile = 0x00000004;
     internal const uint WlanAvailableNetworkAutoConnectFailed = 0x00000100;
 
+    // WLAN_PROFILE flags (WlanSetProfile / WlanGetProfile)
+    internal const uint WlanProfileGroupPolicy = 0x00000001;
+    internal const uint WlanProfileUser = 0x00000002;
+    internal const uint WlanProfileGetPlaintextKey = 0x00000004;
+    internal const uint WlanProfileConnectionModeSetByClient = 0x00010000;
+    internal const uint WlanProfileConnectionModeAuto = 0x00020000;
+
+    /// <summary>
+    /// EAP host data storage flag for <c>WlanSetProfileEapXmlUserData</c>. Passing 0 stores the
+    /// credentials for the current user only, which is what a per-user profile wants; the other value
+    /// (<c>WLAN_SET_EAPHOST_DATA_ALL_USERS</c>) needs administrator rights.
+    /// </summary>
+    internal const uint WlanSetEaphostDataAllUsers = 0x00000001;
+
+    /// <summary>WlanSetProfile / WlanGetProfile reason codes that are worth naming explicitly.</summary>
+    internal const uint WlanReasonProfileBad = 1206;
+    internal const uint WlanReasonProfileNameMismatch = 1207;
+    internal const uint WlanReasonAccessDenied = 1209;
+    internal const uint WlanReasonProfileNotCompatible = 1560;
+
     internal const uint WlanAvailableNetworkIncludeAllAdhocProfiles = 0x00000001;
     internal const uint WlanAvailableNetworkIncludeAllManualHiddenProfiles = 0x00000002;
 
@@ -117,8 +137,10 @@ internal static unsafe class WlanApiNative
 
     // Common WLAN errors.
     internal const uint ERROR_SUCCESS = 0;
+    internal const uint ERROR_FILE_NOT_FOUND = 2;
     internal const uint ERROR_ACCESS_DENIED = 5;
     internal const uint ERROR_INVALID_PARAMETER = 87;
+    internal const uint ERROR_NOT_FOUND = 1168;
     internal const uint ERROR_NOT_SUPPORTED = 50;
     internal const uint ERROR_INVALID_STATE = 5023;
     internal const uint ERROR_SERVICE_NOT_ACTIVE = 1062;
@@ -411,6 +433,43 @@ internal static unsafe class WlanApiNative
         out IntPtr pstrProfileXml,
         ref uint pdwFlags,
         out uint pdwGrantedAccess);
+
+    /// <summary>
+    /// Writes (or overwrites) a profile. <paramref name="pdwReasonCode"/> carries the WLAN reason code
+    /// when the WLAN service rejects the XML, which is the only feedback about what exactly it disliked.
+    /// </summary>
+    [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+    internal static extern uint WlanSetProfile(
+        IntPtr hClientHandle,
+        in Guid pInterfaceGuid,
+        uint dwFlags,
+        string strProfileXml,
+        string? strAllUserProfileSecurity,
+        int bOverwrite,
+        IntPtr pReserved,
+        out uint pdwReasonCode);
+
+    [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+    internal static extern uint WlanDeleteProfile(
+        IntPtr hClientHandle,
+        in Guid pInterfaceGuid,
+        string strProfileName,
+        IntPtr pReserved);
+
+    /// <summary>
+    /// Attaches the account/password (EAP user data) to an existing profile. PEAP-MSCHAPv2 credentials
+    /// cannot live in the profile XML - the WLAN service rejects that with reason code 524289 - so this
+    /// is the only supported way to make an unattended 802.1X connection work.
+    /// </summary>
+    [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
+    internal static extern uint WlanSetProfileEapXmlUserData(
+        IntPtr hClientHandle,
+        in Guid pInterfaceGuid,
+        string strProfileName,
+        uint dwFlags,
+        string strEapXmlUserData,
+        IntPtr pReserved);
+
 
     [DllImport(Dll, CharSet = CharSet.Unicode, ExactSpelling = true)]
     internal static extern uint WlanReasonCodeToString(

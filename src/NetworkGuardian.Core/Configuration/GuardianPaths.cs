@@ -41,6 +41,12 @@ public static class GuardianPaths
 
     public static string StateFile => Path.Combine(Root, "state.json");
 
+    /// <summary>
+    /// The self-maintained wireless network library: 802.1X/EAP accounts and their parameters.
+    /// Independent of the Windows profile store; passwords are stored DPAPI-protected.
+    /// </summary>
+    public static string WifiCredentialFile => Path.Combine(Root, "wifi-networks.json");
+
     public static void EnsureCreated()
     {
         Directory.CreateDirectory(Root);

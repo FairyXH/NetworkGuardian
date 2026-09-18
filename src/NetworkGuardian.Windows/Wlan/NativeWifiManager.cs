@@ -1263,6 +1263,253 @@ public sealed class NativeWifiManager : INativeWifiService
         return problems;
     }
 
+    // ---------- profile access (used by the self-maintained credential library) ----------
+
+    /// <summary>
+    /// Reads the profile XML of one adapter. Returns null when the profile does not exist or cannot be
+    /// read; the WLAN reason is logged. The XML is never logged: it can carry credentials.
+    /// </summary>
+    public string? GetProfileXml(Guid interfaceGuid, string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName))
+        {
+            return null;
+        }
+
+        var handle = CurrentHandle();
+        if (handle == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        IntPtr xmlPointer = IntPtr.Zero;
+        try
+        {
+            uint flags = 0;
+            var result = WlanGetProfile(handle, interfaceGuid, profileName, IntPtr.Zero,
+                out xmlPointer, ref flags, out _);
+
+            if (result != ERROR_SUCCESS)
+            {
+                if (result != ERROR_FILE_NOT_FOUND)
+                {
+                    _logger.LogDebug("WlanGetProfile({Profile}) on {Adapter}: {Error}",
+                        profileName, interfaceGuid, Win32Error.Describe((int)result));
+                }
+
+                return null;
+            }
+
+            return xmlPointer == IntPtr.Zero ? null : Marshal.PtrToStringUni(xmlPointer);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "WlanGetProfile({Profile}) threw on {Adapter}", profileName, interfaceGuid);
+            return null;
+        }
+        finally
+        {
+            if (xmlPointer != IntPtr.Zero)
+            {
+                WlanFreeMemory(xmlPointer);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes (or overwrites) a WLAN profile on one adapter as a per-user profile.
+    /// </summary>
+    /// <remarks>
+    /// The XML is passed through from the credential library and is deliberately absent from every log
+    /// line: it contains the account password in clear text, which the WLAN service encrypts when it
+    /// stores the profile. When the service rejects the document, its WLAN reason code is the only
+    /// usable diagnosis, so it is translated with <c>WlanReasonCodeToString</c>.
+    /// </remarks>
+    public WlanOperationResult SetProfileXml(Guid interfaceGuid, string profileName, string profileXml, bool overwrite)
+    {
+        if (string.IsNullOrWhiteSpace(profileXml))
+        {
+            return WlanOperationResult.Fail("profile XML is empty");
+        }
+
+        var handle = CurrentHandle();
+        if (handle == IntPtr.Zero)
+        {
+            return WlanOperationResult.Fail("WLAN client handle is not open");
+        }
+
+        try
+        {
+            var result = WlanSetProfile(
+                handle,
+                interfaceGuid,
+                WlanProfileUser,
+                profileXml,
+                null,
+                overwrite ? 1 : 0,
+                IntPtr.Zero,
+                out var reasonCode);
+
+            if (result != ERROR_SUCCESS)
+            {
+                var reason = DescribeReasonCode(reasonCode);
+                var code = (int)result;
+                var accessDenied = Win32Error.IsAccessDenied(code);
+
+                _logger.LogWarning(
+                    "WlanSetProfile for {Profile} on {Adapter} failed: {Error}; reason code {ReasonCode} ({Reason})",
+                    profileName, interfaceGuid, Win32Error.Describe(code), reasonCode, reason);
+
+                return WlanOperationResult.Fail(
+                    $"{Win32Error.Describe(code)}（原因码 {reasonCode}：{reason}）", code, accessDenied, accessDenied);
+            }
+
+            _logger.LogInformation(
+                "WlanSetProfile wrote {Profile} on {Adapter} ({Length} 字符 XML, overwrite={Overwrite})",
+                profileName, interfaceGuid, profileXml.Length, overwrite);
+
+            return WlanOperationResult.Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WlanSetProfile threw for {Profile} on {Adapter}", profileName, interfaceGuid);
+            return WlanOperationResult.Fail($"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Deletes a per-user profile from one adapter. A missing profile counts as success.</summary>
+    public WlanOperationResult DeleteProfile(Guid interfaceGuid, string profileName)
+    {
+        if (string.IsNullOrWhiteSpace(profileName))
+        {
+            return WlanOperationResult.Fail("profile name is empty");
+        }
+
+        var handle = CurrentHandle();
+        if (handle == IntPtr.Zero)
+        {
+            return WlanOperationResult.Fail("WLAN client handle is not open");
+        }
+
+        try
+        {
+            var result = WlanDeleteProfile(handle, interfaceGuid, profileName, IntPtr.Zero);
+            if (result is ERROR_SUCCESS or ERROR_FILE_NOT_FOUND or ERROR_NOT_FOUND)
+            {
+                _logger.LogInformation("Deleted WLAN profile {Profile} from {Adapter} ({Result})",
+                    profileName, interfaceGuid, result == ERROR_SUCCESS ? "removed" : "was not present");
+                return WlanOperationResult.Ok();
+            }
+
+            var code = (int)result;
+            var accessDenied = Win32Error.IsAccessDenied(code);
+            _logger.LogWarning("WlanDeleteProfile({Profile}) on {Adapter} failed: {Error}",
+                profileName, interfaceGuid, Win32Error.Describe(code));
+
+            return WlanOperationResult.Fail(Win32Error.Describe(code), code, accessDenied, accessDenied);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WlanDeleteProfile threw for {Profile} on {Adapter}", profileName, interfaceGuid);
+            return WlanOperationResult.Fail($"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Translates a WLAN reason code into the localised description Windows ships.</summary>
+    private static string DescribeReasonCode(uint reasonCode)
+    {
+        if (reasonCode == 0)
+        {
+            return "无";
+        }
+
+        try
+        {
+            var buffer = new char[512];
+            var result = WlanReasonCodeToString(reasonCode, (uint)buffer.Length, buffer, IntPtr.Zero);
+            if (result == ERROR_SUCCESS)
+            {
+                var text = new string(buffer);
+                var terminator = text.IndexOf('\0');
+                if (terminator >= 0)
+                {
+                    text = text[..terminator];
+                }
+
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    return text.Trim();
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Falls through to the numeric form.
+        }
+
+        return reasonCode switch
+        {
+            WlanReasonProfileBad => "配置 XML 无效（profile bad）",
+            WlanReasonProfileNameMismatch => "配置名称与 XML 中的 <name> 不一致",
+            WlanReasonAccessDenied => "拒绝访问",
+            WlanReasonProfileNotCompatible => "该配置与网卡或系统不兼容",
+            _ => $"未识别的 WLAN 原因码 {reasonCode}",
+        };
+    }
+
+    /// <summary>
+    /// Attaches the account/password of an 802.1X profile (EAP user data).
+    /// </summary>
+    /// <remarks>
+    /// The credential cannot be part of the profile document - the WLAN service rejects a profile with
+    /// <c>UserName</c>/<c>Password</c> inside the MSCHAPv2 block with reason code 524289 - so this call
+    /// is what makes an unattended PEAP-MSCHAPv2 connection possible. The user data XML is never logged.
+    /// </remarks>
+    public WlanOperationResult SetProfileEapUserData(Guid interfaceGuid, string profileName, string userDataXml)
+    {
+        if (string.IsNullOrWhiteSpace(userDataXml))
+        {
+            return WlanOperationResult.Fail("EAP user data XML is empty");
+        }
+
+        var handle = CurrentHandle();
+        if (handle == IntPtr.Zero)
+        {
+            return WlanOperationResult.Fail("WLAN client handle is not open");
+        }
+
+        try
+        {
+            // 0 (= current user only): the credentials belong to the same user as the profile. The only
+            // other value, WLAN_SET_EAPHOST_DATA_ALL_USERS, would require administrator rights.
+            var result = WlanSetProfileEapXmlUserData(
+                handle, interfaceGuid, profileName, 0, userDataXml, IntPtr.Zero);
+
+            if (result != ERROR_SUCCESS)
+            {
+                var code = (int)result;
+                var accessDenied = Win32Error.IsAccessDenied(code);
+                _logger.LogWarning(
+                    "WlanSetProfileEapXmlUserData for {Profile} on {Adapter} failed: {Error}",
+                    profileName, interfaceGuid, Win32Error.Describe(code));
+
+                return WlanOperationResult.Fail(Win32Error.Describe(code), code, accessDenied, accessDenied);
+            }
+
+            _logger.LogInformation("Wrote EAP user credentials for {Profile} on {Adapter} ({Length} 字符 XML)",
+                profileName, interfaceGuid, userDataXml.Length);
+
+            return WlanOperationResult.Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "WlanSetProfileEapXmlUserData threw for {Profile} on {Adapter}",
+                profileName, interfaceGuid);
+            return WlanOperationResult.Fail($"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+
     public void Dispose()
     {
         if (_disposed)
