@@ -136,6 +136,14 @@ public sealed class GuardianHostService : IAsyncDisposable
     public void LogUiFailure(string message) =>
         _logger.LogError("UI action failed: {Message}", message);
 
+    /// <summary>
+    /// Records a UI interaction detail (hit testing, layout) at debug level. Self-drawn controls
+    /// fail silently by nature - a click that hits nothing looks exactly like a click that hits a
+    /// dead region - so the hit path has to be traceable from the log.
+    /// </summary>
+    public void LogUiDebug(string message) =>
+        _logger.LogDebug("UI: {Message}", message);
+
     public LocationPermissionSnapshot LocationPermission => _location.Read();
 
     public IReadOnlyList<ManagedDevice> Devices => _devicesSnapshot;

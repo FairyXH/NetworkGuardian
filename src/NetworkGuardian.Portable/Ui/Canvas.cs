@@ -40,6 +40,11 @@ internal sealed class Canvas : IDisposable
     private readonly Dictionary<(int Color, int Style, int Width), IntPtr> _pens = new();
     private readonly Dictionary<int, IntPtr> _brushes = new();
 
+    // Current viewport translation (page scrolling) and the stack of previous ones.
+    private readonly Stack<(int X, int Y)> _offsetStack = new();
+    private int _offsetX;
+    private int _offsetY;
+
     public Canvas(IntPtr targetDc, int width, int height, int scalePercent)
     {
         Target = targetDc;
@@ -70,7 +75,8 @@ internal sealed class Canvas : IDisposable
     /// <summary>Hover lookup provided by the window (updated on every mouse move).</summary>
     public Func<Rectangle, bool>? HoverTest { get; set; }
 
-    public bool IsHovered(Rectangle rect) => HoverTest?.Invoke(rect) ?? false;
+    /// <summary>Asks whether the point over <paramref name="rect"/> (layout coordinates) is hovered.</summary>
+    public bool IsHovered(Rectangle rect) => HoverTest?.Invoke(ToClient(rect)) ?? false;
 
     // ---------- shapes ----------
 
@@ -203,17 +209,38 @@ internal sealed class Canvas : IDisposable
     {
         SaveDC(_hdc);
         SetViewportOrgEx(_hdc, dx, dy, out _);
+        _offsetStack.Push((_offsetX, _offsetY));
+        _offsetX += dx;
+        _offsetY += dy;
     }
 
     public void PopOffset()
     {
         RestoreDC(_hdc, -1);
+        if (_offsetStack.Count > 0)
+        {
+            var previous = _offsetStack.Pop();
+            _offsetX = previous.X;
+            _offsetY = previous.Y;
+        }
     }
+
+    /// <summary>
+    /// Maps a layout rectangle to client coordinates. A scrolled page draws its layout shifted, so
+    /// anything addressed in client coordinates (hit regions, native child controls, popup menus)
+    /// has to be translated by the current viewport offset.
+    /// </summary>
+    public Rectangle ToClient(Rectangle rect) =>
+        new(rect.Left + _offsetX, rect.Top + _offsetY, rect.Width, rect.Height);
 
     // ---------- hit testing ----------
 
+    /// <summary>
+    /// Records a clickable region. <paramref name="rect"/> is in layout coordinates; the stored
+    /// region is translated to client coordinates so mouse messages can be matched directly.
+    /// </summary>
     public void Hit(Rectangle rect, Action onClick, bool enabled = true, string kind = "button") =>
-        Hits.Add(new HitTarget { Rect = rect, OnClick = onClick, Enabled = enabled, Kind = kind });
+        Hits.Add(new HitTarget { Rect = ToClient(rect), OnClick = onClick, Enabled = enabled, Kind = kind });
 
     // ---------- internals ----------
 

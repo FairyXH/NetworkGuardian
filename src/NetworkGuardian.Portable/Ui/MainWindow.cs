@@ -171,6 +171,7 @@ internal sealed class MainWindow
         Invalidate();
     }
 
+    /// <summary>True when the hovered region contains <paramref name="rect"/> (client coordinates).</summary>
     public bool IsHovered(Rectangle rect)
     {
         if (_hoverIndex < 0 || _hoverIndex >= _hits.Count)
@@ -415,6 +416,7 @@ internal sealed class MainWindow
 
             case WM_LBUTTONDOWN:
                 _pressedIndex = HitTest(lParam);
+                _host.LogUiDebug($"mouse down at {Point(lParam)} -> hit {_pressedIndex}");
                 SetCapture(_hwnd);
                 return IntPtr.Zero;
 
@@ -424,6 +426,9 @@ internal sealed class MainWindow
                 var released = HitTest(lParam);
                 var pressed = _pressedIndex;
                 _pressedIndex = -1;
+
+                _host.LogUiDebug($"mouse up at {Point(lParam)} -> hit {released} (pressed {pressed}, " +
+                    $"targets {_hits.Count}, scroll {_scrollY})");
 
                 if (pressed >= 0 && pressed == released && _hits[pressed].Enabled)
                 {
@@ -588,6 +593,14 @@ internal sealed class MainWindow
         }
 
         return -1;
+    }
+
+    /// <summary>Formats the mouse coordinates carried in a mouse message.</summary>
+    private static string Point(IntPtr lParam)
+    {
+        var x = unchecked((short)(long)lParam);
+        var y = unchecked((short)((long)lParam >> 16));
+        return $"{x},{y}";
     }
 
     // ---------- scrolling ----------

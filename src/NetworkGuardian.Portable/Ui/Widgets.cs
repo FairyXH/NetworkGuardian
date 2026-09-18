@@ -186,8 +186,10 @@ internal static class Widgets
 
         canvas.Text(text, inner, color, TextStyle.Body, wrap: multiline ? TextWrap.Wrap : TextWrap.None);
 
-        // Recorded so the window can place the real EDIT control exactly here.
-        canvas.Hit(rect, () => ctx.Window.BeginEdit(new FieldEdit(rect, value, multiline, commit)), kind: "field");
+        // Recorded so the window can place the real EDIT control exactly here (client coordinates:
+        // a scrolled page draws its layout shifted).
+        var fieldRect = canvas.ToClient(rect);
+        canvas.Hit(rect, () => ctx.Window.BeginEdit(new FieldEdit(fieldRect, value, multiline, commit)), kind: "field");
         return consumed + height + ctx.Scale(8);
     }
 
@@ -256,7 +258,9 @@ internal static class Widgets
         canvas.Text(text, new Rectangle(rect.Left + ctx.Scale(10), rect.Top, rect.Width - ctx.Scale(30), rect.Height), Palette.TextPrimary, TextStyle.Body);
         canvas.Text("v", new Rectangle(rect.Right - ctx.Scale(18), rect.Top, ctx.Scale(12), rect.Height), Palette.TextSecondary, TextStyle.Caption, TextAlign.Center);
 
-        canvas.Hit(rect, () => ctx.Window.ShowPopupMenu(rect, items, selected, onSelect), kind: "field");
+        // The popup is positioned with ClientToScreen, so it needs the client rectangle.
+        var popupRect = canvas.ToClient(rect);
+        canvas.Hit(rect, () => ctx.Window.ShowPopupMenu(popupRect, items, selected, onSelect), kind: "field");
         return consumed + height + ctx.Scale(8);
     }
 
