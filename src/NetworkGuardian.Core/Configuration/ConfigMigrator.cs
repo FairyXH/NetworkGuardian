@@ -70,6 +70,22 @@ public sealed class ConfigMigrator
             applied.Add("v4: one SSID per Wi-Fi adapter (allowSameSsidOnMultipleAdapters=false).");
         }
 
+        if (version < 5)
+        {
+            // v5: the self-maintained wireless network library (802.1X/EAP accounts) plus the
+            // per-adapter software radio watchdog. Both default to on because they only act on
+            // networks the user has entered credentials for, and on a radio the user switched off.
+            config.Wifi.EapConnectMaxAttempts = config.Wifi.EapConnectMaxAttempts <= 0
+                ? 5
+                : config.Wifi.EapConnectMaxAttempts;
+            config.General.RadioWatchdogSeconds = config.General.RadioWatchdogSeconds <= 0
+                ? 3
+                : config.General.RadioWatchdogSeconds;
+            config.Version = 5;
+            version = 5;
+            applied.Add("v5: wireless credential library + 3s radio watchdog + 5 EAP connect attempts.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

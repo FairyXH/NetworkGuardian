@@ -47,6 +47,7 @@ public sealed class ConfigValidator
         config.General.ScanTimeoutSeconds = Clamp(config.General.ScanTimeoutSeconds, 3, 120, "general.scanTimeoutSeconds", issues);
         config.General.ManualScanTimeoutSeconds = Clamp(config.General.ManualScanTimeoutSeconds, 3, 180, "general.manualScanTimeoutSeconds", issues);
         config.General.DhcpWaitSeconds = Clamp(config.General.DhcpWaitSeconds, 3, 300, "general.dhcpWaitSeconds", issues);
+        config.General.RadioWatchdogSeconds = Clamp(config.General.RadioWatchdogSeconds, 1, 600, "general.radioWatchdogSeconds", issues);
 
         config.Recovery.InternetFailureThreshold = Clamp(config.Recovery.InternetFailureThreshold, 1, 100, "recovery.internetFailureThreshold", issues);
         config.Recovery.InternetRecoveryThreshold = Clamp(config.Recovery.InternetRecoveryThreshold, 1, 100, "recovery.internetRecoveryThreshold", issues);
@@ -74,6 +75,7 @@ public sealed class ConfigValidator
         config.Wifi.HighBandBonus = Clamp(config.Wifi.HighBandBonus, -100, 100, "wifi.highBandBonus", issues);
         config.Wifi.RecentProfileBonus = Clamp(config.Wifi.RecentProfileBonus, -100, 100, "wifi.recentProfileBonus", issues);
         config.Wifi.DisconnectGraceSeconds = Clamp(config.Wifi.DisconnectGraceSeconds, 0, 600, "wifi.disconnectGraceSeconds", issues);
+        config.Wifi.EapConnectMaxAttempts = Clamp(config.Wifi.EapConnectMaxAttempts, 1, 50, "wifi.eapConnectMaxAttempts", issues);
 
         config.Ethernet.FailureThreshold = Clamp(config.Ethernet.FailureThreshold, 1, 100, "ethernet.failureThreshold", issues);
         config.Ethernet.LinkUpGraceSeconds = Clamp(config.Ethernet.LinkUpGraceSeconds, 0, 600, "ethernet.linkUpGraceSeconds", issues);

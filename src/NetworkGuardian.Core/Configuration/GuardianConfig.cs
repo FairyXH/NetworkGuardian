@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 4;
+    public const int CurrentVersion = 5;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -76,6 +76,16 @@ public sealed class GeneralSettings
 
     /// <summary>Keep the Wi-Fi radio asserted On during startup and recovery.</summary>
     public bool EnsureRadioOnAtStartup { get; set; } = true;
+
+    /// <summary>
+    /// Keep every wireless adapter's software radio switch on. A dedicated watchdog re-reads the
+    /// per-adapter switch (Windows Radio Manager) and turns a switched-off radio back on immediately;
+    /// one adapter switched off in Windows Settings used to stay dark for the whole run.
+    /// </summary>
+    public bool RadioWatchdogEnabled { get; set; } = true;
+
+    /// <summary>Poll cadence of the radio watchdog in seconds.</summary>
+    public int RadioWatchdogSeconds { get; set; } = 3;
 
     /// <summary>Poll cadence of the low frequency health sweep.</summary>
     public int HealthSweepSeconds { get; set; } = 20;
@@ -297,6 +307,22 @@ public sealed class WifiSettings
 
     /// <summary>Explicit SSID allow list. When non-empty, only these SSIDs are auto-connected.</summary>
     public List<string> SsidAllowList { get; set; } = new();
+
+    /// <summary>
+    /// Use the built-in wireless network library for 802.1X/EAP networks: when a candidate requires
+    /// EAP authentication the profile is generated from the stored account and pushed to Windows
+    /// before connecting. When false such networks are left untouched (Windows prompts as usual).
+    /// </summary>
+    public bool UseCredentialLibraryForEap { get; set; } = true;
+
+    /// <summary>Rewrites the Windows profile whenever the library entry changed since it was applied.</summary>
+    public bool ApplyEapProfileOnConnect { get; set; } = true;
+
+    /// <summary>
+    /// Failed EAP authentication attempts allowed per adapter and SSID before that network is given up
+    /// for the rest of the run. The counter is not persisted: the next start tries again.
+    /// </summary>
+    public int EapConnectMaxAttempts { get; set; } = 5;
 }
 
 public sealed class EthernetSettings
