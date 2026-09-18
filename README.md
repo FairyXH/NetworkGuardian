@@ -19,7 +19,7 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 
 | 制品 | 体积 | 说明 |
 | --- | --- | --- |
-| `release\NetworkGuardian.exe` | **7.82 MB** | **单个原生 exe**：主程序 + 内置提权助手（`NetworkGuardian.exe --helper`），内置 .NET 运行时（Native AOT），目标机无需安装 .NET / Windows App Runtime / VS |
+| `release\NetworkGuardian.exe` | **8.24 MB** | **单个原生 exe**：主程序 + 内置提权助手（`NetworkGuardian.exe --helper`），内置 .NET 运行时（Native AOT），目标机无需安装 .NET / Windows App Runtime / VS |
 | `release\发布说明.txt` | — | 面向使用者的运行 / 权限 / 位置权限说明 |
 | `NetworkGuardian-0.9.0-win-x64.zip` | 3.79 MB | 可选传输压缩包（内含版本号顶层目录） |
 
@@ -38,18 +38,21 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 | 物理网卡识别 | PnP / Configuration Manager 枚举网络类设备，按总线、枚举器、驱动服务、NDIS media type、`wlansvc` 关联综合判定，绝不操作虚拟网卡 |
 | 粘性连接 | 已连接且可用的无线网卡不参与任何择优、不会被更强的信号抢走 |
 | 按网卡独立扫描 | 每块物理无线网卡拥有自己的扫描状态与结果，不做「全局一次扫描」 |
-| 已保存配置枚举 | `WlanGetProfileList`，只使用 Profile 名；**从不导出、显示或记录 Wi-Fi 密码** |
+| 已保存配置枚举 | `WlanGetProfileList`，只使用 Profile 名；连接企业级网络时按自维护无线网络库（§7.1）写入配置与账号 |
+| 自维护无线网络库 | 独立于系统的 802.1X 账号库（`wifi-networks.json`）：账号、密码（DPAPI 密文）、EAP 方法、服务器名校验，连接时自动写入系统并重写变更；密码不落明文、不进日志 |
 | 互联网可达性 | 多端点 TCP / HTTP(S) / DNS / 可选 ICMP 组合探测，能识别 Captive Portal 重定向 |
 | 校园网认证 | 用户自行配置可执行文件或命令行；带最小间隔、每小时上限、连续次数上限、超时与「已在运行则跳过」 |
 | 断网自定义命令 | `offlineCommands` 列表：断网时按阈值执行用户定义的命令行 |
 | Wi-Fi 无线电（总开关） | 关闭时读写 Windows 的 Wi-Fi 总开关；无法控制时如实报权限被拒 / 策略限制 / 硬件开关 |
 | 每块网卡的 Wi-Fi 分开关 | Windows 设置里每块无线网卡各有一个 Wi-Fi 开关（本例中的「WLAN」「WLAN 3」）。程序通过 **Windows 无线电管理器**（`IMediaRadioManager` / `IRadioInstance`）逐块读取，发现某块被关掉就把它打开（硬件开关关闭的会如实说明无法用软件打开）。`wlanapi` 的 `wlan_intf_opcode_radio_state` 在本机两块网卡上都返回 87（参数错误），只能读不能写，因此不再用于写入 |
+| 软开关看门狗 | 独立循环每 3 秒（可配）检查全部无线网卡的软开关并立即打开，不受决策引擎限流影响，见 §7.2 |
+| 802.1X 失败重试 | 企业级网络用库中账号连接失败时按「网卡 + SSID」计数，达到上限（默认 5 次）后本次运行临时放弃，重启后继续尝试；改库密码立即清零计数 |
 | 启用被禁用网卡 | 仅对确认物理、且处于「已禁用」（CM problem code 22/21）的无线网卡调用 `CM_Enable_DevNode`，由内置助手以 `--helper` 提权执行（普通权限下这一步会弹一次 UAC 确认） |
 | 故障网卡重启 | 驱动启动失败（problem code 10/43…，Windows 不显示为「已禁用」）的物理无线网卡会尝试一次「禁用+启用」重启：每设备限流（≤3 次/小时、间隔 ≥120 秒、连续 2 次失败即停）；设备仍未启动时如实报失败并提示重装/回滚驱动 |
 | 一个 SSID 一张网卡 | 默认不允许两张网卡连接同一个 SSID；检测到重复连接时断开信号较弱的那张，并阻止它立刻重连回去（设置页可改回允许） |
 | 恢复状态机 | 显式状态机 + 事件驱动 + 低频兜底巡检，含去抖、恢复计数、冷却、指数退避与限流 |
 | 配置 / 日志 | JSON 配置（校验、迁移、原子写入、损坏隔离与备份回退）；滚动文本日志 + 界面实时日志（按级别/通道筛选） |
-| 界面 | 总览 / 无线网卡 / 以太网 / 设置 / 日志 五个页面，深色卡片式 UI，托盘常驻 |
+| 界面 | 总览 / 无线网卡 / 网络凭据库 / 以太网 / 设置 / 日志 六个页面，深色卡片式 UI，托盘常驻 |
 | 休眠唤醒 | 自绘窗口直接处理 `WM_POWERBROADCAST`，唤醒后先稳定网络再判断 |
 
 ## 3. 系统要求
@@ -64,7 +67,7 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 ## 4. 编译、测试与打包
 
 ```powershell
-# 全量构建 + 单元测试（196 个用例，策略/配置/互操作布局全覆盖）
+# 全量构建 + 单元测试（255 个用例，策略/配置/互操作布局全覆盖；另有真机用例，见 §7.1 文档）
 dotnet build NetworkGuardian.sln -c Release
 dotnet test  tests\NetworkGuardian.Tests\NetworkGuardian.Tests.csproj -c Release
 
@@ -78,7 +81,7 @@ pwsh -NoProfile -File tools\verify-portable.ps1
 pwsh -NoProfile -File tools\verify-portable.ps1 -InstanceId 'USB\VID_0BDA&PID_8153\001000001'
 ```
 
-`build-portable.ps1` 的门限：`NetworkGuardian.exe` 必须 ≤ **8 MB**（默认 `-MaxExeMb 8.0`）且构建 0 警告、测试全绿，
+`build-portable.ps1` 的门限：`NetworkGuardian.exe` 必须 ≤ **8.5 MB**（默认 `-MaxExeMb 8.5`）且构建 0 警告、测试全绿，
 否则直接失败——体积回退不会被静默接受。
 
 ## 5. 运行
@@ -86,7 +89,7 @@ pwsh -NoProfile -File tools\verify-portable.ps1 -InstanceId 'USB\VID_0BDA&PID_81
 ```powershell
 # 直接双击，或：
 release\NetworkGuardian.exe                  # 默认最小化到托盘（可在设置页关闭）
-release\NetworkGuardian.exe --page wireless  # dashboard | wireless | ethernet | settings | logs
+release\NetworkGuardian.exe --page wireless  # dashboard | wireless | credentials | ethernet | settings | logs
 release\NetworkGuardian.exe --visible        # 强制显示窗口（即使配置为启动时最小化）
 release\NetworkGuardian.exe --minimized      # 明确以托盘方式启动
 ```
@@ -184,6 +187,61 @@ WaitingForDHCP / VerifyingInternet / Recovering / Cooldown / Paused / Degraded /
 但外网判定失败」时触发，不会因为一次丢包就启动；日志只记录可执行文件路径、退出码、耗时、是否超时，
 **不记录参数内容**（避免把口令写进日志）。
 
+第三种形态是 **企业级 Wi-Fi（802.1X/EAP）**：账号密码不是网页登录，而是无线层的 EAP 认证。
+程序为此维护自己的账号库，见 §7.1。
+
+### 7.1 自维护无线网络库（802.1X / EAP 账号）
+
+「网络凭据库」页面维护一张**独立于系统**的表：每个企业级 SSID 一条，含认证方式、EAP 方法、账号、
+密码、域、匿名身份、服务器名校验、受信任根证书、客户端证书、可选的完整配置 XML。连接时由程序按库中的
+参数在网卡上生成/更新系统配置并写入账号，**Windows 不再需要自己保存或提示密码**。
+
+| 事项 | 行为 |
+| --- | --- |
+| 存储位置 | `%LOCALAPPDATA%\NetworkGuardian\wifi-networks.json`（可用 `NETWORKGUARDIAN_CONFIG_ROOT` 整体重定向；原子写入 + `.bak` + 损坏隔离为 `.invalid.json`） |
+| 密码保护 | DPAPI（`CryptProtectData`，当前用户 + 固定应用熵），只落盘密文；`password` 字段**从不序列化**，界面默认显示「已保存 N 位」，日志与界面都不写明文 |
+| 生成的文档 | ① WLAN 连接配置（OneX/EAPConfig，逐用户配置，`WlanSetProfile`）② EAP 用户凭据（`EapHostUserCredentials`，`WlanSetProfileEapXmlUserData`）——**密码不能写在配置 XML 里**，WLAN 服务会以原因码 524289 拒绝 |
+| 何时重写 | 网卡上没有该配置 / 现有配置不是 802.1X / 库中条目在上次写入后被修改过。库中任何字段（含密码）变化都会清除「已写入」标记，因此改密码后立刻重写；不想自动写入可关 `wifi.applyEapProfileOnConnect` |
+| 支持的生成方式 | PEAP + MSCHAPv2（账号密码）、EAP-TLS（客户端证书，可选按指纹固定）；WPA2-Enterprise(AES)、WPA-Enterprise(TKIP)。其他（EAP-TTLS、厂商方案、证书选择、MAC 随机化）填「自定义配置 XML」，程序原样写入 |
+| 失败重试 | 每个「网卡 + SSID」独立计数，失败达到 `wifi.eapConnectMaxAttempts`（默认 5）后**本次运行放弃该网络**（仅内存，重启后继续尝试）。在库中修改该网络（例如改正密码）会立刻清零计数 |
+| 库中没有账号 | 不连接，并在日志/界面写明「需要 802.1X 认证，但自维护无线网络库中没有该网络的账号」 |
+| 库整体关闭 | `wifi.useCredentialLibraryForEap = false`：企业级网络仍按普通已保存配置连接，账号交给 Windows 自己处理 |
+
+```jsonc
+{
+  "wifi": {
+    "useCredentialLibraryForEap": true,   // 企业级网络用库中的账号
+    "applyEapProfileOnConnect": true,     // 库中参数变化时自动重写系统配置
+    "eapConnectMaxAttempts": 5            // 失败多少次后本次运行放弃该网络
+  }
+}
+```
+
+设计取舍与真机证据见 [`docs/eap-credential-library.md`](docs/eap-credential-library.md)。
+
+### 7.2 每块网卡的软开关（无线电看门狗）
+
+Windows 的 Wi-Fi 开关是**每块网卡一个**：某块在「设置 → 网络和 Internet → Wi-Fi」里被关掉后，
+`wlanapi` 的 `wlan_intf_opcode_radio_state` 只能读到它，写操作在本机两块 USB 网卡上都返回 87（参数错误），
+因此写入走 **Windows 无线电管理器**（`IMediaRadioManager` / `IRadioInstance.SetRadioState`）。
+
+主监测循环的心跳是低频巡检，不足以及时发现「刚被关掉的开关」，所以另有一条**独立循环**：
+每 `general.radioWatchdogSeconds`（默认 3 秒）读取全部无线网卡的软开关，发现被软件关闭就立即打开；
+硬件开关关闭的只如实报告、不反复重试。它不受决策引擎里无线电动作限流（`12 次/小时`、`30 秒`最小间隔）
+的影响——这正是看门狗存在的理由。用户「暂停自动恢复」期间看门狗同样不干预网卡。
+
+```jsonc
+{
+  "general": {
+    "radioWatchdogEnabled": true,   // 总开关
+    "radioWatchdogSeconds": 3       // 检查间隔（立即打开，不等待下一轮）
+  }
+}
+```
+
+真机验证：`tools/qa-radio-watchdog.ps1`（先启动程序，再用 `tools/qa-wifi-radio-winrt.ps1` 像设置页那样
+关掉一块网卡的软开关，测量恢复时间并检查日志中的看门狗行）。
+
 ## 8. 物理 / 虚拟无线网卡如何区分
 
 判定顺序（`NetworkDeviceClassifier`，规则名会写进日志）：
@@ -210,6 +268,8 @@ PnP 节点与 Native Wi-Fi 接口的关联：读取 `CM_Get_DevNode_Registry_Pro
 | 设备管理 | `CM_Get_Device_ID` `CM_Get_DevNode_Status` `CM_Get_DevNode_Registry_PropertyW` `CM_Get_Parent` `CM_Locate_DevNodeW` `CM_Enable_DevNode`（`cfgmgr32.dll`），`SetupDiGetClassDevs` / `SetupDiEnumDeviceInfo`（`setupapi.dll`），`CM_Register_Notification` |
 | 网络与路由（只读） | `GetAdaptersAddresses` `GetIpForwardTable2`（`iphlpapi.dll`）；仅在显式开启接口度量管理时才使用 `GetIpInterfaceEntry` / `SetIpInterfaceEntry`（带 `sizeof(MIB_IPINTERFACE_ROW)=176` 断言） |
 | 无线电 | 原生 `WlanQueryInterface` / `WlanSetInterface`（opcode `radio_state`，`WLAN_RADIO_STATE` 772 字节），结果读回校验 |
+| 无线电（写入） | Windows 无线电管理器 COM（`{833A69FB-...}` Wlan Radio Manager、`IMediaRadioManager`、`IRadioInstance.SetRadioState`），逐块打开软开关 |
+| WLAN 配置与凭据 | `WlanSetProfile` `WlanDeleteProfile` `WlanSetProfileEapXmlUserData` `WlanReasonCodeToString`（`wlanapi.dll`）；密码保护用 `CryptProtectData` / `CryptUnprotectData`（`crypt32.dll`） |
 | 自绘 UI | `RegisterClassExW` `CreateWindowExW` `GetMessageW` / `DispatchMessageW` `BeginPaint` `InvalidateRect` `SetScrollInfo` `SetTimer` `WM_POWERBROADCAST`；GDI：`CreateCompatibleDC` `BitBlt` `RoundRect` `DrawTextW`(user32) `CreateFontW` `SetTextColor`；原生子窗口 `EDIT`；`TrackPopupMenuEx`；`GetOpenFileNameW` |
 | 系统集成 | `Shell_NotifyIcon`（托盘）、HKCU `Run` 键（开机启动，仅当前用户） |
 | 提权 | 主程序自身以 `--helper` 二次启动（`asInvoker` + `runas` 触发 UAC，请求/响应走 JSON 文件，完成单个操作即退出）；`NetworkGuardian.Helper.exe` 仍可单独构建，作为分离部署选项 |
@@ -229,6 +289,7 @@ PnP 节点与 Native Wi-Fi 接口的关联：读取 `CM_Get_DevNode_Registry_Pro
   DeviceInstanceId、已保存配置、上次扫描/连接/失败），可手动扫描/连接/断开；下方为全部网络设备
   （含被过滤的虚拟网卡及其拒绝原因）。
 - **以太网**：全部接口的链路、地址、网关、DNS、度量、默认路由与探测结果，以及物理以太网设备列表（只读）。
+- **网络凭据库**：企业级（802.1X/EAP）网络的账号表：认证方式、EAP 方法、账号、密码（默认隐藏，可显示/清除）、域、匿名身份、服务器名校验、根证书指纹、客户端证书、自定义 XML、启用/自动连接/隐藏等开关，以及每条网络的「系统配置是否已写入」「本次运行 802.1X 失败次数/是否已临时放弃」状态与「写入到所有无线网卡」按钮。
 - **设置**：所有开关与阈值、探测端点、离线命令；编辑的是工作副本，点「保存并应用」才写入并生效。
 - **日志**：实时缓冲（最近 200 条），级别/分类/关键字筛选，自动滚动（仅在视图已在底部时跟随），
   一键打开日志目录、清空缓冲。
@@ -271,13 +332,15 @@ BSS 细节被拒（`ERROR_ACCESS_DENIED`），部分配置下连扫描也会被�
 | 配置备份 | `config.backup.json`（每次保存前的上一版） |
 | 损坏隔离 | `config.invalid.json`（无法解析时保留原文件，并用默认配置启动） |
 | 日志 | `Logs\networkguardian-YYYYMMDD-NNN.log` |
+| 自维护无线网络库 | `wifi-networks.json`（802.1X 账号；密码为 DPAPI 密文，另有 `.bak` 与 `.invalid.json`） |
 | 提权助手临时文件 | `helper\request-*.json` / `response-*.json`（用完即删） |
 | 启动异常留痕 | `startup-error.log`（进程在窗口创建前失败时唯一的线索） |
 | 测试/隔离覆盖 | 环境变量 `NETWORKGUARDIAN_CONFIG_ROOT` 可整体替换上述根目录 |
 
 配置保证：每个字段都有默认值与合法区间（加载与保存时 `ConfigValidator` 会把越界值夹回并记录 note）；
 `ConfigMigrator` 处理版本升级（老文档补默认值，绝不因缺字段启动失败）；保存使用「临时文件 + `File.Replace`」原子替换；
-解析失败 → 隔离 + 备份回退 + 默认值启动；配置里**不存在**任何 Wi-Fi 密钥字段（`ConfigJsonTests` 有断言）。
+解析失败 → 隔离 + 备份回退 + 默认值启动；配置里**不存在**任何 Wi-Fi 密钥字段（`ConfigJsonTests` 有断言），
+账号密码只存在于无线网络库里且以 DPAPI 密文落盘（见 §7.1）。
 
 JSON 读写全部走源生成的 `JsonSerializerContext`（`NetworkGuardian.Core.Serialization`）——
 Native AOT 没有反射序列化器，未注册的类型会直接抛错而不是悄悄退化到反射。
@@ -287,7 +350,8 @@ Native AOT 没有反射序列化器，未注册的类型会直接抛错而不是
 - 级别 `trace` `debug` `information` `warning` `error`；文件按大小滚动 + 按天数/个数清理（LoggerFactory 已移除，直接装配单个文件提供器）。
 - 记录的关键事件：网卡发现与接受/拒绝（含规则名）、无线电状态、扫描开始/完成/失败、连接尝试与结果、
   断开原因、外网丢失/恢复、认证启动与结果、PnP 启用请求与结果、异常、配置加载与校验 note。
-- **隐私**：不记录 Wi-Fi 密钥、不导出 Profile 内容、不记录认证命令的参数字符串，只记录路径与退出码。
+- **隐私**：不记录 Wi-Fi 密钥、不记录无线网络库中的密码、不记录认证命令的参数字符串，只记录路径与退出码。
+  802.1X 相关只记录 SSID、账号（身份）、是否写入配置/凭据、WLAN 原因码。
 
 ## 15. 开发与调试
 
@@ -298,6 +362,17 @@ pwsh -NoProfile -File tools\smoke-run.ps1 -Recovery       # 带自动恢复
 
 # 页面截图（PrintWindow，不抢焦点；自动使用隔离配置根与独立单实例）
 pwsh -NoProfile -File tools\ui-screenshot.ps1 -Page wireless -Out docs\ui-wireless.png
+pwsh -NoProfile -File tools\ui-screenshot.ps1 -Page credentials -Out docs\ui-credentials.png
+
+# 软开关看门狗真机验证：启动程序后用无线电管理器关掉一块网卡的软开关，测量恢复时间（默认 3 秒轮询）
+pwsh -NoProfile -File tools\qa-radio-watchdog.ps1
+pwsh -NoProfile -File tools\qa-radio-watchdog.ps1 -RadioIndex 2 -Rounds 3
+
+# 读取/翻转单块网卡的软开关（Windows 设置里的那个开关；必须在 Windows PowerShell 5.1 下运行）
+powershell -NoProfile -File tools\qa-wifi-radio-winrt.ps1 -Action query
+
+# 导出一块网卡上已保存的配置 XML（对照 802.1X 配置结构时用；凭据为密文，工具不解析内容）
+pwsh -NoProfile -File tools\dump-wlan-profile.ps1 -Profile HXXY-WiFi
 
 # 关闭链路验证（WM_CLOSE → 循环停止 → 注销通知 → 关闭句柄 → flush → 进程自退）
 pwsh -NoProfile -File tools\shutdown-test.ps1
@@ -318,7 +393,9 @@ src/NetworkGuardian.Infrastructure  配置存储、滚动文件日志、外部�
 src/NetworkGuardian.Portable        Native AOT 单文件应用：自绘 Win32 UI、GuardianHostService（监测循环 + 动作执行）、
                                     托盘、生命周期、单实例、--helper 提权模式
 src/NetworkGuardian.Helper          独立的助手 exe（分离部署选项；实现与 --helper 共用 HelperEntry）
-tests/NetworkGuardian.Tests         196 个单元测试
+tests/NetworkGuardian.Tests         255 个单元测试（含 3 个真机用例：企业级配置写入/读取/删除、
+                                    企业级配置分类、真实 802.1X 失败计数，默认跳过，用
+                                    NETWORKGUARDIAN_WIFI_HARDWARE_TESTS=1 开启）
 ```
 
 `GuardianHostService` 是唯一把策略与原生操作连起来的地方：按周期采集 `GuardianInput`，交给纯函数式的
@@ -344,6 +421,11 @@ tests/NetworkGuardian.Tests         196 个单元测试
 - 需要管理员权限的两件事必须通过 UAC 助手完成，首次触发会弹一次 UAC。
 - **未做真实验证**：休眠/唤醒（含 Fast Startup）、USB Wi-Fi 物理拔插、被禁用网卡的提权启用（需要一块处于
   「已禁用」状态的物理无线网卡 + UAC 交互）、校园网认证接真客户端。
+- **未验证的 802.1X 场景**：`WPA3-Enterprise`（本机三块网卡上 WLAN 服务都以原因码 1206 拒绝，程序因此
+  拒绝生成该配置，要求填自定义 XML）、EAP-TTLS / PEAP-TLS 等第三方 EAP 方法（需系统安装对应 EAP 方法，
+  只能填自定义 XML）、EAP-TLS 携带真实客户端证书完成认证（本机无可用客户端证书，
+  只验证了配置与「证书固定」凭据被 WLAN 服务接受）、`wifi-networks.json` 跨用户/跨机器复制时密码
+  无法解密（DPAPI 作用域所限，程序会提示重新填写而不会静默失败）。
 - 仅 x64；未做 ARM64 与 MSIX 打包。
 - Windows 位置权限、硬件开关、Airplane 模式等外部因素仍可能让恢复动作失败——程序会如实记录失败原因。
 - 发布包 exe 哈希每次构建会变化（编译期非确定性），未声明可复现构建。
@@ -353,6 +435,10 @@ tests/NetworkGuardian.Tests         196 个单元测试
 不导出/显示/记录 Wi-Fi PSK；不绕过 UAC；不修改系统安全策略；不做隐蔽持久化（开机启动只写 HKCU `Run`）；
 不修改未知路由；不自动加入陌生开放网络；不关闭防火墙；不改动 Windows 位置隐私限制；
 不写入任何与保活无关的系统设置；不上传任何数据（无遥测、无网络回传，除用户自己配置的认证/命令外不发起外部请求）。
+
+无线网络库的密码只以 DPAPI（当前用户）密文保存；程序**只在用户明确把某个 SSID 加入库后**才为该网络写入
+802.1X 配置，不会为库中不存在的企业级网络猜测或探测凭据；连接失败达到上限后本次运行放弃该网络而不是
+无限重试（避免把校园账号打到锁定）。
 
 ---
 
@@ -365,4 +451,6 @@ tests/NetworkGuardian.Tests         196 个单元测试
 | 探测 | 多端点 TCP/HTTP(S)/DNS 组合，按接口分别探测（本机 3–5 个端点全部按预期返回） |
 | 连接 | 按「信号 + 5 GHz 加成」选中已保存的 `ZhangAndroid` 并保持（粘性，不主动切换） |
 | 关闭链路 | `WM_CLOSE` → 监测循环停止 → 注销 WLAN 通知 → 关闭 WLAN 句柄 → host disposed → 日志 flush → 进程自退 |
-| 便携包 | 单文件 7.8 MB；`tools\verify-portable.ps1` 全部检查通过（见 `docs/session-log-2026-09-18.md` 第 4 节） |
+| 便携包 | 单文件 8.24 MB；`tools\verify-portable.ps1` 全部检查通过（见 `docs/session-log-2026-09-18.md` 第 4 节） |
+| 自维护无线网络库 | 真机验证：`HXXY-WiFi`（WPA2-Enterprise, PEAP/MSCHAPv2）按库中账号写入配置 + EAP 凭据成功；错误密码连续 5 次真实失败后计数到 5 并放弃该网络，测试配置已删除、用户自己的同名配置完好；`wifi-networks.json` 中密码为 DPAPI 密文，磁盘上无明文 |
+| 软开关看门狗 | 真机验证：程序运行中把一块网卡的软开关关掉（无线电管理器，等同设置页操作），**2.29 s / 2.30 s** 被看门狗打开（第 1 轮 0.26 s 由更快的通知路径完成，因此第 2、3 轮才是看门狗证据），日志出现「无线电看门狗：已把软件关闭的无线网卡重新打开」 |
