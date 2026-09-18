@@ -19,10 +19,12 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 
 | 制品 | 体积 | 说明 |
 | --- | --- | --- |
-| `release\NetworkGuardian.exe` | **7.8 MB** | 主程序：单个原生 exe，内置 .NET 运行时（Native AOT），目标机无需安装 .NET / Windows App Runtime / VS |
-| `release\helper\NetworkGuardian.Helper.exe` | **2.8 MB** | 提权助手（同为 Native AOT 单文件），只在启用被禁用网卡或执行 `runAsAdministrator` 命令时被调用 |
+| `release\NetworkGuardian.exe` | **7.82 MB** | **单个原生 exe**：主程序 + 内置提权助手（`NetworkGuardian.exe --helper`），内置 .NET 运行时（Native AOT），目标机无需安装 .NET / Windows App Runtime / VS |
 | `release\发布说明.txt` | — | 面向使用者的运行 / 权限 / 位置权限说明 |
-| `NetworkGuardian-0.9.0-win-x64.zip` | 5.15 MB | 可选传输压缩包（内含版本号顶层目录） |
+| `NetworkGuardian-0.9.0-win-x64.zip` | 3.79 MB | 可选传输压缩包（内含版本号顶层目录） |
+
+整个包只有这两个文件、一个 exe：早期版本把提权助手做成第二个 exe（包合计 10.61 MB），
+现在助手编译进主程序，只有需要提权时才以 `--helper` 二次启动同一个 exe。
 
 对比：改造前的 WinUI 3 自包含发布包是 **248.8 MB / 515 个文件**。
 差异全部来自三个不可裁剪项——WinUI 运行时（约 28 MB）、WinRT 投影（23.7 MB）、Windows App SDK 的 ML 载荷（38.6 MB），
@@ -41,7 +43,7 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 | 校园网认证 | 用户自行配置可执行文件或命令行；带最小间隔、每小时上限、连续次数上限、超时与「已在运行则跳过」 |
 | 断网自定义命令 | `offlineCommands` 列表：断网时按阈值执行用户定义的命令行 |
 | Wi-Fi 无线电 | 通过原生 `wlanapi`（`wlan_intf_opcode_radio_state`）读写 Windows 的 Wi-Fi 总开关，处理后权限被拒 / 策略限制 / 硬件开关 |
-| 启用被禁用网卡 | 仅对确认物理、且处于「已禁用」（CM problem code 22/21）的无线网卡调用 `CM_Enable_DevNode`，由提权助手执行 |
+| 启用被禁用网卡 | 仅对确认物理、且处于「已禁用」（CM problem code 22/21）的无线网卡调用 `CM_Enable_DevNode`，由内置助手以 `--helper` 提权执行 |
 | 恢复状态机 | 显式状态机 + 事件驱动 + 低频兜底巡检，含去抖、恢复计数、冷却、指数退避与限流 |
 | 配置 / 日志 | JSON 配置（校验、迁移、原子写入、损坏隔离与备份回退）；滚动文本日志 + 界面实时日志（按级别/通道筛选） |
 | 界面 | 总览 / 无线网卡 / 以太网 / 设置 / 日志 五个页面，深色卡片式 UI，托盘常驻 |
@@ -63,12 +65,12 @@ Windows 网络保活工具（C# / .NET 8 / **Native AOT 单文件** + 自绘 Win
 dotnet build NetworkGuardian.sln -c Release
 dotnet test  tests\NetworkGuardian.Tests\NetworkGuardian.Tests.csproj -c Release
 
-# 一键：Release 构建（0 警告）→ 测试 → 助手 AOT → 主程序 AOT → 体积门限 → 可选压缩包
+# 一键：Release 构建（0 警告）→ 测试 → 主程序 AOT（助手内置）→ 体积门限 → 可选压缩包
 pwsh -NoProfile -File tools\build-portable.ps1            # 产出 release\（已 gitignore）
 pwsh -NoProfile -File tools\build-portable.ps1 -Zip       # 额外产出 NetworkGuardian-0.9.0-win-x64.zip
 pwsh -NoProfile -File tools\build-portable.ps1 -SkipTests # 只重新打包
 
-# 发布包验证：中性目录 + 干净环境（PATH 无 dotnet、无 DOTNET_ROOT）+ 提权助手真实执行 + 关闭链路
+# 发布包验证：中性目录 + 干净环境（PATH 无 dotnet、无 DOTNET_ROOT）+ 内置助手真实执行 + 关闭链路
 pwsh -NoProfile -File tools\verify-portable.ps1
 pwsh -NoProfile -File tools\verify-portable.ps1 -InstanceId 'USB\VID_0BDA&PID_8153\001000001'
 ```
@@ -240,8 +242,8 @@ PnP 节点与 Native Wi-Fi 接口的关联：读取 `CM_Get_DevNode_Registry_Pro
 ## 11. 管理员权限
 
 - **主程序不需要管理员权限**，正常以当前用户运行。
-- 只有两件事需要提权，且都由助手进程完成：`CM_Enable_DevNode` 启用被禁用的物理无线网卡；
-  配置里显式要求 `runAsAdministrator` 的认证程序/离线命令。
+- 只有两件事需要提权，且都由内置助手完成（同一个 exe 以 `--helper` 提权启动，完成一个操作即退出）：
+  `CM_Enable_DevNode` 启用被禁用的物理无线网卡；配置里显式要求 `runAsAdministrator` 的认证程序/离线命令。
 - 触发时会出现一次 UAC 提示；拒绝提权不会导致程序异常，只在日志与 UI 里记录 `ERROR_ACCESS_DENIED` 并进入冷却。
 - 不修改 UAC 设置、不写系统安全策略、不做隐蔽持久化。
 
@@ -304,11 +306,12 @@ pwsh -NoProfile -File tools\window-dump.ps1 -ProcessId 1234
 src/NetworkGuardian.Core            纯逻辑：模型、配置（校验/迁移）、策略（粘性、候选、退避、限流、状态机、决策引擎）、
                                     JSON 源生成序列化（不引用任何 Windows API）
 src/NetworkGuardian.Windows         原生互操作 + 领域胶水：wlanapi / cfgmgr32 / setupapi / iphlpapi、PnP 清单、
-                                    设备分类器、设备启用、Wi-Fi 无线电、连通性探测、位置权限、托盘
+                                    设备分类器、设备启用、Wi-Fi 无线电、连通性探测、位置权限、托盘、
+                                    提权助手实现（Helper/HelperEntry.cs）
 src/NetworkGuardian.Infrastructure  配置存储、滚动文件日志、外部命令运行器
 src/NetworkGuardian.Portable        Native AOT 单文件应用：自绘 Win32 UI、GuardianHostService（监测循环 + 动作执行）、
-                                    托盘、生命周期、单实例
-src/NetworkGuardian.Helper          提权助手（Native AOT 单文件，`requireAdministrator`）
+                                    托盘、生命周期、单实例、--helper 提权模式
+src/NetworkGuardian.Helper          独立的助手 exe（分离部署选项；实现与 --helper 共用 HelperEntry）
 tests/NetworkGuardian.Tests         196 个单元测试
 ```
 

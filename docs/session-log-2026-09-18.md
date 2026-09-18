@@ -197,3 +197,79 @@ pwsh -NoProfile -File tools\ui-screenshot.ps1 -Page dashboard -Out docs\ui-dashb
   只能报告失败；此前的 WinRT 路径在个别机器上能改写状态——这是本次改造在能力上的唯一取舍，
   本机 AIC8800D80 / MT7961 上读路径正常。
 - 发布包 exe 哈希每次构建会变化（编译期非确定性），未声明可复现构建。
+
+---
+
+## 10. 追加会话（同日）：点击命中链修复 + 真·单文件
+
+后续一次会话报告了「构建产物左侧点击无法切换」，同时要求把提权助手并进主程序、最终只发一个文件。
+本节的数字与结论取代第 2、3 节中关于「提权助手是第二个 exe」的描述。
+
+### 10.1 缺陷：自绘 UI 的命中区域从未进入窗口
+
+| 项 | 内容 |
+| --- | --- |
+| 现象 | 点击左侧导航不切换页面；所有按钮、开关、悬停高亮、手型光标全部无效，但界面渲染完全正常 |
+| 根因 | `Canvas.Hit()` 把每个可点击区域登记到 `Canvas.Hits`，而 `MainWindow.PaintInto()` **从未把它复制到窗口自己的 `_hits`**。命中测试因此永远返回 -1 —— 一个渲染正确、交互全死的界面 |
+| 为什么以前没发现 | 上文所有验证都在看「页面画得对不对」（截图、日志、关闭链路），没有任何一项断言「点下去会发生什么」 |
+| 修复 | `MainWindow.PaintInto()` 在绘制结束后 `_hits.AddRange(canvas.Hits)`（提交 `9ff7064`） |
+| 证据 | 发布产物上依次点击导航 → 命中索引 3/4/5，页面切到无线网卡 / 以太网 / 设置；设置页滚动到底后点击「保留天数 +」，命中 181 且数值 7 → 8 |
+
+### 10.2 缺陷：滚动后的命中区域与内容错位
+
+| 项 | 内容 |
+| --- | --- |
+| 现象 | 页面滚动后，控件要在「原来的位置」才点得到（滚动越远偏得越多） |
+| 根因 | 滚动用 `SetViewportOrgEx` 平移绘制坐标，但 `Canvas.Hit()` 登记的是**布局坐标**，鼠标消息带的是**客户区坐标**；两者相差正好一个滚动偏移。同理，内联 `EDIT` 子窗口与下拉菜单也会出现在错误位置 |
+| 修复 | `Canvas` 跟踪视口偏移（`PushOffset`/`PopOffset`），`Hit()`、`ToClient()`、`IsHovered()` 统一换算到客户区坐标；`Widgets.Field` / `Widgets.Dropdown` 用 `ToClient()` 定位原生子控件与弹出菜单（提交 `84a7477`） |
+
+### 10.3 可观测性：自绘控件的失败必须是可追溯的
+
+自绘 UI 没有控件树，点击落空与点击空区域在外部完全无法区分。因此 `WM_LBUTTONDOWN/UP` 现在以
+debug 级别记录鼠标坐标、命中索引、按下/抬起是否一致、当前目标数与滚动量（`GuardianHostService.LogUiDebug`）。
+本次两个缺陷都是靠这条日志定位的（日志显示「hit -1，targets 189，scroll 7632」→ 先发现命中链断开，
+再发现滚动偏移）。`verify-portable.ps1` 用 debug 级别运行主程序，这条日志也可用于后续回归。
+
+### 10.4 QA 工具的坑：模拟输入的坐标会被 DPI 换算
+
+`tools/qa-ui-click.ps1`（`PrintWindow` 截图 + 模拟点击）第一次运行时，发送的 (674,141) 在窗口里变成 (843,177)：
+脚本线程与目标窗口的 DPI 上下文不同，跨进程投递鼠标消息时 Windows 按 `windowDpi/96` 换算坐标。
+脚本因此先做一次标定点击（发送 (4,4)，读窗口日志里的实际到达值），后续坐标按测得的因子反算，
+使送达坐标与请求坐标一致。`PrintWindow(hwnd, hdc, PW_CLIENTONLY=1)` 是可靠的抓图方式；
+自己直接发 `WM_PRINTCLIENT` 到临时 DC 会得到全黑位图（窗口对 `WM_PRINTCLIENT` 的处理没问题，是调用方式的差异）。
+
+### 10.5 提权助手并入主程序：真正的一个 exe
+
+| 项 | 改前 | 改后 |
+| --- | --- | --- |
+| 包内文件 | `NetworkGuardian.exe` 7.80 MB + `helper\NetworkGuardian.Helper.exe` 2.80 MB + `发布说明.txt` | `NetworkGuardian.exe` **7.82 MB** + `发布说明.txt` |
+| 包合计 / zip | 10.61 MB / 5.15 MB | **7.82 MB / 3.79 MB** |
+| 提权方式 | 启动第二个 exe（`requireAdministrator`）+ 请求/响应 JSON | 同一个 exe 以 `--helper` 提权启动（`asInvoker` + `runas`），完成一个操作即退出 |
+
+- 实现放在 `NetworkGuardian.Windows/Helper/HelperEntry.cs`，`--helper` 与独立 `NetworkGuardian.Helper.exe` 共用同一份代码
+  （独立 exe 保留，作为分离部署选项，但不再进发布包）。
+- **`--helper` 必须在单实例互斥体之前处理**：用户实例正在运行时，提权进程若走到互斥体判断就会以
+  「已有实例」退出，UAC 那侧永远等不到响应文件。`verify-portable.ps1` 专门在 GUI 实例运行期间调用
+  `--helper` 来锁住这条约束。
+- `HelperClient.ResolveInvocation()` 的顺序：`NETWORKGUARDIAN_HELPER_PATH`（测试）→ 自身 exe + `--helper` →
+  目录中的独立 `NetworkGuardian.Helper.exe`。
+- `build-portable.ps1` 现在断言**包内只有一个 exe**；体积门限仍为 8 MB。
+
+### 10.6 顺带修掉的既有测试缺陷
+
+`LocationPermissionServiceTests.ConsentDeniedWithoutADeniedApi_...` 经 `service.Read()` 断言，
+而 `Read()` 会把本机真实注册表 `HKCU\...\ConsentStore\location\Value` 合并进 `AppLocationAllowed`。
+本机位置权限为 `Allow` 时该测试必然失败 —— 在干净 HEAD 的独立 worktree 上复现确认与本次改动无关，
+已改为直接把快照喂给纯函数 `BuildGuidance`（提交 `2cd8fd8`）。
+
+### 10.7 本轮验证证据
+
+| 检查 | 结果 |
+| --- | --- |
+| `dotnet build NetworkGuardian.sln -c Release` | 0 警告 / 0 错误 |
+| `dotnet test` | **196 / 196 通过** |
+| `tools\build-portable.ps1 -Zip` | 单文件 7.82 MB，门限 8 MB 通过，zip 3.79 MB 且解压哈希一致 |
+| `tools\verify-portable.ps1 -InstanceId 'USB\VID_0BDA&PID_8153\001000001'` | **35 / 35 通过**（含「包内只有一个 exe」「GUI 实例运行时 `--helper` 仍应答」「真实设备 query-status = Succeeded」） |
+| 发布产物点击回归（`tools\qa-ui-click.ps1`） | 导航切换、滚动后按钮点击均生效（见 10.1 / 10.2 证据） |
+
+仍未验证：真实 UAC 弹窗交互（自动化会弹窗，需人工点一次）、提权启用「已禁用」无线网卡的端到端。
