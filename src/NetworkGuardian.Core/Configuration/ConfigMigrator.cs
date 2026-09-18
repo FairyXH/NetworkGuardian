@@ -54,9 +54,20 @@ public sealed class ConfigMigrator
             // v3 introduced sticky-connection guarantees and per-adapter scan throttling.
             config.Wifi.StickyConnection = true;
             config.General.MinimumScanIntervalSeconds = Math.Max(config.General.MinimumScanIntervalSeconds, 25);
-            config.Wifi.AllowSameSsidOnMultipleAdapters = true;
             config.Version = 3;
+            version = 3;
             applied.Add("v3: sticky connection forced on; per-adapter scan interval >= 25s.");
+        }
+
+        if (version < 4)
+        {
+            // v4: at most one Wi-Fi adapter may hold a connection to a given SSID. Two adapters on the
+            // same access point only produce duplicate associations (and, on many drivers, a worse
+            // link for both), so the default is now "one SSID, one adapter" and an already connected
+            // duplicate is dropped in favour of the better signal.
+            config.Wifi.AllowSameSsidOnMultipleAdapters = false;
+            config.Version = 4;
+            applied.Add("v4: one SSID per Wi-Fi adapter (allowSameSsidOnMultipleAdapters=false).");
         }
 
         config.Version = GuardianConfig.CurrentVersion;

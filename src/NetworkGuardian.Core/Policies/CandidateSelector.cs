@@ -25,10 +25,16 @@ public sealed class CandidateSelector
         DateTimeOffset now,
         out IReadOnlyList<string> rejectionReasons,
         string? lastSuccessfulProfile = null,
-        string? excludeSsid = null)
+        IReadOnlyCollection<string>? excludeSsids = null)
     {
         var rejections = new List<string>();
         var profiles = new HashSet<string>(savedProfiles ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+
+        // SSIDs another adapter is already holding: with "one SSID per adapter" a dropped duplicate
+        // must not simply re-associate, so those networks are skipped rather than reconnected.
+        var excluded = excludeSsids is { Count: > 0 }
+            ? new HashSet<string>(excludeSsids, StringComparer.OrdinalIgnoreCase)
+            : null;
 
         if (scan is null || scan.Networks.Count == 0)
         {
@@ -45,9 +51,9 @@ public sealed class CandidateSelector
                 continue;
             }
 
-            if (excludeSsid is not null && string.Equals(network.Ssid, excludeSsid, StringComparison.Ordinal))
+            if (excluded is not null && excluded.Contains(network.Ssid))
             {
-                rejections.Add($"{network.Ssid}: currently connected on this adapter");
+                rejections.Add($"{network.Ssid}: already held by another adapter (one SSID per adapter)");
                 continue;
             }
 

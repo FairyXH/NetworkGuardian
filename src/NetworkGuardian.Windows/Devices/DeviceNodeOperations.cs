@@ -15,6 +15,13 @@ public static class DeviceNodeOperations
 {
     internal const uint CM_REENUMERATE_NORMAL = 0x00000000;
 
+    /// <summary>
+    /// How long to wait for a device to report <c>DN_STARTED</c> after a successful
+    /// <c>CM_Enable_DevNode</c> before the operation is reported as failed. Enabling is asynchronous,
+    /// but a device that has not started after several seconds is not "starting", it is broken.
+    /// </summary>
+    private const int StartWaitMilliseconds = 4000;
+
     public static DeviceOperationResult Verify(
         string deviceInstanceId,
         bool requirePhysical,
@@ -181,9 +188,40 @@ public static class DeviceNodeOperations
 
         if (status == CR_SUCCESS)
         {
-            return Result(deviceInstanceId, operation, DeviceOperationOutcome.Succeeded,
-                startedAfter: startedAfter, problemCodeAfter: problemAfter,
-                detail: startedAfter ? "Device started." : "Request accepted; the device is starting.");
+            if (!startedAfter)
+            {
+                // CM_Enable_DevNode accepts the request asynchronously, so the device may still be
+                // starting. Wait briefly before claiming success: reporting "Succeeded" while the
+                // device is still faulted is a false positive that the UI cannot tell apart from a
+                // real repair (observed: CM_Enable_DevNode returned CR_SUCCESS on an adapter whose
+                // driver kept it in CM_PROB_FAILED_START).
+                var deadline = Environment.TickCount64 + StartWaitMilliseconds;
+                while (Environment.TickCount64 < deadline)
+                {
+                    Thread.Sleep(250);
+                    if (CM_Get_DevNode_Status(out var recheck, out problemAfter, devInst, 0) == CR_SUCCESS &&
+                        (recheck & DN_STARTED) != 0)
+                    {
+                        startedAfter = true;
+                        break;
+                    }
+                }
+            }
+
+            if (startedAfter)
+            {
+                return Result(deviceInstanceId, operation, DeviceOperationOutcome.Succeeded,
+                    startedAfter: true, problemCodeAfter: problemAfter,
+                    detail: "Device started.");
+            }
+
+            return Result(deviceInstanceId, operation, DeviceOperationOutcome.Failed,
+                startedAfter: false,
+                problemCodeAfter: problemAfter,
+                detail: $"The request was accepted but the device did not start within " +
+                        $"{StartWaitMilliseconds / 1000.0:F1}s (problem code {problemAfter}). Enabling or " +
+                        "restarting a device cannot repair a driver fault - reinstall or roll back the " +
+                        "adapter driver in Device Manager.");
         }
 
         var outcome = status switch

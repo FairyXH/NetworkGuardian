@@ -88,6 +88,7 @@ internal sealed class SettingsPage : IPage
         general.Toggle("以太网优先（不主动扰动 Wi-Fi 连接）", config.General.PreferEthernet, v => config.General.PreferEthernet = v);
         general.Toggle("允许自动打开 Wi-Fi 无线电开关", config.General.AutoEnableWifiRadio, v => config.General.AutoEnableWifiRadio = v);
         general.Toggle("允许自动启用被禁用的物理无线网卡", config.General.AutoEnableWifiDevices, v => config.General.AutoEnableWifiDevices = v);
+        general.Toggle("故障无线网卡自动重启（禁用+启用，用于驱动启动失败）", config.General.AutoRestartFaultedWifiDevices, v => config.General.AutoRestartFaultedWifiDevices = v);
         general.Toggle("启动时确保无线电为开启", config.General.EnsureRadioOnAtStartup, v => config.General.EnsureRadioOnAtStartup = v);
         general.Number("巡检周期（秒）", config.General.HealthSweepSeconds, 5, 3600, v => config.General.HealthSweepSeconds = v);
         general.Number("设备枚举刷新周期（秒）", config.General.EnumerationRefreshSeconds, 30, 3600, v => config.General.EnumerationRefreshSeconds = v);
@@ -179,7 +180,7 @@ internal sealed class SettingsPage : IPage
         wifi.Toggle("优先 5GHz / 6GHz", config.Wifi.PreferHighBand, v => config.Wifi.PreferHighBand = v);
         wifi.Toggle("只连接已有配置的网络（绝不加入陌生 Wi-Fi）", config.Wifi.OnlySavedProfiles, v => config.Wifi.OnlySavedProfiles = v);
         wifi.Toggle("允许隐藏的已保存配置", config.Wifi.AllowHiddenProfiles, v => config.Wifi.AllowHiddenProfiles = v);
-        wifi.Toggle("允许多张网卡连接同一个 SSID", config.Wifi.AllowSameSsidOnMultipleAdapters, v => config.Wifi.AllowSameSsidOnMultipleAdapters = v);
+        wifi.Toggle("允许多张网卡连接同一个 SSID（关闭时重复连接中信号较弱的网卡会被断开）", config.Wifi.AllowSameSsidOnMultipleAdapters, v => config.Wifi.AllowSameSsidOnMultipleAdapters = v);
         wifi.Toggle("优先最近连接过的配置", config.Wifi.PreferRecentProfiles, v => config.Wifi.PreferRecentProfiles = v);
         wifi.Number("信号强度迟滞（百分点）", config.Wifi.SignalHysteresis, 0, 100, v => config.Wifi.SignalHysteresis = v);
         wifi.Number("最低可用信号（%）", config.Wifi.MinimumSignalQuality, 0, 100, v => config.Wifi.MinimumSignalQuality = v);

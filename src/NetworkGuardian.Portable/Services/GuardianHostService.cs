@@ -41,6 +41,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private readonly Random _jitter = new();
 
+    /// <summary>Decision notes that are already in the log, so a persistent condition is logged once.</summary>
+    private readonly HashSet<string> _loggedNotes = new(StringComparer.Ordinal);
+
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private GuardianConfig _config;
@@ -143,6 +146,32 @@ public sealed class GuardianHostService : IAsyncDisposable
     /// </summary>
     public void LogUiDebug(string message) =>
         _logger.LogDebug("UI: {Message}", message);
+
+    /// <summary>
+    /// Writes the decision engine's notes to the log - but only the ones not logged before, because a
+    /// persistent condition (a faulted adapter, a disabled device, a throttled limiter) repeats every
+    /// cycle and would otherwise drown everything else. The notes are what the engine decided *not* to
+    /// act on, so without them a user sees "the adapter was never enabled" with nothing in the log.
+    /// </summary>
+    private void LogDecisionNotes(IReadOnlyList<string> notes)
+    {
+        if (notes.Count == 0)
+        {
+            _loggedNotes.Clear();
+            return;
+        }
+
+        foreach (var note in notes)
+        {
+            if (_loggedNotes.Add(note))
+            {
+                _logger.LogInformation("决策提示: {Note}", note);
+            }
+        }
+
+        // Forget notes that no longer apply so they are reported again if the condition returns.
+        _loggedNotes.IntersectWith(notes);
+    }
 
     public LocationPermissionSnapshot LocationPermission => _location.Read();
 
@@ -329,6 +358,8 @@ public sealed class GuardianHostService : IAsyncDisposable
             _manualScanRequested = false;
 
             var decision = _engine.Evaluate(input);
+
+            LogDecisionNotes(decision.Notes);
 
             if (!IsPaused && _config.General.AutomaticRecovery)
             {
@@ -634,6 +665,42 @@ public sealed class GuardianHostService : IAsyncDisposable
                         _logger.LogWarning(
                             "Enabling {Device} failed: {Outcome} {Message} {Detail} (error {Error})",
                             enable.DeviceInstanceId, result.Outcome, result.Win32Message, result.Detail,
+                            result.NativeErrorCode);
+                    }
+
+                    break;
+                }
+
+                case RestartWifiDeviceAction restart:
+                {
+                    _logger.LogInformation(
+                        "Restarting physical Wi-Fi device {Device} ({Name}); problem code {Problem} means the " +
+                        "driver did not start, so enabling alone would not help",
+                        restart.DeviceInstanceId, restart.FriendlyName, restart.ProblemCode);
+
+                    var result = await _devices.RestartAsync(restart.DeviceInstanceId, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    _engine.NotifyDeviceOperation("restart", result.Success, DateTimeOffset.UtcNow);
+
+                    if (result.Success)
+                    {
+                        _logger.LogInformation("Restarted physical Wi-Fi device {Device}: {Detail}",
+                            restart.DeviceInstanceId, result.Detail);
+                        Notification?.Invoke(this, $"已重启网卡 {restart.FriendlyName}");
+                        await Task.Delay(
+                                TimeSpan.FromSeconds(Math.Max(2, _config.Recovery.DeviceEnableSettleSeconds)),
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        _forceEnumeration = true;
+                        _wifi.RefreshAdapters();
+                    }
+                    else
+                    {
+                        _engine.NotifyActionFailed(restart, result.Detail ?? result.Outcome.ToString(), DateTimeOffset.UtcNow);
+                        _logger.LogWarning(
+                            "Restarting {Device} did not bring it back: {Outcome} {Message} {Detail} (error {Error})",
+                            restart.DeviceInstanceId, result.Outcome, result.Win32Message, result.Detail,
                             result.NativeErrorCode);
                     }
 

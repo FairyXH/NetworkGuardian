@@ -138,6 +138,52 @@ public sealed class PhysicalDeviceManager : IDeviceManager
         return Map(response, "enable");
     }
 
+    /// <summary>
+    /// Disables and re-enables a device - the only PnP action that can revive an adapter whose driver
+    /// failed to start (problem code 10, 43, ...). Enabling such a device directly does nothing, so
+    /// this is used for faulted devices instead of <see cref="EnableAsync"/>.
+    /// </summary>
+    public async Task<DeviceOperationResult> RestartAsync(string deviceInstanceId, CancellationToken cancellationToken)
+    {
+        var verification = Verify(deviceInstanceId, out var record);
+        if (verification is not null)
+        {
+            return verification;
+        }
+
+        if (record!.IsStarted && record.ProblemCode == 0)
+        {
+            return new DeviceOperationResult
+            {
+                DeviceInstanceId = deviceInstanceId,
+                Operation = "restart",
+                Outcome = DeviceOperationOutcome.AlreadyInDesiredState,
+                StartedAfter = true,
+                ProblemCodeAfter = 0,
+                Detail = "The device is running; nothing to restart.",
+                Elevated = HelperClient.IsProcessElevated(),
+            };
+        }
+
+        if (HelperClient.IsProcessElevated())
+        {
+            _logger.LogInformation("Process is elevated; restarting {Device} directly", deviceInstanceId);
+            return DeviceNodeOperations.Restart(deviceInstanceId, requirePhysical: true, _classifier, _inventory, _logger);
+        }
+
+        var request = new HelperRequest
+        {
+            Operation = HelperOperations.Restart,
+            DeviceInstanceId = deviceInstanceId,
+            RequirePhysicalDevice = true,
+            RequestedBy = $"{Environment.ProcessPath} ({Environment.ProcessId})",
+        };
+
+        // Longer than enable: the helper disables, waits, enables and then waits for DN_STARTED.
+        var response = await _helper.SendAsync(request, TimeSpan.FromSeconds(75), cancellationToken).ConfigureAwait(false);
+        return Map(response, "restart");
+    }
+
     public async Task<DeviceOperationResult> DisableAsync(string deviceInstanceId, CancellationToken cancellationToken)
     {
         var verification = Verify(deviceInstanceId, out _);

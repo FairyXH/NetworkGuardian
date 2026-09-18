@@ -305,17 +305,46 @@ public sealed class GuardianDecisionEngine
             .Where(d => d.Record.IsPresent && d.Classification.IsPhysical &&
                         d.Classification.Category == DeviceCategory.PhysicalWifi)
             .ToList();
-        // Only genuinely disabled devices (CM problem code 22/21) are candidates. A device that failed
-        // to start for another reason is broken, not disabled: enabling it is not a repair and would
-        // just produce a state change plus log noise every cycle.
+        // Only genuinely disabled devices (CM problem code 22/21) can simply be enabled.
         var disabledDevices = wifiDevices.Where(d => d.IsDisabled).ToList();
 
+        // A device whose driver failed to start (10, 43, ...) is not "disabled": CM_Enable_DevNode
+        // changes nothing for it. The one PnP action that has a real chance is a restart (disable +
+        // enable, exactly what Device Manager offers), so it gets a bounded attempt instead of never.
+        // Either way the situation is stated, because "the adapter never came back" has to be visible.
         foreach (var faulted in wifiDevices.Where(d => !d.IsEnabled && !d.IsDisabled))
         {
-            notes.Add(
-                $"Physical Wi-Fi device {faulted.Record.DeviceInstanceId} reports problem code " +
-                $"{faulted.Record.ProblemCode} (driver fault, not disabled); device repair is left to " +
-                "Windows. Check the adapter in Device Manager.");
+            var friendly = faulted.Record.FriendlyName ?? faulted.Record.DeviceDescription ?? "Wi-Fi adapter";
+
+            if (!config.General.AutoRestartFaultedWifiDevices)
+            {
+                notes.Add($"物理无线网卡「{friendly}」存在但未运行（problemCode={faulted.Record.ProblemCode}）；" +
+                          "故障设备自动重启已关闭，未处理。可在设备管理器中检查该网卡。");
+                continue;
+            }
+
+            var key = $"restart-device:{faulted.Record.DeviceInstanceId}";
+            var limiter = GetCommandLimiter(key,
+                Math.Min(config.Recovery.MaxDeviceEnablePerHour, 3),
+                TimeSpan.FromSeconds(120), 2);
+
+            if (limiter.TryAcquire(now, out _, out var reason))
+            {
+                limiter.RecordRun(now);
+                actions.Add(new RestartWifiDeviceAction
+                {
+                    DeviceInstanceId = faulted.Record.DeviceInstanceId,
+                    FriendlyName = friendly,
+                    ProblemCode = faulted.Record.ProblemCode,
+                    Reason = $"physical Wi-Fi device is present but not running (problemCode={faulted.Record.ProblemCode})",
+                });
+                _stateMachine.Transition(RecoveryState.EnablingWifiDevices, now,
+                    "faulted physical Wi-Fi device detected");
+            }
+            else
+            {
+                notes.Add($"物理无线网卡「{friendly}」未运行（problemCode={faulted.Record.ProblemCode}）：{reason}");
+            }
         }
 
         if (disabledDevices.Count > 0 && config.General.AutoEnableWifiDevices)
@@ -356,6 +385,18 @@ public sealed class GuardianDecisionEngine
         else if (disabledDevices.Count > 0)
         {
             notes.Add($"{disabledDevices.Count} physical Wi-Fi device(s) are disabled; autoEnableWifiDevices is off.");
+        }
+
+        if (actions.OfType<RestartWifiDeviceAction>().Any())
+        {
+            // A restart is a disable + enable: give the device time to come back before the next pass
+            // evaluates it (otherwise every cycle would just re-trigger the limiter).
+            actions.Add(new WaitAction
+            {
+                Delay = TimeSpan.FromSeconds(Math.Max(6, config.Recovery.DeviceEnableSettleSeconds * 2)),
+                Reason = "waiting for the restarted Wi-Fi device to come back",
+            });
+            return BuildDecision(now, actions, notes, connectivity);
         }
 
         // ---------- Ethernet / campus authentication ----------
@@ -486,6 +527,57 @@ public sealed class GuardianDecisionEngine
             // Adapter disappeared (USB unplugged): forget its history so a later re-plug starts clean.
             _adapters.Remove(staleGuid);
             _logger.LogInformation("Adapter {Adapter} no longer present; policy state cleared", staleGuid);
+        }
+
+        // ---------- One SSID per adapter ----------
+        // Two adapters associated with the same access point duplicate every frame and, with several
+        // drivers, degrade the link for both. When the user wants one SSID per adapter, the weaker
+        // adapter is released while the stronger one keeps its (sticky) connection untouched.
+        if (!config.Wifi.AllowSameSsidOnMultipleAdapters)
+        {
+            var duplicates = adapters
+                .Where(a => a.IsConnected && !string.IsNullOrWhiteSpace(a.CurrentSsid))
+                .GroupBy(a => a.CurrentSsid!, StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .ToList();
+
+            foreach (var group in duplicates)
+            {
+                // Keep the strongest link; ties are broken by description so the choice is stable
+                // across cycles instead of oscillating between equally strong adapters.
+                var ranked = group
+                    .OrderByDescending(a => a.SignalQuality)
+                    .ThenBy(a => a.Description, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var keep = ranked[0];
+                var loser = ranked[^1];
+
+                var key = $"duplicate-ssid:{loser.InterfaceGuid}";
+                var limiter = GetCommandLimiter(key, 12, TimeSpan.FromSeconds(60), 4);
+
+                if (limiter.TryAcquire(now, out _, out var reason))
+                {
+                    limiter.RecordRun(now);
+                    actions.Add(new DisconnectWifiAction
+                    {
+                        InterfaceGuid = loser.InterfaceGuid,
+                        Ssid = group.Key,
+                        Reason = $"'{group.Key}' is connected on more than one adapter; releasing " +
+                                 $"{loser.Description} ({loser.SignalQuality}%) and keeping " +
+                                 $"{keep.Description} ({keep.SignalQuality}%)",
+                    });
+
+                    _stateMachine.Transition(RecoveryState.Recovering, now, "duplicate SSID across adapters");
+                    RecordRecoveryAction($"已断开 {loser.Description} 与 {keep.Description} 重复连接的 {group.Key}");
+                    wifiNotes.Add($"{loser.Description}：与 {keep.Description} 连接了同一个 SSID " +
+                                  $"'{group.Key}'，已按策略断开（保留信号更强的 {keep.SignalQuality}%）");
+                }
+                else
+                {
+                    wifiNotes.Add($"{loser.Description}: duplicate SSID '{group.Key}' not released - {reason}");
+                }
+            }
         }
 
         foreach (var adapter in adapters)
@@ -621,6 +713,17 @@ public sealed class GuardianDecisionEngine
                 continue;
             }
 
+            // A network another adapter is already holding is not a candidate here (one SSID per
+            // adapter), so a released duplicate stays released instead of instantly re-associating.
+            var excludeSsids = config.Wifi.AllowSameSsidOnMultipleAdapters
+                ? null
+                : adapters
+                    .Where(other => other.InterfaceGuid != adapter.InterfaceGuid &&
+                                    other.IsConnected &&
+                                    !string.IsNullOrWhiteSpace(other.CurrentSsid))
+                    .Select(other => other.CurrentSsid!)
+                    .ToArray();
+
             var candidates = _selector.SelectCandidates(
                 adapter.InterfaceGuid,
                 scan,
@@ -629,7 +732,7 @@ public sealed class GuardianDecisionEngine
                 now,
                 out var rejections,
                 state.LastConnectedProfile ?? state.LastKnownSsid,
-                excludeSsid: null);
+                excludeSsids);
 
             if (config.Logging.VerboseNetwork && rejections.Count > 0)
             {

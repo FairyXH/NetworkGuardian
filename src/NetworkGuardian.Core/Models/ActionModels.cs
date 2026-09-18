@@ -42,6 +42,23 @@ public sealed record EnableWifiDeviceAction : GuardianAction
     public override string Describe() => $"EnableWifiDevice({DeviceInstanceId}, {Reason})";
 }
 
+/// <summary>
+/// Restarts a physically present Wi-Fi device that is not running because its driver failed to start
+/// (problem code 10/43/...). This is the software equivalent of "Disable device" + "Enable device" in
+/// Device Manager and is the only PnP action that has a chance of reviving such a device.
+/// </summary>
+public sealed record RestartWifiDeviceAction : GuardianAction
+{
+    public required string DeviceInstanceId { get; init; }
+
+    public required string FriendlyName { get; init; }
+
+    public required uint ProblemCode { get; init; }
+
+    public override string Describe() =>
+        $"RestartWifiDevice({DeviceInstanceId}, problemCode={ProblemCode}, {Reason})";
+}
+
 public sealed record ScanAdapterAction : GuardianAction
 {
     public required Guid InterfaceGuid { get; init; }

@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -60,6 +60,19 @@ public sealed class GeneralSettings
 
     /// <summary>Allow automatically enabling physically present but disabled Wi-Fi adapters.</summary>
     public bool AutoEnableWifiDevices { get; set; } = true;
+
+    /// <summary>
+    /// Allow one bounded repair attempt (disable + enable, the same thing Device Manager's
+    /// "Disable device / Enable device" does) for a physical Wi-Fi adapter that is present but not
+    /// running because its driver failed to start. Windows reports those as a problem code other
+    /// than "disabled" (10 = CM_PROB_FAILED_START, 43 = CM_PROB_FAILED_POST_START, ...).
+    /// </summary>
+    /// <remarks>
+    /// This is a real state change on the machine, so it is rate limited per device and stops after a
+    /// few consecutive failures; the log states plainly when the restart did not help, because at
+    /// that point the fix is a driver reinstall, not another software switch.
+    /// </remarks>
+    public bool AutoRestartFaultedWifiDevices { get; set; } = true;
 
     /// <summary>Keep the Wi-Fi radio asserted On during startup and recovery.</summary>
     public bool EnsureRadioOnAtStartup { get; set; } = true;
@@ -259,7 +272,7 @@ public sealed class WifiSettings
     public int SignalHysteresis { get; set; } = 5;
 
     /// <summary>Allow more than one adapter to connect to the same SSID.</summary>
-    public bool AllowSameSsidOnMultipleAdapters { get; set; } = true;
+    public bool AllowSameSsidOnMultipleAdapters { get; set; }
 
     /// <summary>Prefer a profile that connected successfully recently when scores are close.</summary>
     public bool PreferRecentProfiles { get; set; } = true;
