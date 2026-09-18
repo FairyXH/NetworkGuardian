@@ -152,6 +152,61 @@ public sealed class WifiRadioControllerTests
         Assert.Contains("ERROR_ACCESS_DENIED", result.Failure);
     }
 
+    [Fact]
+    public async Task EnablingTurnsOnEveryAdapterThatIsSwitchedOff()
+    {
+        var fake = new FakeRadioAccess(softwareOn: false, hardwareOn: true);
+        var onGuid = Guid.NewGuid();
+        var offGuid = Guid.NewGuid();
+        fake.Instances.AddRange(
+        [
+            new RadioInstanceInfo(onGuid, "WLAN 3", RadioDeviceState.On),
+            new RadioInstanceInfo(offGuid, "WLAN", RadioDeviceState.SoftwareOff),
+        ]);
+
+        using var controller = new WifiRadioController(access: fake);
+
+        var result = await controller.SetEnabledAsync(true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.True(result.StateChanged);
+
+        // Only the adapter that was switched off is touched - and it is the per-adapter switch that
+        // makes this work at all, since the WLAN opcode only ever saw the first interface.
+        Assert.Equal(new[] { offGuid }, fake.RadioOnRequests);
+    }
+
+    [Fact]
+    public async Task EnablingReportsTheAdaptersThatRefused()
+    {
+        var fake = new FakeRadioAccess(softwareOn: false, hardwareOn: true);
+        fake.Instances.Add(new RadioInstanceInfo(Guid.NewGuid(), "WLAN", RadioDeviceState.SoftwareOff));
+        fake.NextInstanceResult = new RadioSetResult(false, false, "hardware switch is off");
+
+        using var controller = new WifiRadioController(access: fake);
+
+        var result = await controller.SetEnabledAsync(true, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.False(result.StateChanged);
+        Assert.Contains("hardware switch is off", result.Failure);
+    }
+
+    [Fact]
+    public async Task AnAdapterSwitchedOffInWindowsMakesTheRadioStateOff()
+    {
+        var fake = new FakeRadioAccess(softwareOn: true, hardwareOn: true);
+        fake.Instances.Add(new RadioInstanceInfo(Guid.NewGuid(), "WLAN", RadioDeviceState.SoftwareOff));
+
+        using var controller = new WifiRadioController(access: fake);
+
+        var snapshot = await controller.GetAsync(CancellationToken.None);
+
+        // The first interface reports "on"; without the per-adapter view this would read as On.
+        Assert.Equal(RadioState.Off, snapshot.State);
+        Assert.True(snapshot.IsAccessAllowed);
+    }
+
     private sealed class FakeRadioAccess : IRadioStateAccess
     {
         public FakeRadioAccess(bool? softwareOn, bool? hardwareOn, string? detail = null)
@@ -171,6 +226,12 @@ public sealed class WifiRadioControllerTests
 
         public RadioOperationResult? NextWrite { get; init; }
 
+        public List<RadioInstanceInfo> Instances { get; } = [];
+
+        public List<Guid> RadioOnRequests { get; } = [];
+
+        public RadioSetResult? NextInstanceResult { get; set; }
+
         public RadioStateReadResult ReadRadioState() =>
             new(SoftwareOn, HardwareOn, SoftwareOn is null ? 0u : 1u, Detail);
 
@@ -185,6 +246,26 @@ public sealed class WifiRadioControllerTests
 
             SoftwareOn = enabled;
             return new RadioOperationResult { Success = true, StateChanged = true };
+        }
+
+        public IReadOnlyList<RadioInstanceInfo> ReadRadioInstances() => Instances;
+
+        public RadioSetResult SetInstanceRadioOn(Guid interfaceGuid)
+        {
+            RadioOnRequests.Add(interfaceGuid);
+
+            if (NextInstanceResult is { } refusal)
+            {
+                return refusal;
+            }
+
+            var index = Instances.FindIndex(instance => instance.InterfaceGuid == interfaceGuid);
+            if (index >= 0)
+            {
+                Instances[index] = Instances[index] with { State = RadioDeviceState.On };
+            }
+
+            return new RadioSetResult(true, true, null);
         }
     }
 }

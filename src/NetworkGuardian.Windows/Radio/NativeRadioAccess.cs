@@ -82,6 +82,34 @@ public sealed class NativeRadioAccess : IRadioStateAccess, IDisposable
         }
     }
 
+    /// <summary>
+    /// Reads the per-adapter radio switches through the Windows radio manager. The WLAN opcode above
+    /// only ever reports the first interface, so an adapter switched off in Windows Settings stayed
+    /// invisible - this is the view that sees every adapter.
+    /// </summary>
+    public IReadOnlyList<RadioInstanceInfo> ReadRadioInstances()
+    {
+        var instances = RadioManagerInterop.ReadInstances(out var failure);
+        if (failure is not null)
+        {
+            _logger.LogWarning("Reading the Wi-Fi radio instances failed: {Failure}", failure);
+        }
+
+        return instances;
+    }
+
+    public RadioSetResult SetInstanceRadioOn(Guid interfaceGuid)
+    {
+        var result = RadioManagerInterop.SetRadioOn(interfaceGuid, out var failure);
+        if (!result.Success)
+        {
+            _logger.LogWarning("Turning the software radio of {Interface} on failed: {Failure}",
+                interfaceGuid, failure);
+        }
+
+        return result;
+    }
+
     private RadioStateReadResult QueryRadioState(IntPtr handle, Guid interfaceGuid)
     {
         IntPtr dataPointer = IntPtr.Zero;

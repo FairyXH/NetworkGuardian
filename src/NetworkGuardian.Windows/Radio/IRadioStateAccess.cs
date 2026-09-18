@@ -14,4 +14,13 @@ public interface IRadioStateAccess
 
     /// <summary>Writes the software radio state and verifies the result.</summary>
     Core.Abstractions.RadioOperationResult SetSoftwareRadioState(bool enabled);
+
+    /// <summary>
+    /// Reads every Wi-Fi radio instance - one per WLAN adapter - which is what Windows Settings shows
+    /// as a Wi-Fi switch per adapter.
+    /// </summary>
+    IReadOnlyList<RadioInstanceInfo> ReadRadioInstances();
+
+    /// <summary>Turns one adapter's software radio back on and verifies it.</summary>
+    RadioSetResult SetInstanceRadioOn(Guid interfaceGuid);
 }
