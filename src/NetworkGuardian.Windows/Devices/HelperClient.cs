@@ -22,12 +22,27 @@ public sealed class HelperClient
     public static bool IsProcessElevated()
         => NetworkGuardian.Windows.Privileges.ProcessElevation.IsElevated();
 
-    public static string? ResolveHelperPath()
+    /// <summary>How the privileged helper is started: file, argument prefix and working directory.</summary>
+    public sealed record HelperInvocation(string FileName, string Prefix, string WorkingDirectory);
+
+    /// <summary>
+    /// Resolves what performs the privileged operation, in this order: an explicit override
+    /// (<c>NETWORKGUARDIAN_HELPER_PATH</c>, used by tests), the application's own executable with
+    /// <c>--helper</c> (the portable single-file package contains the helper inside the main exe),
+    /// and finally a separate <c>NetworkGuardian.Helper.exe</c> next to it.
+    /// </summary>
+    public static HelperInvocation? ResolveInvocation()
     {
         var overridden = Environment.GetEnvironmentVariable("NETWORKGUARDIAN_HELPER_PATH");
         if (!string.IsNullOrWhiteSpace(overridden) && File.Exists(overridden))
         {
-            return overridden;
+            return new HelperInvocation(overridden, string.Empty, Path.GetDirectoryName(overridden) ?? AppContext.BaseDirectory);
+        }
+
+        var self = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(self) && File.Exists(self))
+        {
+            return new HelperInvocation(self, "--helper", Path.GetDirectoryName(self) ?? AppContext.BaseDirectory);
         }
 
         var candidates = new[]
@@ -42,7 +57,7 @@ public sealed class HelperClient
             var full = Path.GetFullPath(candidate);
             if (File.Exists(full))
             {
-                return full;
+                return new HelperInvocation(full, string.Empty, Path.GetDirectoryName(full) ?? AppContext.BaseDirectory);
             }
         }
 
@@ -51,8 +66,8 @@ public sealed class HelperClient
 
     public async Task<HelperResponse> SendAsync(HelperRequest request, TimeSpan timeout, CancellationToken cancellationToken)
     {
-        var helperPath = ResolveHelperPath();
-        if (helperPath is null)
+        var helper = ResolveInvocation();
+        if (helper is null)
         {
             return new HelperResponse
             {
@@ -60,8 +75,10 @@ public sealed class HelperClient
                 Operation = request.Operation,
                 DeviceInstanceId = request.DeviceInstanceId,
                 Outcome = nameof(DeviceOperationOutcome.NotSupported),
-                Message = "NetworkGuardian.Helper.exe was not found next to the application.",
-                Detail = "Build the NetworkGuardian.Helper project (it is copied to the helper subfolder of the app output).",
+                Message = "The privileged helper could not be located.",
+                Detail = "The portable package runs it from the application executable with --helper; " +
+                         "for a split layout, place NetworkGuardian.Helper.exe next to the application " +
+                         "or point NETWORKGUARDIAN_HELPER_PATH at it.",
             };
         }
 
@@ -74,14 +91,18 @@ public sealed class HelperClient
             await File.WriteAllTextAsync(requestPath, HelperProtocol.SerializeRequest(request), Encoding.UTF8, cancellationToken)
                 .ConfigureAwait(false);
 
+            var arguments = string.IsNullOrEmpty(helper.Prefix)
+                ? $"--request \"{requestPath}\" --response \"{responsePath}\""
+                : $"{helper.Prefix} --request \"{requestPath}\" --response \"{responsePath}\"";
+
             var startInfo = new ProcessStartInfo
             {
-                FileName = helperPath,
-                Arguments = $"--request \"{requestPath}\" --response \"{responsePath}\"",
+                FileName = helper.FileName,
+                Arguments = arguments,
                 UseShellExecute = true,
                 Verb = "runas",
                 WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = Path.GetDirectoryName(helperPath) ?? AppContext.BaseDirectory,
+                WorkingDirectory = helper.WorkingDirectory,
             };
 
             _logger.LogInformation("Requesting elevation for {Operation} on {Device}",

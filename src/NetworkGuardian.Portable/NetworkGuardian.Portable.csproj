@@ -57,39 +57,12 @@
     <ProjectReference Include="..\NetworkGuardian.Infrastructure\NetworkGuardian.Infrastructure.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <!--
-      The privileged helper ships next to the portable exe. Release packaging passes HelperPublishDir
-      (a native AOT helper publish output, ~2 MB); a plain build falls back to the most recent helper
-      build. Both the solution (Platform=x64 -> bin\x64\<Config>) and project (bin\<Config>) layouts
-      are probed because they differ.
-    -->
-    <HelperProjectDir>$(MSBuildThisFileDirectory)..\NetworkGuardian.Helper\</HelperProjectDir>
-    <HelperSourceDir Condition="'$(HelperPublishDir)' != ''">$(HelperPublishDir)</HelperSourceDir>
-    <HelperSourceDir Condition="'$(HelperSourceDir)' == '' AND Exists('$(HelperProjectDir)bin\x64\$(Configuration)\net8.0-windows\win-x64\NetworkGuardian.Helper.exe')">$(HelperProjectDir)bin\x64\$(Configuration)\net8.0-windows\win-x64\</HelperSourceDir>
-    <HelperSourceDir Condition="'$(HelperSourceDir)' == '' AND Exists('$(HelperProjectDir)bin\$(Configuration)\net8.0-windows\win-x64\NetworkGuardian.Helper.exe')">$(HelperProjectDir)bin\$(Configuration)\net8.0-windows\win-x64\</HelperSourceDir>
-  </PropertyGroup>
-
-  <Target Name="CopyPrivilegedHelper" AfterTargets="Build"
-          Condition="Exists('$(HelperSourceDir)NetworkGuardian.Helper.exe')">
-    <ItemGroup>
-      <HelperFiles Include="$(HelperSourceDir)**\*.*" />
-    </ItemGroup>
-    <Copy SourceFiles="@(HelperFiles)"
-          DestinationFiles="@(HelperFiles->'$(OutDir)helper\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
-
-  <!-- Publish does not pick up files copied by a custom Build target, so copy again into the publish
-       folder when a helper publish output was supplied. -->
-  <Target Name="CopyPrivilegedHelperToPublish" AfterTargets="Publish"
-          Condition="'$(HelperPublishDir)' != '' AND Exists('$(HelperPublishDir)NetworkGuardian.Helper.exe')">
-    <ItemGroup>
-      <HelperPublishFiles Include="$(HelperPublishDir)**\*.*" />
-    </ItemGroup>
-    <Copy SourceFiles="@(HelperPublishFiles)"
-          DestinationFiles="@(HelperPublishFiles->'$(PublishDir)helper\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-  </Target>
+  <!--
+    The privileged helper is compiled into this executable (HelperEntry in NetworkGuardian.Windows)
+    and reached through the helper switch, so the published package is a single file.
+    NetworkGuardian.Helper is still built as a standalone exe for split deployments, but nothing is
+    copied next to the app: a second exe in the package would only add ~3 MB and contradict the
+    single-file requirement. (XML comments cannot contain a double hyphen, hence the wording.)
+  -->
 
 </Project>

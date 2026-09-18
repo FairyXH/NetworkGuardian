@@ -85,18 +85,20 @@ Write-Host ''
 
 Write-Host '== package contents'
 $exePath = Join-Path $packagePath 'NetworkGuardian.exe'
-$helperPath = Join-Path $packagePath 'helper\NetworkGuardian.Helper.exe'
 $notesPath = Join-Path $packagePath '发布说明.txt'
+$shippedHelper = Join-Path $packagePath 'helper\NetworkGuardian.Helper.exe'
 
 Check 'NetworkGuardian.exe exists' (Test-Path $exePath)
-Check 'helper\NetworkGuardian.Helper.exe exists' (Test-Path $helperPath)
 Check '发布说明.txt exists' (Test-Path $notesPath)
+Check 'no separate helper exe is shipped (it lives in NetworkGuardian.exe --helper)' (-not (Test-Path $shippedHelper))
+Check 'the package holds exactly one executable' (@(Get-ChildItem -Path $packagePath -Recurse -Filter '*.exe').Count -eq 1)
 
 if (-not (Test-Path $exePath)) { throw 'nothing to verify' }
 
 $exeMb = [Math]::Round((Get-Item $exePath).Length / 1MB, 2)
+$totalMb = [Math]::Round(((Get-ChildItem -Path $packagePath -Recurse -File | Measure-Object -Property Length -Sum).Sum) / 1MB, 2)
 Check "NetworkGuardian.exe is within the $MaxExeMb MB gate" ($exeMb -le $MaxExeMb) "(actual $exeMb MB; measured 248.8 MB / 515 files for the WinUI build)"
-Write-Host "         exe $exeMb MB, helper $([Math]::Round((Get-Item $helperPath).Length / 1MB, 2)) MB"
+Write-Host "         exe $exeMb MB, whole package $totalMb MB"
 
 # ---------- 2. single file / no runtime payload ----------
 
@@ -168,24 +170,41 @@ try {
     }
 
     # ---------- 4. the privileged helper runs for real ----------
+    #
+    # The helper is the application itself (--helper). Running it while the GUI instance above owns
+    # the single instance mutex is deliberate: --helper has to win over the mutex, otherwise the
+    # elevated process would exit as "another instance is running" and never answer.
 
-    Write-Host '== privileged helper'
+    Write-Host '== privileged helper (NetworkGuardian.exe --helper)'
     $helperDir = Join-Path $root 'helper'
     $requestPath = Join-Path $helperDir 'request-verify.json'
     $responsePath = Join-Path $helperDir 'response-verify.json'
     '{"protocolVersion":1,"operation":"query-status","deviceInstanceId":"BOGUS\\DEVICE\\0000","requirePhysicalDevice":true}' |
         Set-Content -Path $requestPath -Encoding utf8
 
-    $helper = Start-Process -FilePath (Join-Path $packageCopy 'helper\NetworkGuardian.Helper.exe') `
-        -ArgumentList '--request', $requestPath, '--response', $responsePath -Wait -PassThru
+    $helper = Start-Process -FilePath $exe `
+        -ArgumentList '--helper', '--request', $requestPath, '--response', $responsePath -Wait -PassThru
     Start-Sleep -Milliseconds 500
 
-    Check 'helper produced a response file' (Test-Path $responsePath)
+    Check 'the helper answered while the GUI instance was running' (Test-Path $responsePath)
     if (Test-Path $responsePath) {
         $response = Get-Content $responsePath -Raw | ConvertFrom-Json
-        Check 'helper refuses an unknown device without touching hardware' ($response.outcome -eq 'DeviceNotFound') "(outcome $($response.outcome))"
+        Check 'the helper reports its protocol version' ($response.protocolVersion -eq 1) "(got $($response.protocolVersion))"
         Check 'helper reports its elevation state' ($null -ne $response.helperElevated)
-        Write-Host "         helperElevated=$($response.helperElevated), helperVersion=$($response.helperVersion)"
+        Write-Host "         helperElevated=$($response.helperElevated), helperVersion=$($response.helperVersion), outcome=$($response.outcome)"
+
+        if ($response.helperElevated) {
+            Check 'helper refuses an unknown device without touching hardware' ($response.outcome -eq 'DeviceNotFound') "(outcome $($response.outcome))"
+        }
+        else {
+            Check 'a non elevated helper refuses to act' ($response.outcome -eq 'AccessDenied') "(outcome $($response.outcome))"
+        }
+    }
+
+    $helperLog = Join-Path $helperDir 'helper.log'
+    if (Test-Path $helperLog) {
+        $helperText = Get-Content $helperLog -Raw
+        Check 'the helper logged that it was hosted by the application itself' ($helperText -match 'host=.*NetworkGuardian\.exe')
     }
 
     if ($InstanceId) {
@@ -194,8 +213,8 @@ try {
         (@{ protocolVersion = 1; operation = 'query-status'; deviceInstanceId = $InstanceId; requirePhysicalDevice = $true } | ConvertTo-Json -Compress) |
             Set-Content -Path $requestPath2 -Encoding utf8
 
-        Start-Process -FilePath (Join-Path $packageCopy 'helper\NetworkGuardian.Helper.exe') `
-            -ArgumentList '--request', $requestPath2, '--response', $responsePath2 -Wait | Out-Null
+        Start-Process -FilePath $exe `
+            -ArgumentList '--helper', '--request', $requestPath2, '--response', $responsePath2 -Wait | Out-Null
         Start-Sleep -Milliseconds 500
 
         $response2 = Get-Content $responsePath2 -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json

@@ -13,14 +13,15 @@ NetworkGuardian 是一个 Windows 网络保活工具：持续监测物理以太�
 
 文件
 ----
-  NetworkGuardian.exe                  主程序（约 5-8 MB，双击即可运行）
-  helper\NetworkGuardian.Helper.exe    提权助手，仅在需要启用被禁用的网卡或执行 runAsAdministrator 命令时被调用
+  NetworkGuardian.exe                  主程序（约 8 MB，双击即可运行；提权助手已内置）
   发布说明.txt                          本文件
 
 运行要求
 --------
   * Windows 10 2004 (build 19041) 或更高，x64
-  * 主程序**不需要**管理员权限；只有上面两类操作会通过 UAC 助手执行一次
+  * 主程序**不需要**管理员权限；只有启用被禁用网卡、或执行标记了“以管理员运行”的命令时，
+    会以同一个 exe（`NetworkGuardian.exe --helper`）请求一次 UAC 提权，完成单个操作后立即退出。
+    UAC 提示里显示的程序名就是 NetworkGuardian。
 
 使用
 ----

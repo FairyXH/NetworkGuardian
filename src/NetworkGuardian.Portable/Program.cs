@@ -47,6 +47,15 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // The privileged half ships inside this executable: --helper turns this process into the
+        // on-demand helper. It has to be handled before anything else - above all before the single
+        // instance mutex, which the running user instance already owns (an elevated helper that
+        // exited because "an instance is running" would silently answer nothing).
+        if (args.Any(a => string.Equals(a, "--helper", StringComparison.OrdinalIgnoreCase)))
+        {
+            return NetworkGuardian.Windows.Helper.HelperEntry.Run(args);
+        }
+
         try
         {
             var suffix = Environment.GetEnvironmentVariable("NETWORKGUARDIAN_INSTANCE_SUFFIX");

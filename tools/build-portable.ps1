@@ -6,9 +6,11 @@
 #   pwsh -NoProfile -File tools/build-portable.ps1 -SkipTests      # quick iteration
 #
 # Produces (default, release\ is the project's release folder and is git-ignored):
-#   release\NetworkGuardian.exe                native AOT single file, no runtime required
-#   release\helper\NetworkGuardian.Helper.exe  native AOT helper (privileged device operations)
+#   release\NetworkGuardian.exe    native AOT single file, no runtime required
 #   release\发布说明.txt
+#
+# The privileged helper is inside that executable (NetworkGuardian.exe --helper), so the package is
+# one binary: nothing has to sit next to it except the read-me.
 #
 # The size gate fails the build when the exe exceeds -MaxExeMb (default 8 MB).
 
@@ -25,7 +27,6 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'NetworkGuardian.sln'
 $appProject = Join-Path $repoRoot 'src\NetworkGuardian.Portable\NetworkGuardian.Portable.csproj'
-$helperProject = Join-Path $repoRoot 'src\NetworkGuardian.Helper\NetworkGuardian.Helper.csproj'
 $outputPath = if ([System.IO.Path]::IsPathRooted($OutputDir)) { $OutputDir } else { Join-Path $repoRoot $OutputDir }
 $logDir = Join-Path $repoRoot 'artifacts\logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
@@ -75,35 +76,25 @@ if (-not $SkipTests) {
     Write-Host "   $($summary.Line.Trim())"
 }
 
-# ---------- publish: privileged helper, then the app ----------
+# ---------- publish ----------
 
-$helperOut = Join-Path $env:TEMP ('ng-portable-helper-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
-New-Item -ItemType Directory -Force -Path $helperOut | Out-Null
-
-try {
-    Invoke-Step 'publish-helper' "dotnet publish '$helperProject' -c $Configuration -r win-x64 -o '$helperOut' --nologo" | Out-Null
-
-    # Clear the contents instead of the directory: a shell sitting inside it would lock the delete.
-    if (Test-Path $outputPath) {
-        Get-ChildItem -Path $outputPath -Force | Remove-Item -Recurse -Force
-    }
-
-    New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
-
-    # Trailing separator: the app copies $(HelperPublishDir)**\*.* into <publish>\helper\.
-    Invoke-Step 'publish-app' "dotnet publish '$appProject' -c $Configuration -r win-x64 -p:HelperPublishDir='$helperOut\' -o '$outputPath' --nologo" | Out-Null
+# Clear the contents instead of the directory: a shell sitting inside it would lock the delete.
+if (Test-Path $outputPath) {
+    Get-ChildItem -Path $outputPath -Force | Remove-Item -Recurse -Force
 }
-finally {
-    Remove-Item -Recurse -Force $helperOut -ErrorAction SilentlyContinue
-}
+
+New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
+Invoke-Step 'publish-app' "dotnet publish '$appProject' -c $Configuration -r win-x64 -o '$outputPath' --nologo" | Out-Null
 
 # ---------- package contents ----------
 
 $exePath = Join-Path $outputPath 'NetworkGuardian.exe'
 if (-not (Test-Path $exePath)) { throw 'NetworkGuardian.exe was not produced' }
 
-$helperExe = Join-Path $outputPath 'helper\NetworkGuardian.Helper.exe'
-if (-not (Test-Path $helperExe)) { throw 'the privileged helper was not copied into the package' }
+# A single-file package means exactly one executable; a second one would also be a second copy of the
+# privileged code path that nobody tests.
+$extraExe = Get-ChildItem -Path $outputPath -Recurse -Filter '*.exe' | Where-Object { $_.FullName -ne $exePath }
+if ($extraExe) { throw "the package contains a second executable: $($extraExe[0].FullName)" }
 
 Copy-Item -Path (Join-Path $PSScriptRoot 'portable-notes.txt') -Destination (Join-Path $outputPath '发布说明.txt') -Force
 
@@ -111,14 +102,12 @@ $strayPdb = Get-ChildItem -Path $outputPath -Recurse -Filter '*.pdb' -ErrorActio
 if ($strayPdb) { throw "the package contains debug symbols: $($strayPdb[0].FullName)" }
 
 $exeMb = [Math]::Round((Get-Item $exePath).Length / 1MB, 2)
-$helperMb = [Math]::Round((Get-Item $helperExe).Length / 1MB, 2)
 $totalMb = [Math]::Round(((Get-ChildItem -Path $outputPath -Recurse -File | Measure-Object -Property Length -Sum).Sum) / 1MB, 2)
 $version = ([xml](Get-Content (Join-Path $repoRoot 'Directory.Build.props'))).Project.PropertyGroup.Version
 
 Write-Host ''
 Write-Host '== package'
-Write-Host "   NetworkGuardian.exe           $exeMb MB   (native AOT, no runtime needed)"
-Write-Host "   helper\NetworkGuardian.Helper $helperMb MB"
+Write-Host "   NetworkGuardian.exe           $exeMb MB   (native AOT, helper included, no runtime needed)"
 Write-Host "   total                         $totalMb MB"
 
 if ($exeMb -gt $MaxExeMb) {

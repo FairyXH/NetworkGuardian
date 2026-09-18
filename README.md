@@ -207,7 +207,7 @@ PnP 节点与 Native Wi-Fi 接口的关联：读取 `CM_Get_DevNode_Registry_Pro
 | 无线电 | 原生 `WlanQueryInterface` / `WlanSetInterface`（opcode `radio_state`，`WLAN_RADIO_STATE` 772 字节），结果读回校验 |
 | 自绘 UI | `RegisterClassExW` `CreateWindowExW` `GetMessageW` / `DispatchMessageW` `BeginPaint` `InvalidateRect` `SetScrollInfo` `SetTimer` `WM_POWERBROADCAST`；GDI：`CreateCompatibleDC` `BitBlt` `RoundRect` `DrawTextW`(user32) `CreateFontW` `SetTextColor`；原生子窗口 `EDIT`；`TrackPopupMenuEx`；`GetOpenFileNameW` |
 | 系统集成 | `Shell_NotifyIcon`（托盘）、HKCU `Run` 键（开机启动，仅当前用户） |
-| 提权 | 独立助手 `NetworkGuardian.Helper.exe`（`asInvoker` 主程序 + `requireAdministrator` 助手，通过请求/响应 JSON 文件通信，`runas` 触发 UAC） |
+| 提权 | 主程序自身以 `--helper` 二次启动（`asInvoker` + `runas` 触发 UAC，请求/响应走 JSON 文件，完成单个操作即退出）；`NetworkGuardian.Helper.exe` 仍可单独构建，作为分离部署选项 |
 
 所有 P/Invoke 结构体都对照本机 SDK 头文件（`10.0.26100.0` 的 `wlanapi.h` / `cfgmgr32.h` / `setupapi.h` /
 `netioapi.h` / `iphlpapi.h`）逐字段核对，并有结构体尺寸断言（例如 `MIB_IPFORWARD_ROW2` 必须是原生 104 字节、
@@ -229,7 +229,9 @@ PnP 节点与 Native Wi-Fi 接口的关联：读取 `CM_Get_DevNode_Registry_Pro
   一键打开日志目录、清空缓冲。
 - **托盘**：打开 NetworkGuardian / 暂停（恢复）自动恢复 / 运行连通性测试 / 重新扫描 Wi-Fi /
   清除失败记录与冷却 / 打开日志目录 / 退出。关闭窗口的行为由 `startup.closeToTray` 决定。
-- 渲染细节：双缓冲内存位图，`WM_PAINT` 时整屏重绘并**在绘制过程中登记可点击区域**（不存在过期命中框）；
+- 渲染细节：双缓冲内存位图，`WM_PAINT` 时整屏重绘并**在绘制过程中登记可点击区域**（不存在过期命中框），
+  登记时即换算成客户区坐标，所以页面滚动后命中区域随内容移动，与内联 `EDIT`、下拉菜单位置一致；
+  每次按下/抬起都在 debug 级别记录命中索引（自绘控件失败是静默的，必须可追溯）；
   文本编辑用原生 `EDIT` 子窗口（点击字段时放在该字段位置，失焦提交）；下拉用 `TrackPopupMenuEx`；
   文件选择用 `GetOpenFileNameW`；DPI 由 `GetDpiForWindow` 驱动，布局尺寸按比例缩放；
   支持 `WM_PRINTCLIENT`，因此截图/校验工具可以在窗口被遮挡或隐藏时抓图且不抢焦点。
