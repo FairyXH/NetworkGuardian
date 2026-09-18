@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "networks": [
+    {
+      "id": "sample-campus",
+      "ssid": "Campus-WiFi",
+      "profileName": null,
+      "auth": "Wpa2Enterprise",
+      "eap": "PeapMschapv2",
+      "identity": "student@example.edu",
+      "anonymousIdentity": "anonymous@example.edu",
+      "domain": null,
+      "passwordProtected": null,
+      "useWinLogonCredentials": false,
+      "serverNames": [ "radius.example.edu" ],
+      "trustedRootCaThumbprints": [ "b2f9552a31fc01b2e970bd64daf7477fb82c52a2" ],
+      "certificateThumbprint": null,
+      "disableUserPromptForServerValidation": true,
+      "connectAutomatically": true,
+      "hidden": false,
+      "enabled": true,
+      "profileXmlOverride": null,
+      "notes": "示例条目：仅用于截图与演示，密码未填写。",
+      "appliedFingerprint": null,
+      "lastAppliedUtc": null
+    },
+    {
+      "id": "sample-lab",
+      "ssid": "Lab-8021X",
+      "profileName": "Lab-8021X-Manual",
+      "auth": "WpaEnterprise",
+      "eap": "Tls",
+      "identity": "device-cert@example.edu",
+      "anonymousIdentity": null,
+      "domain": null,
+      "passwordProtected": null,
+      "useWinLogonCredentials": false,
+      "serverNames": [ "lab-radius.example.edu;lab-radius2.example.edu" ],
+      "trustedRootCaThumbprints": [],
+      "certificateThumbprint": "0f1e2d3c4b5a69788796a5b4c3d2e1f012345678",
+      "disableUserPromptForServerValidation": false,
+      "connectAutomatically": false,
+      "hidden": true,
+      "enabled": false,
+      "profileXmlOverride": null,
+      "notes": "示例条目：EAP-TLS 客户端证书认证（未启用）。",
+      "appliedFingerprint": null,
+      "lastAppliedUtc": null
+    }
+  ]
+}

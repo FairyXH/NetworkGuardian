@@ -23,6 +23,7 @@ public static class NGQa {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] public static extern IntPtr SendMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
@@ -84,6 +85,11 @@ if ($h -eq [IntPtr]::Zero) { throw 'main window not found' }
 Start-Sleep -Milliseconds 900
 
 # --- calibrate the delivered coordinate scale -------------------------------------------------
+# Align this thread with the target window first: a DPI-unaware caller has its message coordinates
+# rescaled by Windows, and the factor differs between runs (observed 1.25 and 1.5) depending on how the
+# host process was started. Asking for PER_MONITOR_AWARE_V2 makes the delivered coordinates equal the
+# requested ones, so the calibration below should come out at 1.0 - it is kept as a check, not a guess.
+[void][NGQa]::SetThreadDpiAwarenessContext([IntPtr](-4))
 RawClick $h 4 4
 Start-Sleep -Milliseconds 400
 $probe = LogLines $root 80 | Select-String -Pattern 'mouse down at (\d+),(\d+)' | Select-Object -Last 1

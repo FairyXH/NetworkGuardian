@@ -12,12 +12,23 @@
 # The privileged helper is inside that executable (NetworkGuardian.exe --helper), so the package is
 # one binary: nothing has to sit next to it except the read-me.
 #
-# The size gate fails the build when the exe exceeds -MaxExeMb (default 8 MB).
+# The size gate fails the build when the exe exceeds -MaxExeMb (default 8.5 MB).
+#
+# The gate was 8 MB before the self-maintained wireless network library (802.1X/EAP accounts) landed.
+# Measured on this machine with the same toolchain, each step published on its own:
+#   7.87 MB  289ca18  before the library
+#   7.98 MB  a8e6ce0  + library models / config / profile XML and EAP user-data builders
+#   7.98 MB  06cc66d  + Windows profile writer, vault, DPAPI (still unreferenced, so trimmed away)
+#   8.24 MB  d296834  wired into the host: library loading, profile writing before connect,
+#                     802.1X failure counting, the 网络凭据库 page
+# Removing the new page from the page list on its own only accounts for 0.03 MB, so the growth is the
+# feature's code, not its UI. The extra 0.5 MB of headroom is deliberate: 8.5 MB still fails loudly on a
+# real regression instead of drifting.
 
 param(
     [string]$Configuration = 'Release',
     [string]$OutputDir = 'release',
-    [double]$MaxExeMb = 8.0,
+    [double]$MaxExeMb = 8.5,
     [switch]$SkipTests,
     [switch]$Zip
 )

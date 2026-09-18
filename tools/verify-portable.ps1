@@ -12,7 +12,7 @@
 
 param(
     [string]$PackageDir = 'release',
-    [double]$MaxExeMb = 8.0,
+    [double]$MaxExeMb = 0,          # 0 = take the gate from tools/build-portable.ps1
     [int]$Seconds = 20,
     [string]$InstanceId = ''
 )
@@ -22,6 +22,13 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $packagePath = if ([System.IO.Path]::IsPathRooted($PackageDir)) { $PackageDir } else { Join-Path $repoRoot $PackageDir }
 $windowClass = 'NetworkGuardianPortableWindow'
+
+# One source of truth for the gate: whatever tools/build-portable.ps1 enforces is what is verified here.
+if ($MaxExeMb -le 0) {
+    $buildScript = Get-Content (Join-Path $PSScriptRoot 'build-portable.ps1') -Raw
+    if ($buildScript -match '\[double\]\$MaxExeMb\s*=\s*([0-9.]+)') { $MaxExeMb = [double]$Matches[1] }
+    else { $MaxExeMb = 8.5 }
+}
 
 $script:passed = 0
 $script:failed = 0

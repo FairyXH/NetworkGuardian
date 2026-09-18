@@ -13,6 +13,7 @@ param(
     [string]$Page = 'dashboard',
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$ExePath = '',
+    [string]$SeedLibrary = '',
     [int]$WaitSeconds = 12,
     [switch]$KeepRunning
 )
@@ -90,6 +91,12 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ('ng-shot-' + [Guid]::NewGui
 New-Item -ItemType Directory -Force -Path (Join-Path $root 'Logs') | Out-Null
 '{"version":3,"general":{"automaticRecovery":false,"healthSweepSeconds":10},"startup":{"startMinimized":false,"closeToTray":false},"logging":{"minimumLevel":"information","writeToFile":true}}' |
     Set-Content -Path (Join-Path $root 'config.json') -Encoding utf8
+
+# Optional: a prepared wireless network library, so the credentials page can be captured with entries.
+if ($SeedLibrary) {
+    if (-not (Test-Path $SeedLibrary)) { throw "the seed library file was not found: $SeedLibrary" }
+    Copy-Item -Path $SeedLibrary -Destination (Join-Path $root 'wifi-networks.json') -Force
+}
 
 $env:NETWORKGUARDIAN_CONFIG_ROOT = $root
 $env:NETWORKGUARDIAN_INSTANCE_SUFFIX = '.shot' + [Guid]::NewGuid().ToString('N').Substring(0, 5)
