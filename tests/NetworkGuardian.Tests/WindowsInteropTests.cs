@@ -202,13 +202,16 @@ public sealed class LocationPermissionServiceTests
     [Fact]
     public void ConsentDeniedWithoutADeniedApi_IsExplainedWithoutInventingAnOperation()
     {
-        var service = new LocationPermissionService(() => new LocationPermissionSnapshot
+        // BuildGuidance is a pure function of the snapshot, so it is called directly: going through
+        // Read() would merge this machine's real location consent (HKCU ConsentStore\location) into
+        // the assertion and make the test depend on how the developer configured Windows privacy.
+        var snapshot = new LocationPermissionSnapshot
         {
             AppLocationAllowed = false,
             ScanBlockedByPolicy = false,
-        });
+        };
 
-        var guidance = LocationPermissionService.BuildGuidance(service.Read());
+        var guidance = LocationPermissionService.BuildGuidance(snapshot);
 
         Assert.Contains("consent", guidance);
         Assert.DoesNotContain("未知调用", guidance);
