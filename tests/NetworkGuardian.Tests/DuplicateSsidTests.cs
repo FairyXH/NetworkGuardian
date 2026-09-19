@@ -46,6 +46,7 @@ public sealed class DuplicateSsidTests
         var disconnect = Assert.Single(decision.Actions.OfType<DisconnectWifiAction>());
         Assert.Equal(TestData.AdapterB, disconnect.InterfaceGuid);
         Assert.Equal("CampusWiFi", disconnect.Ssid);
+        Assert.True(disconnect.SuppressAutoReconnect);
 
         // The stronger adapter must not be disturbed: it is the one that keeps the connection.
         Assert.DoesNotContain(decision.Actions, a => a is DisconnectWifiAction && a != disconnect);

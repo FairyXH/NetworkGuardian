@@ -96,7 +96,11 @@ public sealed record DisconnectWifiAction : GuardianAction
 
     public required string Ssid { get; init; }
 
-    public override string Describe() => $"Disconnect({InterfaceGuid:N} <- {Ssid}, {Reason})";
+    /// <summary>Change the Windows profile to manual before disconnecting so auto-connect cannot undo policy.</summary>
+    public bool SuppressAutoReconnect { get; init; }
+
+    public override string Describe() =>
+        $"Disconnect({InterfaceGuid:N} <- {Ssid}, suppressAuto={SuppressAutoReconnect}, {Reason})";
 }
 
 public sealed record ProbeConnectivityAction : GuardianAction

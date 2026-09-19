@@ -652,6 +652,7 @@ public sealed class GuardianDecisionEngine
                     {
                         InterfaceGuid = loser.InterfaceGuid,
                         Ssid = group.Key,
+                        SuppressAutoReconnect = true,
                         Reason = $"'{group.Key}' is connected on more than one adapter; releasing " +
                                  $"{loser.Description} ({loser.SignalQuality}%) and keeping " +
                                  $"{keep.Description} ({keep.SignalQuality}%)",
