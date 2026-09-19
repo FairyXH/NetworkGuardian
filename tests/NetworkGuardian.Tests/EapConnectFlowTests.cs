@@ -72,6 +72,31 @@ public sealed class EapConnectFlowTests
     }
 
     [Fact]
+    public void LibraryProfileWinsWhenSeveralProfilesShareTheSameSsid()
+    {
+        var config = TestData.Config(c => c.Wifi.DisconnectGraceSeconds = 0);
+        var engine = new GuardianDecisionEngine(config);
+        var scan = TestData.Scan(TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "HXXY-WiFi", 70,
+                profileName: "NG-SELFTEST-HXXY", security: WifiSecurity.Wpa2Enterprise));
+        var adapter = TestData.DisconnectedAdapter(
+            TestData.AdapterA, new[] { "NG-SELFTEST-HXXY", "HXXY-WiFi" }, scan);
+        var catalog = new WifiEapCatalog
+        {
+            SsidsWithCredentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "HXXY-WiFi" },
+            ProfileNamesBySsid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["HXXY-WiFi"] = "HXXY-WiFi",
+            },
+        };
+
+        var decision = engine.Evaluate(Input(config, TestData.Now, new[] { adapter }, catalog));
+
+        var connect = Assert.Single(decision.Actions.OfType<ConnectWifiAction>());
+        Assert.Equal("HXXY-WiFi", connect.ProfileName);
+    }
+
+    [Fact]
     public void LibraryDisabled_LeavesEnterpriseNetworksToWindows()
     {
         var config = TestData.Config(c =>
