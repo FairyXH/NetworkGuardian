@@ -24,7 +24,9 @@ public sealed record WifiCredentialSuggestion(
     WifiEapMethod Eap,
     WifiSecurity Security,
     int SignalQuality,
-    bool HasSavedProfile);
+    bool HasSavedProfile,
+    IReadOnlyList<string> ServerNames,
+    IReadOnlyList<string> TrustedRootCaThumbprints);
 
 /// <summary>
 /// Orchestrates the whole product: it owns the background monitor loop, executes the intents
@@ -1296,7 +1298,9 @@ public sealed class GuardianHostService : IAsyncDisposable
 
                 var suggestion = new WifiCredentialSuggestion(
                     network.Ssid, profileName, auth, eap, network.Security,
-                    network.SignalQuality, network.HasProfile);
+                    network.SignalQuality, network.HasProfile,
+                    Core.Wlan.WifiProfileInspector.ReadServerNames(xml),
+                    Core.Wlan.WifiProfileInspector.ReadTrustedRootCaThumbprints(xml));
 
                 if (!suggestions.TryGetValue(network.Ssid, out var existing) ||
                     suggestion.SignalQuality > existing.SignalQuality)

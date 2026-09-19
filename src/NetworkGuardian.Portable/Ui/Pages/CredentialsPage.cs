@@ -136,6 +136,8 @@ internal sealed class CredentialsPage : IPage
                     : selected.ProfileName,
                 Auth = selected.Auth,
                 Eap = selected.Eap,
+                ServerNames = selected.ServerNames.ToList(),
+                TrustedRootCaThumbprints = selected.TrustedRootCaThumbprints.ToList(),
             };
             entries.Add(entry);
             if (selected.Eap != WifiEapMethod.PeapMschapv2)
