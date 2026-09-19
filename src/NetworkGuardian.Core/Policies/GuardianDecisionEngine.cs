@@ -661,6 +661,47 @@ public sealed class GuardianDecisionEngine
                     RecordRecoveryAction($"已断开 {loser.Description} 与 {keep.Description} 重复连接的 {group.Key}");
                     wifiNotes.Add($"{loser.Description}：与 {keep.Description} 连接了同一个 SSID " +
                                   $"'{group.Key}'，已按策略断开（保留信号更强的 {keep.SignalQuality}%）");
+
+                    // Do not leave the adapter merely disconnected: Windows auto-connect commonly
+                    // reassociates it with the same profile before the next policy cycle. If a saved
+                    // alternative is already in this adapter's scan, switch to it in the same plan.
+                    var adapterState = GetAdapterState(loser.InterfaceGuid, config);
+                    var heldSsids = adapters
+                        .Where(other => other.InterfaceGuid != loser.InterfaceGuid &&
+                                        other.IsConnected &&
+                                        !string.IsNullOrWhiteSpace(other.CurrentSsid))
+                        .Select(other => other.CurrentSsid!)
+                        .ToArray();
+                    var alternatives = _selector.SelectCandidates(
+                        loser.InterfaceGuid,
+                        loser.LastScan,
+                        loser.SavedProfiles,
+                        config.Wifi,
+                        now,
+                        out _,
+                        adapterState.LastConnectedProfile,
+                        heldSsids,
+                        input.EapCatalog);
+
+                    if (alternatives.Count > 0 &&
+                        adapterState.ConnectLimiter.TryAcquire(now, out _, out _))
+                    {
+                        var alternative = alternatives[0];
+                        adapterState.ConnectLimiter.RecordRun(now);
+                        adapterState.PendingConnectUtc = now;
+                        adapterState.PendingConnectProfile = alternative.ProfileName;
+                        actions.Add(new ConnectWifiAction
+                        {
+                            InterfaceGuid = loser.InterfaceGuid,
+                            ProfileName = alternative.ProfileName,
+                            Ssid = alternative.Ssid,
+                            Bssid = alternative.PreferredBssid,
+                            RequiresEap = alternative.RequiresEap,
+                            UsesLibraryCredential = alternative.UsesLibraryCredential,
+                            Reason = $"replace duplicate '{group.Key}' immediately: {alternative.ScoreReason}",
+                        });
+                        wifiNotes.Add($"{loser.Description}：立即改连 '{alternative.Ssid}'，防止 Windows 自动连回重复 SSID");
+                    }
                 }
                 else
                 {

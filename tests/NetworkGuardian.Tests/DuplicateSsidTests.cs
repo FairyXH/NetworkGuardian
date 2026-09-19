@@ -60,6 +60,31 @@ public sealed class DuplicateSsidTests
     }
 
     [Fact]
+    public void DuplicateLoser_ImmediatelySwitchesToASavedAlternative()
+    {
+        var config = TestData.Config(c => c.Wifi.AllowSameSsidOnMultipleAdapters = false);
+        var engine = new GuardianDecisionEngine(config);
+        var scan = TestData.Scan(
+            TestData.AdapterB,
+            TestData.Network(TestData.AdapterB, "CampusWiFi", 90),
+            TestData.Network(TestData.AdapterB, "DormWiFi", 55));
+        var strong = Connected(TestData.AdapterA, 82, "Adapter A");
+        var weak = TestData.ConnectedAdapter(
+            TestData.AdapterB, "CampusWiFi", "CampusWiFi", 38, scan, "Adapter B") with
+        {
+            SavedProfiles = new[] { "CampusWiFi", "DormWiFi" },
+        };
+
+        var decision = engine.Evaluate(Input(config, new[] { strong, weak }));
+
+        Assert.Contains(decision.Actions,
+            action => action is DisconnectWifiAction { InterfaceGuid: var guid } && guid == TestData.AdapterB);
+        var connect = Assert.Single(decision.Actions.OfType<ConnectWifiAction>());
+        Assert.Equal(TestData.AdapterB, connect.InterfaceGuid);
+        Assert.Equal("DormWiFi", connect.Ssid);
+    }
+
+    [Fact]
     public void AllowingSharedSsids_LeavesBothAdaptersConnected()
     {
         var config = TestData.Config(c => c.Wifi.AllowSameSsidOnMultipleAdapters = true);
