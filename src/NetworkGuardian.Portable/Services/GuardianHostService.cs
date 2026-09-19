@@ -1239,9 +1239,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     public IReadOnlyList<EapRetryStatus> EapRetryStatus => _engine.EapRetries.Snapshot();
 
     /// <summary>
-    /// Persists edited library entries. Any changed entry is re-applied to Windows on the next connect, and
-    /// its 802.1X attempt counter is cleared, so a corrected password takes effect immediately instead of
-    /// after a restart.
+    /// Persists edited library entries, immediately writes enabled entries and their per-user EAP data to
+    /// every current adapter, and clears their retry counters. Applying during save prevents Windows from
+    /// prompting when the user selects the network in Settings before the guardian's next recovery cycle.
     /// </summary>
     public async Task SaveWifiLibraryAsync(
         IReadOnlyList<WifiNetworkCredential> entries,
@@ -1258,9 +1258,21 @@ public sealed class GuardianHostService : IAsyncDisposable
         await _vault.LoadAsync(cancellationToken).ConfigureAwait(false);
         _eapCatalog = _vault.BuildCatalog();
 
+        var applied = 0;
+        var failed = 0;
+        foreach (var entry in _vault.Entries.Where(e => e.Enabled))
+        {
+            var results = await ApplyWifiLibraryEntryAsync(entry.Id, null, cancellationToken).ConfigureAwait(false);
+            applied += results.Count(r => r.Contains("已写入", StringComparison.Ordinal) ||
+                                          r.Contains("无需更新", StringComparison.Ordinal));
+            failed += results.Count(r => r.Contains("失败", StringComparison.Ordinal) ||
+                                         r.Contains("无法", StringComparison.Ordinal));
+        }
+
         _logger.LogInformation(
-            "自维护无线网络库已保存：{Count} 个网络，清除 {Cleared} 条 802.1X 失败计数，{Catalog}",
-            _vault.Count, cleared, _eapCatalog.Describe());
+            "自维护无线网络库已保存并应用：{Count} 个网络，清除 {Cleared} 条 802.1X 失败计数，" +
+            "应用结果 {Applied} 成功 / {Failed} 失败，{Catalog}",
+            _vault.Count, cleared, applied, failed, _eapCatalog.Describe());
 
         _forceEnumeration = true;
         RequestImmediateCycle();

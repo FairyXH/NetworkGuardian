@@ -64,7 +64,9 @@ public sealed record WifiProfileRemoveResult
 /// The profile is only rewritten when it is missing, is not an 802.1X profile, or the entry changed
 /// since it was applied. The user credentials are written whenever the profile was written or the
 /// entry has never been applied, and after the write the profile is read back so a silent no-op cannot
-/// be reported as success.
+/// be reported as success. EAP user data is intentionally written on every apply: it is stored separately
+/// from the profile XML and another profile synchronizer can replace the profile without preserving the
+/// current user's credentials.
 /// </remarks>
 public sealed class WifiProfileApplier
 {
@@ -163,7 +165,7 @@ public sealed class WifiProfileApplier
         }
 
         var userDataWritten = false;
-        if (userDataBuild.Success && (profileWritten || credential.LastAppliedUtc is null))
+        if (userDataBuild.Success)
         {
             var write = _wifi.SetProfileEapUserData(interfaceGuid, profileName, userDataBuild.Xml!);
             if (!write.Success)

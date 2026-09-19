@@ -126,7 +126,8 @@ public sealed class WifiProfileHardwareTests
                         WifiProfileInspector.Evaluate(null, "x", credential));
                 }
 
-                // Applying twice must be a no-op: the entry is unchanged and already applied.
+                // The profile stays untouched, but per-user EAP data is deliberately refreshed. Another
+                // profile synchronizer can replace XML without preserving this separate credential blob.
                 credential.AppliedFingerprint = result.AppliedFingerprint;
                 credential.LastAppliedUtc = DateTimeOffset.UtcNow;
                 var second = applier.Apply(adapter.InterfaceGuid, credential, allowWrite: true);
@@ -134,7 +135,11 @@ public sealed class WifiProfileHardwareTests
                                   $"changed={second.Changed}");
                 Assert.True(second.Success, second.Failure);
                 Assert.Equal(ProfileUpdateReason.UpToDate, second.UpdateReason);
-                Assert.False(second.Changed);
+                Assert.False(second.ProfileWritten);
+                if (credential.RequiresPassword)
+                {
+                    Assert.True(second.UserDataWritten);
+                }
 
                 // A password change must invalidate the stored profile. The change is detected through
                 // the applied marker, which the vault clears on any edit (the profile document itself
