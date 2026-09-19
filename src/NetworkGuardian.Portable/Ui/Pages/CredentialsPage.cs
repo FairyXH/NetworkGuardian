@@ -17,7 +17,8 @@ internal sealed class CredentialsPage : IPage
     private const int FieldRowHeight = 64;
     private const int XmlRowHeight = 80;
     private const int ButtonRowHeight = 44;
-    private const int FieldRows = 8;
+    private const int BasicFieldRows = 2;
+    private const int AdvancedFieldRows = 6;
 
     private static readonly string[] AuthLabels = { "WPA2-Enterprise（AES）", "WPA-Enterprise（TKIP）", "WPA3-Enterprise（占位，见自定义 XML）" };
     private static readonly WifiEnterpriseAuth[] AuthValues =
@@ -33,6 +34,8 @@ internal sealed class CredentialsPage : IPage
 
     private List<WifiNetworkCredential>? _working;
     private readonly HashSet<string> _revealed = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _advanced = new(StringComparer.Ordinal);
+    private int _selectedSuggestion;
     private string _status = "尚未加载";
 
     public string Tag => "credentials";
@@ -67,17 +70,18 @@ internal sealed class CredentialsPage : IPage
             });
         }, primary: true);
 
-        Widgets.Button(ctx, save.Right + ctx.Scale(8), y, "新增网络", () =>
+        Widgets.Button(ctx, save.Right + ctx.Scale(8), y, "自定义网络", () =>
         {
-            entries.Add(new WifiNetworkCredential
+            var entry = new WifiNetworkCredential
             {
-                Ssid = "新的校园网 SSID",
-                Identity = "账号@域名",
-            });
-            _status = "已新增一个网络，请填写 SSID 与账号密码";
+                Identity = string.Empty,
+            };
+            entries.Add(entry);
+            _advanced.Add(entry.Id);
+            _status = "已新增自定义网络；请在高级选项中填写 SSID 与认证参数";
         });
 
-        Widgets.Button(ctx, save.Right + ctx.Scale(8) + Widgets.MeasureButtonWidth(ctx, "新增网络") + ctx.Scale(8), y,
+        Widgets.Button(ctx, save.Right + ctx.Scale(8) + Widgets.MeasureButtonWidth(ctx, "自定义网络") + ctx.Scale(8), y,
             "重新加载", () =>
             {
                 _working = null;
@@ -91,6 +95,67 @@ internal sealed class CredentialsPage : IPage
             TextStyle.Caption);
 
         y += ctx.Scale(40);
+
+        var suggestions = ctx.Host.GetWifiCredentialSuggestions();
+        var suggestionLabels = suggestions
+            .Select(s => $"{s.Ssid}　{s.Security}　{s.SignalQuality}%{(s.HasSavedProfile ? "　已保存" : string.Empty)}")
+            .ToList();
+        if (suggestionLabels.Count == 0)
+        {
+            suggestionLabels.Add("未发现企业级 Wi-Fi，请先重新扫描");
+            _selectedSuggestion = 0;
+        }
+        else
+        {
+            _selectedSuggestion = Math.Clamp(_selectedSuggestion, 0, suggestions.Count - 1);
+        }
+
+        var pickerWidth = Math.Min(area.Width - ctx.Scale(280), ctx.Scale(620));
+        Widgets.Dropdown(ctx, area.Left, y, pickerWidth, "从当前 Wi-Fi 选择（自动识别安全类型与 EAP）",
+            suggestionLabels, _selectedSuggestion, value => _selectedSuggestion = value);
+        Widgets.Button(ctx, area.Left + pickerWidth + ctx.Scale(8), y + ctx.Scale(20), "添加所选网络", () =>
+        {
+            if (suggestions.Count == 0)
+            {
+                _status = "当前扫描结果中没有企业级 Wi-Fi";
+                return;
+            }
+
+            var selected = suggestions[_selectedSuggestion];
+            if (entries.Any(e => string.Equals(e.Ssid, selected.Ssid, StringComparison.OrdinalIgnoreCase)))
+            {
+                _status = $"{selected.Ssid} 已在凭据库中";
+                return;
+            }
+
+            var entry = new WifiNetworkCredential
+            {
+                Ssid = selected.Ssid,
+                ProfileName = string.Equals(selected.ProfileName, selected.Ssid, StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : selected.ProfileName,
+                Auth = selected.Auth,
+                Eap = selected.Eap,
+            };
+            entries.Add(entry);
+            if (selected.Eap != WifiEapMethod.PeapMschapv2)
+            {
+                _advanced.Add(entry.Id);
+            }
+            MarkDirty();
+            _status = $"已添加 {selected.Ssid}；只需填写{(selected.Eap == WifiEapMethod.Tls ? "证书信息" : "账号和密码")}后保存";
+        }, primary: suggestions.Count > 0);
+        Widgets.Button(ctx, area.Left + pickerWidth + ctx.Scale(8) + Widgets.MeasureButtonWidth(ctx, "添加所选网络") + ctx.Scale(8),
+            y + ctx.Scale(20), "刷新 Wi-Fi", () =>
+            {
+                _status = "正在重新扫描全部无线网卡…";
+                ctx.Window.RunBackground(async () =>
+                {
+                    await ctx.Host.RescanAllAsync(CancellationToken.None).ConfigureAwait(false);
+                    _status = "Wi-Fi 列表已刷新";
+                });
+            });
+        y += ctx.Scale(FieldRowHeight + 8);
 
         var issues = ctx.Host.WifiLibraryIssues;
         if (issues.Count > 0)
@@ -117,7 +182,7 @@ internal sealed class CredentialsPage : IPage
             var emptyRect = new Rectangle(area.Left, y, area.Width, ctx.Scale(72));
             canvas.Card(emptyRect);
             canvas.Text(
-                "库中还没有网络。点击“新增网络”，填入企业级 Wi-Fi 的 SSID、账号与密码，保存后程序会在连接时自动写入系统配置。",
+                "库中还没有网络。请从上方当前 Wi-Fi 列表选择；程序会识别认证类型，通常只需填写账号和密码。特殊网络可使用“自定义网络”。",
                 new Rectangle(emptyRect.Left + ctx.Scale(16), emptyRect.Top, emptyRect.Width - ctx.Scale(32), emptyRect.Height),
                 Palette.TextSecondary,
                 TextStyle.Body,
@@ -137,13 +202,14 @@ internal sealed class CredentialsPage : IPage
     {
         var canvas = ctx.Canvas;
         var entry = entries[index];
+        var showAdvanced = _advanced.Contains(entry.Id);
         var retry = ctx.Host.EapRetryStatus
             .FirstOrDefault(s => string.Equals(s.Ssid, entry.Ssid, StringComparison.OrdinalIgnoreCase));
 
         var cardHeight = ctx.Scale(16 + 16)
                          + ctx.Scale(TitleHeight)
-                         + (FieldRows * ctx.Scale(FieldRowHeight))
-                         + ctx.Scale(XmlRowHeight)
+                         + (BasicFieldRows * ctx.Scale(FieldRowHeight))
+                         + (showAdvanced ? (AdvancedFieldRows * ctx.Scale(FieldRowHeight)) + ctx.Scale(XmlRowHeight) : 0)
                          + ctx.Scale(ButtonRowHeight);
         var card = new Rectangle(area.Left, y, area.Width, cardHeight);
         canvas.Card(card);
@@ -169,24 +235,15 @@ internal sealed class CredentialsPage : IPage
             retry?.Abandoned == true ? Palette.Warn : Palette.TextMuted, TextStyle.Caption, TextAlign.Right);
         cy += ctx.Scale(TitleHeight);
 
-        Widgets.Field(ctx, x, cy, column, "SSID（必填）", entry.Ssid, v =>
-        {
-            entry.Ssid = v.Trim();
-            MarkDirty();
-        });
-        Widgets.Field(ctx, x + column + ctx.Scale(16), cy, column, "系统配置名称（留空 = SSID）", entry.ProfileName ?? string.Empty,
-            v => entry.ProfileName = string.IsNullOrWhiteSpace(v) ? null : v.Trim());
+        Widgets.Caption(ctx, x, cy, column, "网络（从扫描结果选择）");
+        canvas.Text(string.IsNullOrWhiteSpace(entry.Ssid) ? "自定义网络：请展开高级选项填写 SSID" : entry.Ssid,
+            new Rectangle(x + ctx.Scale(10), cy + ctx.Scale(20), column - ctx.Scale(20), ctx.Scale(30)),
+            string.IsNullOrWhiteSpace(entry.Ssid) ? Palette.Warn : Palette.TextPrimary, TextStyle.Body);
+        Widgets.Field(ctx, x + column + ctx.Scale(16), cy, column, "账号 / 身份", entry.Identity,
+            v => { entry.Identity = v.Trim(); MarkDirty(); });
         cy += ctx.Scale(FieldRowHeight);
 
-        Widgets.Dropdown(ctx, x, cy, column, "认证方式", AuthLabels, Math.Max(0, Array.IndexOf(AuthValues, entry.Auth)),
-            v => entry.Auth = AuthValues[v]);
-        Widgets.Dropdown(ctx, x + column + ctx.Scale(16), cy, column, "EAP 方法", EapLabels, Math.Max(0, Array.IndexOf(EapValues, entry.Eap)),
-            v => entry.Eap = EapValues[v]);
-        cy += ctx.Scale(FieldRowHeight);
-
-        Widgets.Field(ctx, x, cy, column, "账号 / 身份（必填，PEAP 用）", entry.Identity, v => entry.Identity = v.Trim());
-
-        var passwordColumn = x + column + ctx.Scale(16);
+        var passwordColumn = x;
         var revealed = _revealed.Contains(entry.Id);
         var passwordDisplay = entry.PasswordDecryptionFailed
             ? "（已保存的密码无法解密，请重新输入）"
@@ -227,7 +284,33 @@ internal sealed class CredentialsPage : IPage
                 _revealed.Remove(entry.Id);
                 MarkDirty();
             });
+        Widgets.ButtonAt(ctx, new Rectangle(x + column + ctx.Scale(16), cy + ctx.Scale(20),
+                Widgets.MeasureButtonWidth(ctx, showAdvanced ? "收起高级选项" : "高级选项"), ctx.Scale(30)),
+            showAdvanced ? "收起高级选项" : "高级选项", () =>
+            {
+                if (!_advanced.Add(entry.Id))
+                {
+                    _advanced.Remove(entry.Id);
+                }
+            });
         cy += ctx.Scale(FieldRowHeight);
+
+        if (showAdvanced)
+        {
+            Widgets.Field(ctx, x, cy, column, "SSID（自定义网络必填）", entry.Ssid, v =>
+            {
+                entry.Ssid = v.Trim();
+                MarkDirty();
+            });
+            Widgets.Field(ctx, x + column + ctx.Scale(16), cy, column, "系统配置名称（留空 = SSID）", entry.ProfileName ?? string.Empty,
+                v => entry.ProfileName = string.IsNullOrWhiteSpace(v) ? null : v.Trim());
+            cy += ctx.Scale(FieldRowHeight);
+
+            Widgets.Dropdown(ctx, x, cy, column, "认证方式", AuthLabels, Math.Max(0, Array.IndexOf(AuthValues, entry.Auth)),
+                v => { entry.Auth = AuthValues[v]; MarkDirty(); });
+            Widgets.Dropdown(ctx, x + column + ctx.Scale(16), cy, column, "EAP 方法", EapLabels, Math.Max(0, Array.IndexOf(EapValues, entry.Eap)),
+                v => { entry.Eap = EapValues[v]; MarkDirty(); });
+            cy += ctx.Scale(FieldRowHeight);
 
         Widgets.Field(ctx, x, cy, column, "域（可空）", entry.Domain ?? string.Empty,
             v => entry.Domain = string.IsNullOrWhiteSpace(v) ? null : v.Trim());
@@ -275,6 +358,7 @@ internal sealed class CredentialsPage : IPage
         Widgets.Field(ctx, x, cy, width, "自定义配置 XML（EAP-TTLS、厂商方案、证书选择等生成器未覆盖的场景；留空则自动生成）",
             entry.ProfileXmlOverride ?? string.Empty, v => entry.ProfileXmlOverride = string.IsNullOrWhiteSpace(v) ? null : v, multiline: true);
         cy += ctx.Scale(XmlRowHeight);
+        }
 
         var applyWidth = Widgets.MeasureButtonWidth(ctx, "写入到所有无线网卡");
         Widgets.ButtonAt(ctx, new Rectangle(x, cy, applyWidth, ctx.Scale(32)), "写入到所有无线网卡", () =>

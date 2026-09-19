@@ -17,6 +17,15 @@ using NetworkGuardian.Windows.Wlan;
 
 namespace NetworkGuardian.Portable.Services;
 
+public sealed record WifiCredentialSuggestion(
+    string Ssid,
+    string ProfileName,
+    WifiEnterpriseAuth Auth,
+    WifiEapMethod Eap,
+    WifiSecurity Security,
+    int SignalQuality,
+    bool HasSavedProfile);
+
 /// <summary>
 /// Orchestrates the whole product: it owns the background monitor loop, executes the intents
 /// produced by <see cref="GuardianDecisionEngine"/> and publishes a
@@ -1237,6 +1246,59 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     /// <summary>802.1X attempt counters of the current run, including the networks given up.</summary>
     public IReadOnlyList<EapRetryStatus> EapRetryStatus => _engine.EapRetries.Snapshot();
+
+    /// <summary>
+    /// Returns visible enterprise networks as credential-library choices. Security is taken from the
+    /// scan; when a saved profile exists its outer EAP type is inspected as well.
+    /// </summary>
+    public IReadOnlyList<WifiCredentialSuggestion> GetWifiCredentialSuggestions()
+    {
+        var suggestions = new Dictionary<string, WifiCredentialSuggestion>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var adapter in _snapshot.WifiAdapters)
+        {
+            foreach (var network in adapter.LastScan?.Networks ?? Array.Empty<ScannedNetwork>())
+            {
+                if (string.IsNullOrWhiteSpace(network.Ssid) ||
+                    !Core.Wlan.WifiProfileInspector.IsEnterpriseSecurity(network.Security))
+                {
+                    continue;
+                }
+
+                var profileName = string.IsNullOrWhiteSpace(network.ProfileName) ? network.Ssid : network.ProfileName!;
+                var xml = network.HasProfile ? _wifi.GetProfileXml(adapter.InterfaceGuid, profileName) : null;
+                var eapType = Core.Wlan.WifiProfileInspector.TryReadEapMethodType(xml);
+                var eap = eapType switch
+                {
+                    "13" => WifiEapMethod.Tls,
+                    "25" => WifiEapMethod.PeapMschapv2,
+                    null or "" => WifiEapMethod.PeapMschapv2,
+                    _ => WifiEapMethod.CustomXml,
+                };
+                var auth = network.Security switch
+                {
+                    WifiSecurity.WpaEnterprise => WifiEnterpriseAuth.WpaEnterprise,
+                    WifiSecurity.Wpa3Enterprise => WifiEnterpriseAuth.Wpa3Enterprise,
+                    _ => WifiEnterpriseAuth.Wpa2Enterprise,
+                };
+
+                var suggestion = new WifiCredentialSuggestion(
+                    network.Ssid, profileName, auth, eap, network.Security,
+                    network.SignalQuality, network.HasProfile);
+
+                if (!suggestions.TryGetValue(network.Ssid, out var existing) ||
+                    suggestion.SignalQuality > existing.SignalQuality)
+                {
+                    suggestions[network.Ssid] = suggestion;
+                }
+            }
+        }
+
+        return suggestions.Values
+            .OrderByDescending(s => s.SignalQuality)
+            .ThenBy(s => s.Ssid, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
 
     /// <summary>
     /// Persists edited library entries, immediately writes enabled entries and their per-user EAP data to
