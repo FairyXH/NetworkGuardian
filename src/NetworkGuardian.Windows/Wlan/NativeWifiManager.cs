@@ -1343,7 +1343,10 @@ public sealed class NativeWifiManager : INativeWifiService
             var result = WlanSetProfile(
                 handle,
                 interfaceGuid,
-                WlanProfileUser,
+                // 0 creates/updates the normal all-user profile shown by Windows Settings. Passing
+                // WLAN_PROFILE_USER here conflicts with an existing all-user profile of the same
+                // name and returns ERROR_ALREADY_EXISTS even when overwrite is requested.
+                0,
                 profileXml,
                 null,
                 overwrite ? 1 : 0,
