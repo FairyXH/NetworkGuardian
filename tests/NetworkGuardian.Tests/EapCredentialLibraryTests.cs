@@ -318,6 +318,19 @@ public sealed class EapCredentialLibraryTests
     }
 
     [Fact]
+    public void Inspector_ImportsServerValidationFromAnExistingProfile()
+    {
+        const string xml = "<EapType><ServerNames>radius.example;backup.example</ServerNames>" +
+                           "<TrustedRootCA>b2 f9 55 2a</TrustedRootCA>" +
+                           "<TrustedRootCA>AA-BB-CC-DD</TrustedRootCA></EapType>";
+
+        Assert.Equal(new[] { "radius.example", "backup.example" },
+            WifiProfileInspector.ReadServerNames(xml));
+        Assert.Equal(new[] { "B2F9552A", "AABBCCDD" },
+            WifiProfileInspector.ReadTrustedRootCaThumbprints(xml));
+    }
+
+    [Fact]
     public void Inspector_RejectsPersonalProfile()
     {
         const string personal = """

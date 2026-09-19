@@ -81,6 +81,19 @@ public static class WifiProfileInspector
     public static string? TryReadIdentity(string? profileXml) =>
         TryReadElement(profileXml, "UserName");
 
+    /// <summary>Reads semicolon-separated PEAP server names from an existing profile.</summary>
+    public static IReadOnlyList<string> ReadServerNames(string? profileXml) =>
+        (TryReadElement(profileXml, "ServerNames") ?? string.Empty)
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Reads every trusted root certificate thumbprint from an existing EAP profile.</summary>
+    public static IReadOnlyList<string> ReadTrustedRootCaThumbprints(string? profileXml) =>
+        ReadElements(profileXml, "TrustedRootCA")
+            .Select(value => new string(value.Where(Uri.IsHexDigit).ToArray()).ToUpperInvariant())
+            .Where(value => value.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     /// <summary>
     /// Stable fingerprint of a profile document; used to detect that the library entry changed.
     /// </summary>
@@ -201,5 +214,38 @@ public static class WifiProfileInspector
         }
 
         return null;
+    }
+
+    private static IReadOnlyList<string> ReadElements(string? xml, string element)
+    {
+        var values = new List<string>();
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            return values;
+        }
+
+        var searchFrom = 0;
+        while (searchFrom < xml.Length)
+        {
+            var open = xml.IndexOf($"<{element}", searchFrom, StringComparison.OrdinalIgnoreCase);
+            if (open < 0)
+            {
+                break;
+            }
+
+            var openEnd = xml.IndexOf('>', open + element.Length + 1);
+            var close = openEnd < 0
+                ? -1
+                : xml.IndexOf($"</{element}>", openEnd + 1, StringComparison.OrdinalIgnoreCase);
+            if (openEnd < 0 || close < 0)
+            {
+                break;
+            }
+
+            values.Add(xml[(openEnd + 1)..close].Trim());
+            searchFrom = close + element.Length + 3;
+        }
+
+        return values;
     }
 }
