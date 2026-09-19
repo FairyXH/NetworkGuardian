@@ -942,6 +942,18 @@ public sealed class GuardianHostService : IAsyncDisposable
 
                 case DisconnectWifiAction disconnect:
                 {
+                    if (disconnect.SuppressAutoReconnect)
+                    {
+                        var profileMode = _wifi.SetProfileAutoConnect(
+                            disconnect.InterfaceGuid, disconnect.Ssid, enabled: false);
+                        if (!profileMode.Success)
+                        {
+                            _logger.LogWarning(
+                                "Could not suppress auto-connect for duplicate SSID {Ssid} on {Adapter}: {Failure}",
+                                disconnect.Ssid, disconnect.InterfaceGuid, profileMode.Failure);
+                        }
+                    }
+
                     var result = await _wifi.DisconnectAsync(disconnect.InterfaceGuid, cancellationToken)
                         .ConfigureAwait(false);
                     if (!result.Success)

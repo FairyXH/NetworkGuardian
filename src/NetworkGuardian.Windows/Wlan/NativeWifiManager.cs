@@ -1380,6 +1380,32 @@ public sealed class NativeWifiManager : INativeWifiService
         }
     }
 
+    /// <summary>Changes only the profile connection mode, preserving all security and key material.</summary>
+    public WlanOperationResult SetProfileAutoConnect(Guid interfaceGuid, string profileName, bool enabled)
+    {
+        var xml = GetProfileXml(interfaceGuid, profileName);
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            return WlanOperationResult.Fail($"profile '{profileName}' was not found");
+        }
+
+        var desired = enabled ? "auto" : "manual";
+        var current = enabled ? "manual" : "auto";
+        var updated = xml.Replace(
+            $"<connectionMode>{current}</connectionMode>",
+            $"<connectionMode>{desired}</connectionMode>",
+            StringComparison.OrdinalIgnoreCase);
+
+        if (string.Equals(updated, xml, StringComparison.Ordinal))
+        {
+            return xml.Contains($"<connectionMode>{desired}</connectionMode>", StringComparison.OrdinalIgnoreCase)
+                ? WlanOperationResult.Ok()
+                : WlanOperationResult.Fail("profile does not contain a supported connectionMode element");
+        }
+
+        return SetProfileXml(interfaceGuid, profileName, updated, overwrite: true);
+    }
+
     /// <summary>Deletes a per-user profile from one adapter. A missing profile counts as success.</summary>
     public WlanOperationResult DeleteProfile(Guid interfaceGuid, string profileName)
     {
