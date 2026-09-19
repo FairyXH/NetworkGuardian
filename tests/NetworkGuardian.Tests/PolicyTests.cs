@@ -503,6 +503,41 @@ public sealed class CampusAuthRateLimitTests
         Assert.DoesNotContain(second.Actions, a => a is RunExternalCommandAction { CommandId: "cmd-1" });
     }
 
+    [Fact]
+    public void InterfaceMetrics_AreReconciledOnlyWhenEnabledAndDifferent()
+    {
+        var mismatched = TestData.WifiInterface(TestData.AdapterA) with { InterfaceMetric = 1 };
+        var enabled = TestData.Config(c => c.General.ManageInterfaceMetrics = true);
+        var engine = new GuardianDecisionEngine(enabled);
+
+        var decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now,
+            Config = enabled,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { mismatched },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
+        Assert.Contains(decision.Actions, action => action is ApplyInterfaceMetricsAction);
+
+        enabled.General.ManageInterfaceMetrics = false;
+        decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now.AddSeconds(20),
+            Config = enabled,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { mismatched },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
+        Assert.DoesNotContain(decision.Actions, action => action is ApplyInterfaceMetricsAction);
+    }
+
     private static void RunCampusAuth(
         GuardianDecisionEngine engine,
         GuardianConfig config,

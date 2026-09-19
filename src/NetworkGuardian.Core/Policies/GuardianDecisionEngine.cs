@@ -940,6 +940,20 @@ public sealed class GuardianDecisionEngine
             }
         }
 
+        // Metrics are reconciled on every health sweep. The provider itself is idempotent and only
+        // writes interfaces whose current value differs, so an external tool or driver reset cannot
+        // permanently undo the configured Ethernet/Wi-Fi preference.
+        if (config.General.ManageInterfaceMetrics && input.Interfaces.Any(i =>
+                i.IsPhysicalDevice != false &&
+                ((i.Kind == InterfaceKind.Ethernet && i.InterfaceMetric != config.General.PreferredEthernetMetric) ||
+                 (i.Kind == InterfaceKind.Wifi && i.InterfaceMetric != config.General.PreferredWifiMetric))))
+        {
+            actions.Add(new ApplyInterfaceMetricsAction
+            {
+                Reason = "one or more physical interface metrics differ from the configured values",
+            });
+        }
+
         return BuildDecision(now, actions, notes, connectivity);
     }
 
