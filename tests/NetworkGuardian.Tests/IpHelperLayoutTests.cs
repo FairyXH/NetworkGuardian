@@ -30,6 +30,11 @@ public sealed class IpHelperLayoutTests
     [Fact]
     public void ForwardTableHeader_IsEightBytes() =>
         Assert.Equal(8, Marshal.SizeOf<IpHlpApiNative.MIB_IPFORWARD_TABLE2_HEADER>());
+
+    [Fact]
+    public void MibIpInterfaceRow_MatchesWindowsAbi() =>
+        Assert.Equal(NetIoApiNative.MibIpInterfaceRowSize,
+            Marshal.SizeOf<NetIoApiNative.MIB_IPINTERFACE_ROW>());
 }
 
 public sealed class DefaultRouteReadTests

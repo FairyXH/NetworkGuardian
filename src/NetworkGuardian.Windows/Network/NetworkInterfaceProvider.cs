@@ -323,7 +323,8 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (state.Kind is not (InterfaceKind.Ethernet or InterfaceKind.Wifi))
+                    if (state.Kind is not (InterfaceKind.Ethernet or InterfaceKind.Wifi) ||
+                        state.IsPhysicalDevice != true)
                     {
                         continue;
                     }
@@ -343,19 +344,13 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                         continue;
                     }
 
-                    var row = new NetIoApiNative.MIB_IPINTERFACE_ROW
-                    {
-                        Family = (ushort)AF_INET,
-                        InterfaceLuid = luid.Value,
-                    };
-
-                    var getStatus = NetIoApiNative.GetIpInterfaceEntry(ref row);
-                    if (getStatus != ERROR_SUCCESS)
-                    {
-                        notes.Add($"{state.Name}: GetIpInterfaceEntry failed ({Win32Error.Describe((int)getStatus)})");
-                        continue;
-                    }
-
+                    var row = new NetIoApiNative.MIB_IPINTERFACE_ROW();
+                    // SetIpInterfaceEntry requires the initializer's "unchanged" sentinel values.
+                    // Feeding the complete row returned by GetIpInterfaceEntry writes read-only fields
+                    // back to Windows and is rejected with ERROR_INVALID_PARAMETER.
+                    NetIoApiNative.InitializeIpInterfaceEntry(ref row);
+                    row.Family = (ushort)AF_INET;
+                    row.InterfaceLuid = luid.Value;
                     row.UseAutomaticMetric = 0;
                     row.Metric = (uint)desired;
 

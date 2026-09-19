@@ -15,12 +15,13 @@ internal static class NetIoApiNative
     internal const int ScopeLevelCount = 16;
 
     /// <summary>sizeof(MIB_IPINTERFACE_ROW) on both x86 and x64 (8-byte alignment of InterfaceLuid).</summary>
-    internal const int MibIpInterfaceRowSize = 176;
+    internal const int MibIpInterfaceRowSize = 168;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct NL_INTERFACE_OFFLOAD_ROD
     {
-        public uint Flags;
+        // Eight one-bit BOOLEAN fields in nldef.h share one byte.
+        public byte Flags;
     }
 
     [StructLayout(LayoutKind.Sequential)]
