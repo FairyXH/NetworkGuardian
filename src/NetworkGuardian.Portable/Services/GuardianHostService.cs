@@ -263,6 +263,18 @@ public sealed class GuardianHostService : IAsyncDisposable
             _logger.LogWarning("无线网络库提示：{Issue}", issue);
         }
 
+        // Windows Settings can initiate a connection before the guardian ever selects a candidate.
+        // Seed every current adapter with both the profile and the current user's separate EAP data
+        // during startup, so that manual connection path does not fall back to a credential prompt.
+        foreach (var entry in _vault.Entries.Where(e => e.Enabled))
+        {
+            var results = await ApplyWifiLibraryEntryAsync(entry.Id, null, cancellationToken).ConfigureAwait(false);
+            foreach (var result in results)
+            {
+                _logger.LogInformation("启动时同步 802.1X 凭据：{Ssid} - {Result}", entry.Ssid, result);
+            }
+        }
+
         if (_config.General.EnsureRadioOnAtStartup && _config.General.AutoEnableWifiRadio)
         {
             var radio = await _radio.GetAsync(cancellationToken).ConfigureAwait(false);
