@@ -146,6 +146,17 @@ public sealed class CandidateSelector
                 }
 
                 usesLibraryCredential = true;
+                var libraryProfile = catalog.ProfileNameFor(network.Ssid);
+                if (!string.IsNullOrWhiteSpace(libraryProfile))
+                {
+                    profileName = libraryProfile;
+                }
+            }
+
+            if (!profiles.Contains(profileName) && settings.OnlySavedProfiles)
+            {
+                rejections.Add($"{network.Ssid}: credential-library profile '{profileName}' is not present for this adapter");
+                continue;
             }
 
             if (_blacklist.IsBlacklisted(interfaceGuid, profileName, now, out var remaining))

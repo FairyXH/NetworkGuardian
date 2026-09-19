@@ -12,9 +12,18 @@ public sealed record WifiEapCatalog
     public IReadOnlySet<string> SsidsWithCredentials { get; init; } =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Authoritative Windows profile name for each SSID.</summary>
+    public IReadOnlyDictionary<string, string> ProfileNamesBySsid { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>True when the library can authenticate for that SSID.</summary>
     public bool HasCredential(string? ssid) =>
         !string.IsNullOrWhiteSpace(ssid) && SsidsWithCredentials.Contains(ssid);
+
+    public string? ProfileNameFor(string? ssid) =>
+        !string.IsNullOrWhiteSpace(ssid) && ProfileNamesBySsid.TryGetValue(ssid, out var profile)
+            ? profile
+            : null;
 
     public int Count => SsidsWithCredentials.Count;
 

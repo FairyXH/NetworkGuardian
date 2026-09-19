@@ -287,14 +287,22 @@ public sealed class WifiNetworkVault
     /// <summary>The catalogue the decision engine sees: which SSIDs the library can authenticate.</summary>
     public WifiEapCatalog BuildCatalog()
     {
-        var usable = _library.Networks
+        var usableEntries = _library.Networks
             .Where(e => e.Enabled && !e.PasswordDecryptionFailed)
             .Where(e => e.Eap == WifiEapMethod.Tls || e.UseWinLogonCredentials || !string.IsNullOrEmpty(e.Password))
-            .Select(e => e.Ssid)
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .Where(e => !string.IsNullOrWhiteSpace(e.Ssid))
+            .ToList();
+        var usable = usableEntries.Select(e => e.Ssid).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var profiles = usableEntries
+            .GroupBy(e => e.Ssid, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().EffectiveProfileName,
+                StringComparer.OrdinalIgnoreCase);
 
-        return new WifiEapCatalog { SsidsWithCredentials = usable };
+        return new WifiEapCatalog
+        {
+            SsidsWithCredentials = usable,
+            ProfileNamesBySsid = profiles,
+        };
     }
 
     private async Task WriteAtomicAsync(WifiCredentialLibrary library, CancellationToken cancellationToken)
