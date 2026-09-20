@@ -74,10 +74,9 @@ public sealed class ConfigValidator
         config.Probe.RoundTimeoutMs = Clamp(config.Probe.RoundTimeoutMs, config.Probe.TimeoutMs, 120000, "probe.roundTimeoutMs", issues);
         config.Probe.MaxConcurrency = Clamp(config.Probe.MaxConcurrency, 1, 16, "probe.maxConcurrency", issues);
 
-        var enabledWebEndpoints = config.ProbeEndpoints.Count(e =>
-            e.Enabled && e.Kind is ProbeKind.Http or ProbeKind.Https);
+        var enabledIcmpEndpoints = config.ProbeEndpoints.Count(e => e.Enabled && e.Kind == ProbeKind.Icmp);
         config.Probe.RequiredSuccessCount = Clamp(config.Probe.RequiredSuccessCount, 1,
-            Math.Max(1, enabledWebEndpoints), "probe.requiredSuccessCount", issues);
+            Math.Max(1, enabledIcmpEndpoints), "probe.requiredSuccessCount", issues);
 
         config.Wifi.SignalHysteresis = Clamp(config.Wifi.SignalHysteresis, 0, 100, "wifi.signalHysteresis", issues);
         config.Wifi.MinimumSignalQuality = Clamp(config.Wifi.MinimumSignalQuality, 0, 100, "wifi.minimumSignalQuality", issues);

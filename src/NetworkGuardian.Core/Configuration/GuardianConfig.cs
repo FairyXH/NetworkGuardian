@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 7;
+    public const int CurrentVersion = 8;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -165,10 +165,10 @@ public sealed class ProbeSettings
     public int IntervalSeconds { get; set; } = 15;
 
     /// <summary>Per-attempt timeout. Keep short so recovery stays responsive.</summary>
-    public int TimeoutMs { get; set; } = 2500;
+    public int TimeoutMs { get; set; } = 1200;
 
     /// <summary>Total budget for one full probe round.</summary>
-    public int RoundTimeoutMs { get; set; } = 8000;
+    public int RoundTimeoutMs { get; set; } = 2500;
 
     /// <summary>Concurrent attempt limit.</summary>
     public int MaxConcurrency { get; set; } = 4;
@@ -183,7 +183,7 @@ public sealed class ProbeSettings
     public bool PerInterfaceProbing { get; set; } = true;
 
     /// <summary>Enable the ICMP fallback probes in the endpoint list.</summary>
-    public bool AllowIcmp { get; set; }
+    public bool AllowIcmp { get; set; } = true;
 
     /// <summary>Do not follow HTTP redirects; a 3xx means a portal is intercepting.</summary>
     public bool DetectCaptivePortalRedirects { get; set; } = true;
@@ -223,6 +223,7 @@ public sealed class ProbeEndpointSettings
             Target = "http://www.msftconnecttest.com/connecttest.txt",
             BodyMarker = "Microsoft Connect Test",
             TimeoutMs = 2500,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -231,6 +232,7 @@ public sealed class ProbeEndpointSettings
             Target = "https://www.msftconnecttest.com/connecttest.txt",
             BodyMarker = "Microsoft Connect Test",
             TimeoutMs = 3000,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -238,6 +240,7 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Https,
             Target = "https://www.baidu.com/",
             TimeoutMs = 3500,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -245,6 +248,7 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Https,
             Target = "https://www.bing.com/",
             TimeoutMs = 3500,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -252,6 +256,7 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Https,
             Target = "https://www.qq.com/",
             TimeoutMs = 3500,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -259,6 +264,7 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Https,
             Target = "https://www.cloudflare.com/cdn-cgi/trace",
             TimeoutMs = 3500,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -266,6 +272,7 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Tcp,
             Target = "223.5.5.5:53",
             TimeoutMs = 2000,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -273,6 +280,7 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Tcp,
             Target = "119.29.29.29:53",
             TimeoutMs = 2000,
+            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -280,6 +288,35 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Dns,
             Target = "www.baidu.com",
             TimeoutMs = 2000,
+            Enabled = false,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "PingAliDns",
+            Kind = ProbeKind.Icmp,
+            Target = "223.5.5.5",
+            TimeoutMs = 1200,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "PingDnspod",
+            Kind = ProbeKind.Icmp,
+            Target = "119.29.29.29",
+            TimeoutMs = 1200,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "PingCloudflare",
+            Kind = ProbeKind.Icmp,
+            Target = "1.1.1.1",
+            TimeoutMs = 1200,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "PingGoogleDns",
+            Kind = ProbeKind.Icmp,
+            Target = "8.8.8.8",
+            TimeoutMs = 1200,
         },
         new ProbeEndpointSettings
         {

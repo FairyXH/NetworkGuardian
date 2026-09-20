@@ -114,6 +114,41 @@ public sealed class ConfigMigrator
             applied.Add("v7: web-only Internet verdict with Baidu, Bing, QQ and Cloudflare probes.");
         }
 
+        if (version < 8)
+        {
+            var defaults = ProbeEndpointSettings.CreateDefaults();
+            foreach (var endpoint in config.ProbeEndpoints)
+            {
+                endpoint.Enabled = false;
+            }
+
+            foreach (var ping in defaults.Where(candidate =>
+                         candidate.Enabled && candidate.Kind == ProbeKind.Icmp))
+            {
+                var existing = config.ProbeEndpoints.FirstOrDefault(endpoint =>
+                    string.Equals(endpoint.Name, ping.Name, StringComparison.OrdinalIgnoreCase));
+                if (existing is null)
+                {
+                    config.ProbeEndpoints.Add(ping);
+                }
+                else
+                {
+                    existing.Enabled = true;
+                    existing.Kind = ProbeKind.Icmp;
+                    existing.Target = ping.Target;
+                    existing.TimeoutMs = ping.TimeoutMs;
+                }
+            }
+
+            config.Probe.AllowIcmp = true;
+            config.Probe.RequiredSuccessCount = 1;
+            config.Probe.TimeoutMs = 1200;
+            config.Probe.RoundTimeoutMs = 2500;
+            config.Version = 8;
+            version = 8;
+            applied.Add("v8: fast single-packet ICMP verdict using four parallel public targets.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

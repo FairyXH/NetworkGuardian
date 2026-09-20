@@ -104,7 +104,7 @@ public sealed class PhysicalDeviceManagerTests
 public sealed class ConnectivityProbeTests
 {
     [Fact]
-    public async Task OneSuccessfulHttpEndpoint_DeclaresInternetOnline()
+    public async Task HttpSuccessAlone_DoesNotDeclarePingConnectivityOnline()
     {
         using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
         listener.Start();
@@ -144,8 +144,38 @@ public sealed class ConnectivityProbeTests
         }, CancellationToken.None);
         await server;
 
+        Assert.False(report.IsOnline);
+        Assert.Equal(0, report.SuccessCount);
+    }
+
+    [Fact]
+    public async Task OneSuccessfulPing_DeclaresInternetOnline()
+    {
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "loopback-ping",
+                    Kind = ProbeKind.Icmp,
+                    Target = "127.0.0.1",
+                    TimeoutMs = 1200,
+                },
+            },
+            Settings = new ProbeSettings
+            {
+                AllowIcmp = true,
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 2500,
+                MaxConcurrency = 1,
+            },
+        }, CancellationToken.None);
+
         Assert.True(report.IsOnline);
         Assert.Equal(1, report.SuccessCount);
+        Assert.Single(report.Attempts);
     }
 
     [Fact]
