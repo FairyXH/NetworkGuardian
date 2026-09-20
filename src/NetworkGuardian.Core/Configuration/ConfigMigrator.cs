@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using NetworkGuardian.Core.Models;
 
 namespace NetworkGuardian.Core.Configuration;
 
@@ -94,6 +95,23 @@ public sealed class ConfigMigrator
             config.Version = 6;
             version = 6;
             applied.Add("v6: automatic wired-first route failover + campus quiet-period policy.");
+        }
+
+        if (version < 7)
+        {
+            var defaults = ProbeEndpointSettings.CreateDefaults();
+            foreach (var endpoint in defaults.Where(candidate =>
+                         candidate.Kind is ProbeKind.Http or ProbeKind.Https &&
+                         config.ProbeEndpoints.All(existing =>
+                             !string.Equals(existing.Name, candidate.Name, StringComparison.OrdinalIgnoreCase))))
+            {
+                config.ProbeEndpoints.Add(endpoint);
+            }
+
+            config.Probe.RequiredSuccessCount = 1;
+            config.Version = 7;
+            version = 7;
+            applied.Add("v7: web-only Internet verdict with Baidu, Bing, QQ and Cloudflare probes.");
         }
 
         config.Version = GuardianConfig.CurrentVersion;

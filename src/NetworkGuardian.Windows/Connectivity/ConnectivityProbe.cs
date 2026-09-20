@@ -14,8 +14,8 @@ namespace NetworkGuardian.Windows.Connectivity;
 
 /// <summary>
 /// Multi-signal Internet probe. A single failing endpoint never declares the Internet down; the
-/// verdict needs <c>RequiredSuccessCount</c> successes, and an intercepted HTTP response is reported
-/// as a captive portal instead of a plain failure.
+/// verdict needs <c>RequiredSuccessCount</c> successful HTTP/HTTPS requests. TCP, DNS and ICMP remain
+/// useful diagnostics, but cannot prove usable web access by themselves.
 /// </summary>
 public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 {
@@ -126,13 +126,14 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             .OrderBy(a => a.EndpointName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var successCount = attemptList.Count(a => a.IsSuccess);
+        var successCount = attemptList.Count(a =>
+            a.IsSuccess && a.Kind is ProbeKind.Http or ProbeKind.Https);
         var required = Math.Max(1, request.Settings.RequiredSuccessCount);
         var captiveAttempt = attemptList.FirstOrDefault(a => a.Outcome == ProbeOutcome.CaptivePortalRedirect);
         var captiveSuspected = captiveAttempt is not null;
 
         var isOnline = successCount >= required;
-        if (captiveSuspected && request.Settings.TreatCaptivePortalAsOffline)
+        if (captiveSuspected && request.Settings.TreatCaptivePortalAsOffline && successCount < required)
         {
             isOnline = false;
         }

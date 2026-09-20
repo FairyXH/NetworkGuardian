@@ -129,6 +129,7 @@ internal sealed class SettingsPage : IPage
         probe.Toggle("按接口分别探测（判断某张网卡自身是否可用）", config.Probe.PerInterfaceProbing, v => config.Probe.PerInterfaceProbing = v);
         probe.Toggle("允许 ICMP 探测", config.Probe.AllowIcmp, v => config.Probe.AllowIcmp = v);
         probe.Toggle("被认证页拦截时视为离线", config.Probe.TreatCaptivePortalAsOffline, v => config.Probe.TreatCaptivePortalAsOffline = v);
+        probe.Note("只有 HTTP/HTTPS 页面成功才计入外网正常；TCP、DNS、ICMP 仅用于故障诊断，不能单独证明可正常访问互联网。");
         probe.Subtitle("探测端点");
 
         var endpoints = config.ProbeEndpoints;

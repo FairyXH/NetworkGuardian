@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 6;
+    public const int CurrentVersion = 7;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -231,6 +231,34 @@ public sealed class ProbeEndpointSettings
             Target = "https://www.msftconnecttest.com/connecttest.txt",
             BodyMarker = "Microsoft Connect Test",
             TimeoutMs = 3000,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "BaiduHttps",
+            Kind = ProbeKind.Https,
+            Target = "https://www.baidu.com/",
+            TimeoutMs = 3500,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "BingHttps",
+            Kind = ProbeKind.Https,
+            Target = "https://www.bing.com/",
+            TimeoutMs = 3500,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "QQHttps",
+            Kind = ProbeKind.Https,
+            Target = "https://www.qq.com/",
+            TimeoutMs = 3500,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "CloudflareHttps",
+            Kind = ProbeKind.Https,
+            Target = "https://www.cloudflare.com/cdn-cgi/trace",
+            TimeoutMs = 3500,
         },
         new ProbeEndpointSettings
         {

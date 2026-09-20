@@ -36,6 +36,8 @@ public sealed class ConfigValidatorTests
 
         Assert.NotEmpty(config.ProbeEndpoints);
         Assert.Contains(config.ProbeEndpoints, e => e.Enabled);
+        Assert.Contains(config.ProbeEndpoints, e => e.Name == "BaiduHttps");
+        Assert.Contains(config.ProbeEndpoints, e => e.Name == "BingHttps");
     }
 
     [Fact]

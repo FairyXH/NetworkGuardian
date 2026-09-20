@@ -104,7 +104,52 @@ public sealed class PhysicalDeviceManagerTests
 public sealed class ConnectivityProbeTests
 {
     [Fact]
-    public async Task SingleFailingEndpoint_DoesNotDeclareTheInternetDown()
+    public async Task OneSuccessfulHttpEndpoint_DeclaresInternetOnline()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            var buffer = new byte[2048];
+            _ = await stream.ReadAsync(buffer);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
+            await stream.WriteAsync(response);
+        });
+
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "web",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{port}/",
+                    TimeoutMs = 1500,
+                },
+                new ProbeEndpointSettings
+                {
+                    Name = "dead",
+                    Kind = ProbeKind.Http,
+                    Target = "http://127.0.0.1:1/",
+                    TimeoutMs = 500,
+                },
+            },
+            Settings = new ProbeSettings { RequiredSuccessCount = 1, RoundTimeoutMs = 4000, MaxConcurrency = 2 },
+        }, CancellationToken.None);
+        await server;
+
+        Assert.True(report.IsOnline);
+        Assert.Equal(1, report.SuccessCount);
+    }
+
+    [Fact]
+    public async Task TcpSuccessAlone_DoesNotDeclareUsableInternet()
     {
         // A deliberately unreachable endpoint plus a working loopback TCP listener: the verdict must
         // come from the successful probe only.
@@ -123,8 +168,8 @@ public sealed class ConnectivityProbeTests
             Settings = new ProbeSettings { RequiredSuccessCount = 1, RoundTimeoutMs = 6000, MaxConcurrency = 2 },
         }, CancellationToken.None);
 
-        Assert.True(report.IsOnline);
-        Assert.Equal(1, report.SuccessCount);
+        Assert.False(report.IsOnline);
+        Assert.Equal(0, report.SuccessCount);
         Assert.Equal(2, report.AttemptCount);
     }
 
