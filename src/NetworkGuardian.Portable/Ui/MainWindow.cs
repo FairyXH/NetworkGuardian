@@ -205,7 +205,12 @@ internal sealed class MainWindow
     public bool IsOperationRunning(string operationId) => _operations.ContainsKey(operationId);
 
     /// <summary>Runs one named background action with visible progress and duplicate-click protection.</summary>
-    public void RunBackground(string operationId, string busyMessage, Func<Task> work, string? successToast = null)
+    public void RunBackground(
+        string operationId,
+        string busyMessage,
+        Func<Task> work,
+        string? successToast = null,
+        string failurePrefix = "操作失败")
     {
         if (!_operations.TryAdd(operationId, busyMessage))
         {
@@ -228,7 +233,7 @@ internal sealed class MainWindow
             catch (Exception ex)
             {
                 _host.LogUiFailure(ex.Message);
-                ShowToast($"操作失败：{ex.Message}");
+                ShowToast($"{failurePrefix}：{ex.Message}");
             }
             finally
             {

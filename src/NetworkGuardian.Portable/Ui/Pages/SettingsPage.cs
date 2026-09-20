@@ -67,7 +67,8 @@ internal sealed class SettingsPage : IPage
                         : $"保存成功；{issues.Count} 项被修正：{string.Join("；", issues)}";
                     _dirty = false;
                 },
-                "保存成功，配置已应用");
+                "保存成功，配置已应用",
+                "保存失败");
         }, primary: true, enabled: !saving);
 
         const string reloadOperation = "settings-reload";
