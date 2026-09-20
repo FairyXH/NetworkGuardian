@@ -646,73 +646,33 @@ public sealed class GuardianDecisionEngine
                     .ToList();
 
                 var keep = ranked[0];
-                var loser = ranked[^1];
-
-                var key = $"duplicate-ssid:{loser.InterfaceGuid}";
-                var limiter = GetCommandLimiter(key, 12, TimeSpan.FromSeconds(60), 4);
-
-                if (limiter.TryAcquire(now, out _, out var reason))
+                foreach (var loser in ranked.Skip(1))
                 {
-                    limiter.RecordRun(now);
-                    actions.Add(new DisconnectWifiAction
+                    var key = $"duplicate-ssid:{loser.InterfaceGuid}";
+                    var limiter = GetCommandLimiter(key, 12, TimeSpan.FromSeconds(60), 4);
+
+                    if (limiter.TryAcquire(now, out _, out var reason))
                     {
-                        InterfaceGuid = loser.InterfaceGuid,
-                        Ssid = group.Key,
-                        SuppressAutoReconnect = true,
-                        Reason = $"'{group.Key}' is connected on more than one adapter; releasing " +
-                                 $"{loser.Description} ({loser.SignalQuality}%) and keeping " +
-                                 $"{keep.Description} ({keep.SignalQuality}%)",
-                    });
-
-                    _stateMachine.Transition(RecoveryState.Recovering, now, "duplicate SSID across adapters");
-                    RecordRecoveryAction($"已断开 {loser.Description} 与 {keep.Description} 重复连接的 {group.Key}");
-                    wifiNotes.Add($"{loser.Description}：与 {keep.Description} 连接了同一个 SSID " +
-                                  $"'{group.Key}'，已按策略断开（保留信号更强的 {keep.SignalQuality}%）");
-
-                    // Do not leave the adapter merely disconnected: Windows auto-connect commonly
-                    // reassociates it with the same profile before the next policy cycle. If a saved
-                    // alternative is already in this adapter's scan, switch to it in the same plan.
-                    var adapterState = GetAdapterState(loser.InterfaceGuid, config);
-                    var heldSsids = adapters
-                        .Where(other => other.InterfaceGuid != loser.InterfaceGuid &&
-                                        other.IsConnected &&
-                                        !string.IsNullOrWhiteSpace(other.CurrentSsid))
-                        .Select(other => other.CurrentSsid!)
-                        .ToArray();
-                    var alternatives = _selector.SelectCandidates(
-                        loser.InterfaceGuid,
-                        loser.LastScan,
-                        loser.SavedProfiles,
-                        config.Wifi,
-                        now,
-                        out _,
-                        adapterState.LastConnectedProfile,
-                        heldSsids,
-                        input.EapCatalog);
-
-                    if (alternatives.Count > 0 &&
-                        adapterState.ConnectLimiter.TryAcquire(now, out _, out _))
-                    {
-                        var alternative = alternatives[0];
-                        adapterState.ConnectLimiter.RecordRun(now);
-                        adapterState.PendingConnectUtc = now;
-                        adapterState.PendingConnectProfile = alternative.ProfileName;
-                        actions.Add(new ConnectWifiAction
+                        limiter.RecordRun(now);
+                        actions.Add(new DisconnectWifiAction
                         {
                             InterfaceGuid = loser.InterfaceGuid,
-                            ProfileName = alternative.ProfileName,
-                            Ssid = alternative.Ssid,
-                            Bssid = alternative.PreferredBssid,
-                            RequiresEap = alternative.RequiresEap,
-                            UsesLibraryCredential = alternative.UsesLibraryCredential,
-                            Reason = $"replace duplicate '{group.Key}' immediately: {alternative.ScoreReason}",
+                            Ssid = group.Key,
+                            SuppressAutoReconnect = true,
+                            Reason = $"'{group.Key}' is connected on more than one adapter; releasing " +
+                                     $"{loser.Description} ({loser.SignalQuality}%) and keeping " +
+                                     $"{keep.Description} ({keep.SignalQuality}%)",
                         });
-                        wifiNotes.Add($"{loser.Description}：立即改连 '{alternative.Ssid}'，防止 Windows 自动连回重复 SSID");
+
+                        _stateMachine.Transition(RecoveryState.Recovering, now, "duplicate SSID across adapters");
+                        RecordRecoveryAction($"已断开 {loser.Description} 与 {keep.Description} 重复连接的 {group.Key}");
+                        wifiNotes.Add($"{loser.Description}：与 {keep.Description} 连接了同一个 SSID " +
+                                      $"'{group.Key}'，已按策略断开（保留信号更强的 {keep.SignalQuality}%）");
                     }
-                }
-                else
-                {
-                    wifiNotes.Add($"{loser.Description}: duplicate SSID '{group.Key}' not released - {reason}");
+                    else
+                    {
+                        wifiNotes.Add($"{loser.Description}: duplicate SSID '{group.Key}' not released - {reason}");
+                    }
                 }
             }
         }
@@ -748,51 +708,14 @@ public sealed class GuardianDecisionEngine
                 // Connected but not passing traffic: only now may we consider a change.
                 state.Connectivity.RecordFailure(now);
                 wifiNotes.Add($"{adapter.Description}: connected to '{adapter.CurrentSsid}' but traffic is failing " +
-                              $"({state.Connectivity.ConsecutiveFailures}/{config.Recovery.WifiFailureThreshold})");
+                              $"({state.Connectivity.ConsecutiveFailures}/{config.Recovery.WifiFailureThreshold}); " +
+                              "preserving the existing connection");
 
-                if (!config.Wifi.StickyConnection || !config.Wifi.RecoverStaleConnections)
-                {
-                    continue;
-                }
-
-                if (!state.Connectivity.IsFailing)
-                {
-                    continue;
-                }
-
-                if (!state.ConnectLimiter.TryAcquire(now, out var retry, out var reason))
-                {
-                    wifiNotes.Add($"{adapter.Description}: {reason}");
-                    continue;
-                }
-
-                state.ConnectLimiter.RecordRun(now);
-                state.LastDisconnectActionUtc = now;
-                state.LastKnownSsid = adapter.CurrentSsid;
-                if (!string.IsNullOrWhiteSpace(adapter.Connection?.ProfileName))
-                {
-                    _blacklist.RecordFailure(adapter.InterfaceGuid, adapter.Connection!.ProfileName, now,
-                        "connection stopped passing traffic");
-                }
-
-                actions.Add(new DisconnectWifiAction
-                {
-                    InterfaceGuid = adapter.InterfaceGuid,
-                    Ssid = adapter.CurrentSsid ?? string.Empty,
-                    Reason = $"connected but {state.Connectivity.ConsecutiveFailures} consecutive probes failed",
-                });
-
-                _stateMachine.Transition(RecoveryState.Recovering, now, "stale Wi-Fi connection detected");
-                RecordRecoveryAction($"{adapter.Description}: disconnected stale connection to {adapter.CurrentSsid}");
-                actions.Add(new ScanAdapterAction
-                {
-                    InterfaceGuid = adapter.InterfaceGuid,
-                    Force = true,
-                    Reason = "re-scan after dropping a stale connection",
-                });
-                state.ScanLimiter.Reset();
-                state.ScanLimiter.RecordRun(now);
-                state.LastScanRequestUtc = now;
+                // A failed probe must never tear down an association the user or Windows already
+                // established. Probe failures can be caused by captive portals, DNS/proxy software,
+                // or the remote targets themselves. The only connected adapter we disconnect is a
+                // duplicate SSID loser handled above; recovery work is otherwise limited to idle
+                // adapters, which can scan and join an unoccupied saved network without disruption.
                 continue;
             }
 

@@ -108,8 +108,11 @@ internal static class IpHlpApiNative
         /// <summary>Union of ULONGLONG Alignment / (ULONG Length + IF_INDEX IfIndex).</summary>
         public ulong Alignment;
 
-        /// <summary>The IPv4 interface index, which is the low half of the alignment union.</summary>
-        public readonly uint IfIndex => (uint)(Alignment & 0xFFFFFFFF);
+        /// <summary>
+        /// The IPv4 interface index. In the native union the first DWORD is Length and the second
+        /// DWORD is IfIndex; on little-endian Windows that makes IfIndex the high half of Alignment.
+        /// </summary>
+        public readonly uint IfIndex => (uint)(Alignment >> 32);
 
         public IntPtr Next;
         public IntPtr AdapterName;

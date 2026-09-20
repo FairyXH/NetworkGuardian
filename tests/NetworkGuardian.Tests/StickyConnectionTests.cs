@@ -154,7 +154,7 @@ public sealed class StickyConnectionTests
     }
 
     [Fact]
-    public void StaleConnection_IsDisconnectedAndRescannedAfterThreshold()
+    public void RepeatedProbeFailures_DoNotDisconnectAnExistingConnection()
     {
         var config = TestData.Config(c =>
         {
@@ -181,8 +181,8 @@ public sealed class StickyConnectionTests
         }
 
         Assert.NotNull(decision);
-        Assert.Contains(decision!.Actions, a => a is DisconnectWifiAction);
-        Assert.Contains(decision.Actions, a => a is ScanAdapterAction);
+        Assert.DoesNotContain(decision!.Actions, a => a is DisconnectWifiAction);
+        Assert.DoesNotContain(decision.Actions, a => a is ScanAdapterAction);
     }
 
     [Fact]

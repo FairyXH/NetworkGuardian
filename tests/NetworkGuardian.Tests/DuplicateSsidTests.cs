@@ -54,6 +54,27 @@ public sealed class DuplicateSsidTests
     }
 
     [Fact]
+    public void ThreeAdaptersOnTheSameSsid_KeepOnlyTheStrongestOne()
+    {
+        var config = TestData.Config(c => c.Wifi.AllowSameSsidOnMultipleAdapters = false);
+        var engine = new GuardianDecisionEngine(config);
+        var adapterC = Guid.Parse("33333333-3333-3333-3333-333333333333");
+
+        var decision = engine.Evaluate(Input(config, new[]
+        {
+            Connected(TestData.AdapterA, 82, "Adapter A"),
+            Connected(TestData.AdapterB, 38, "Adapter B"),
+            Connected(adapterC, 61, "Adapter C"),
+        }));
+
+        var disconnects = decision.Actions.OfType<DisconnectWifiAction>().ToList();
+        Assert.Equal(2, disconnects.Count);
+        Assert.DoesNotContain(disconnects, action => action.InterfaceGuid == TestData.AdapterA);
+        Assert.Contains(disconnects, action => action.InterfaceGuid == TestData.AdapterB);
+        Assert.Contains(disconnects, action => action.InterfaceGuid == adapterC);
+    }
+
+    [Fact]
     public void OneSsidPerAdapterIsTheDefault()
     {
         var config = TestData.Config();
@@ -61,7 +82,7 @@ public sealed class DuplicateSsidTests
     }
 
     [Fact]
-    public void DuplicateLoser_ImmediatelySwitchesToASavedAlternative()
+    public void DuplicateLoser_IsDisconnectedBeforeIdleAssignmentRuns()
     {
         var config = TestData.Config(c => c.Wifi.AllowSameSsidOnMultipleAdapters = false);
         var engine = new GuardianDecisionEngine(config);
@@ -80,9 +101,7 @@ public sealed class DuplicateSsidTests
 
         Assert.Contains(decision.Actions,
             action => action is DisconnectWifiAction { InterfaceGuid: var guid } && guid == TestData.AdapterB);
-        var connect = Assert.Single(decision.Actions.OfType<ConnectWifiAction>());
-        Assert.Equal(TestData.AdapterB, connect.InterfaceGuid);
-        Assert.Equal("DormWiFi", connect.Ssid);
+        Assert.DoesNotContain(decision.Actions, action => action is ConnectWifiAction);
     }
 
     [Fact]

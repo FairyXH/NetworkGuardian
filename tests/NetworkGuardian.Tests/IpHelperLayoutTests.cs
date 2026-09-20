@@ -12,6 +12,19 @@ namespace NetworkGuardian.Tests;
 public sealed class IpHelperLayoutTests
 {
     [Fact]
+    public void AdapterAddressAlignment_ReadsIfIndexFromSecondDword()
+    {
+        const uint length = 448;
+        const uint interfaceIndex = 24;
+        var value = new IpHlpApiNative.IP_ADAPTER_ADDRESSES
+        {
+            Alignment = length | ((ulong)interfaceIndex << 32),
+        };
+
+        Assert.Equal(interfaceIndex, value.IfIndex);
+    }
+
+    [Fact]
     public void MibIpForwardRow2_IsHundredAndFourBytes()
     {
         // NET_LUID(8) + NET_IFINDEX(4) + IP_ADDRESS_PREFIX(32) + SOCKADDR_INET(28)
