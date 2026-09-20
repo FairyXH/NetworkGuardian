@@ -25,15 +25,18 @@ internal sealed class WirelessPage : IPage
 
         // ---------- toolbar ----------
         var toolbarHeight = ctx.Scale(32);
-        var scanAll = Widgets.Button(ctx, area.Left, y, "重新扫描全部网卡", () =>
+        const string scanAllOperation = "wireless-scan-all";
+        var scanningAll = ctx.Window.IsOperationRunning(scanAllOperation);
+        var scanAll = new Rectangle(area.Left, y, Widgets.MeasureButtonWidth(ctx, "重新扫描全部网卡"), toolbarHeight);
+        Widgets.ButtonAt(ctx, scanAll, scanningAll ? "正在扫描…" : "重新扫描全部网卡", () =>
         {
             _status = "正在扫描全部无线网卡…";
-            ctx.Window.RunBackground(async () =>
+            ctx.Window.RunBackground(scanAllOperation, "正在扫描全部无线网卡", async () =>
             {
                 await ctx.Host.RescanAllAsync(CancellationToken.None).ConfigureAwait(false);
                 _status = "全部无线网卡扫描完成";
             });
-        });
+        }, enabled: !scanningAll);
 
         Widgets.Button(ctx, scanAll.Right + ctx.Scale(8), y, "刷新设备", () =>
         {
@@ -106,6 +109,8 @@ internal sealed class WirelessPage : IPage
             Widgets.Mono(ctx, dx, dy + ctx.Scale(36), dw - ctx.Scale(90), $"原因：{device.Classification.Reason}");
 
             var deviceId = record.DeviceInstanceId;
+            var enableOperation = $"wireless-enable-{deviceId}";
+            var enabling = ctx.Window.IsOperationRunning(enableOperation);
             var enableLabel = record.IsPresent && !device.IsEnabled ? "启用" : "查询状态";
             var buttonWidth = Widgets.MeasureButtonWidth(ctx, enableLabel);
             var enableRect = new Rectangle(devicesRect.Right - ctx.Scale(16) - buttonWidth, dy + ctx.Scale(4), buttonWidth, ctx.Scale(30));
@@ -113,11 +118,11 @@ internal sealed class WirelessPage : IPage
             Widgets.ButtonAt(
                 ctx,
                 enableRect,
-                enableLabel,
+                enabling ? "处理中…" : enableLabel,
                 () =>
                 {
                     _status = $"正在请求启用 {name}（可能出现 UAC 提示）…";
-                    ctx.Window.RunBackground(async () =>
+                    ctx.Window.RunBackground(enableOperation, $"正在处理无线设备 {name}", async () =>
                     {
                         var result = await ctx.Host.EnableDeviceAsync(deviceId, CancellationToken.None).ConfigureAwait(false);
                         _status = result.Success
@@ -125,7 +130,7 @@ internal sealed class WirelessPage : IPage
                             : $"启用失败：{result.Outcome} {result.Detail} {result.Win32Message}";
                     });
                 },
-                enabled: device.Classification.IsPhysical && record.IsPresent);
+                enabled: !enabling && device.Classification.IsPhysical && record.IsPresent);
 
             dy += ctx.Scale(46);
         }
@@ -208,30 +213,34 @@ internal sealed class WirelessPage : IPage
 
         // ---------- adapter actions ----------
         var guid = adapter.InterfaceGuid;
+        var disconnectOperation = $"wireless-disconnect-{guid:D}";
+        var scanOperation = $"wireless-scan-{guid:D}";
+        var disconnecting = ctx.Window.IsOperationRunning(disconnectOperation);
+        var scanning = ctx.Window.IsOperationRunning(scanOperation);
         var disconnectWidth = Widgets.MeasureButtonWidth(ctx, "断开");
         var scanWidth = Widgets.MeasureButtonWidth(ctx, "扫描此网卡");
 
         var disconnectRect = new Rectangle(buttonsLeft - disconnectWidth, card.Top + ctx.Scale(14), disconnectWidth, ctx.Scale(30));
-        Widgets.ButtonAt(ctx, disconnectRect, "断开", () =>
+        Widgets.ButtonAt(ctx, disconnectRect, disconnecting ? "断开中…" : "断开", () =>
         {
             _status = $"正在断开 {adapter.Description}…";
-            ctx.Window.RunBackground(async () =>
+            ctx.Window.RunBackground(disconnectOperation, $"正在断开 {adapter.Description}", async () =>
             {
                 var result = await ctx.Host.DisconnectAsync(guid, CancellationToken.None).ConfigureAwait(false);
                 _status = result.Success ? "已断开" : $"断开失败：{result.Failure}";
             });
-        }, enabled: adapter.IsConnected);
+        }, enabled: !disconnecting && adapter.IsConnected);
 
         var scanRect = new Rectangle(buttonsLeft - scanWidth, disconnectRect.Bottom + ctx.Scale(6), scanWidth, ctx.Scale(30));
-        Widgets.ButtonAt(ctx, scanRect, "扫描此网卡", () =>
+        Widgets.ButtonAt(ctx, scanRect, scanning ? "扫描中…" : "扫描此网卡", () =>
         {
             _status = $"正在扫描 {adapter.Description}…";
-            ctx.Window.RunBackground(async () =>
+            ctx.Window.RunBackground(scanOperation, $"正在扫描 {adapter.Description}", async () =>
             {
                 var result = await ctx.Host.ScanAdapterAsync(guid, CancellationToken.None).ConfigureAwait(false);
                 _status = result.Failed ? $"扫描失败：{result.FailureReason}" : $"扫描完成：{result.Networks.Count} 个网络";
             });
-        });
+        }, enabled: !scanning);
 
         // ---------- saved profiles ----------
         canvas.Text("已保存的配置", new Rectangle(x, cy, width, ctx.Scale(20)), Palette.TextMuted, TextStyle.Caption);
@@ -324,15 +333,17 @@ internal sealed class WirelessPage : IPage
                     var connectRect = new Rectangle(card.Right - ctx.Scale(16) - connectWidth, cy - ctx.Scale(4), connectWidth, ctx.Scale(26));
                     var profileName = network.ProfileName ?? network.Ssid;
                     var ssid = network.Ssid;
-                    Widgets.ButtonAt(ctx, connectRect, "连接", () =>
+                    var connectOperation = $"wireless-connect-{guid:D}-{profileName}";
+                    var connecting = ctx.Window.IsOperationRunning(connectOperation);
+                    Widgets.ButtonAt(ctx, connectRect, connecting ? "连接中…" : "连接", () =>
                     {
                         _status = $"正在连接 {ssid}…";
-                        ctx.Window.RunBackground(async () =>
+                        ctx.Window.RunBackground(connectOperation, $"正在连接 {ssid}", async () =>
                         {
                             var result = await ctx.Host.ConnectAsync(guid, profileName, CancellationToken.None).ConfigureAwait(false);
                             _status = result.Success ? $"已连接 {ssid}" : $"连接失败：{result.Failure}";
                         });
-                    });
+                    }, enabled: !connecting);
                 }
 
                 cy += ctx.Scale(26);

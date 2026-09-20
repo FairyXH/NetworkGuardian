@@ -59,16 +59,19 @@ internal sealed class CredentialsPage : IPage
             $"库文件：{ctx.Host.WifiLibraryPath}　密码保护：{ctx.Host.WifiLibraryProtection}　共 {entries.Count} 个网络");
         y += ctx.Scale(24);
 
-        var save = Widgets.Button(ctx, area.Left, y, "保存并应用", () =>
+        const string saveOperation = "credentials-save";
+        var saving = ctx.Window.IsOperationRunning(saveOperation);
+        var save = new Rectangle(area.Left, y, Widgets.MeasureButtonWidth(ctx, "保存并应用"), ctx.Scale(32));
+        Widgets.ButtonAt(ctx, save, saving ? "保存中…" : "保存并应用", () =>
         {
             var target = Clone(entries);
             _status = "正在保存…";
-            ctx.Window.RunBackground(async () =>
+            ctx.Window.RunBackground(saveOperation, "正在保存并应用网络凭据", async () =>
             {
                 await ctx.Host.SaveWifiLibraryAsync(target, CancellationToken.None).ConfigureAwait(false);
                 _status = $"已保存 {DateTimeOffset.Now:HH:mm:ss}（已清除相应网络的 802.1X 失败计数）";
             });
-        }, primary: true);
+        }, primary: true, enabled: !saving);
 
         Widgets.Button(ctx, save.Right + ctx.Scale(8), y, "自定义网络", () =>
         {
@@ -147,16 +150,18 @@ internal sealed class CredentialsPage : IPage
             MarkDirty();
             _status = $"已添加 {selected.Ssid}；只需填写{(selected.Eap == WifiEapMethod.Tls ? "证书信息" : "账号和密码")}后保存";
         }, primary: suggestions.Count > 0);
+        const string refreshOperation = "credentials-refresh-wifi";
+        var refreshing = ctx.Window.IsOperationRunning(refreshOperation);
         Widgets.Button(ctx, area.Left + pickerWidth + ctx.Scale(8) + Widgets.MeasureButtonWidth(ctx, "添加所选网络") + ctx.Scale(8),
-            y + ctx.Scale(20), "刷新 Wi-Fi", () =>
+            y + ctx.Scale(20), refreshing ? "刷新中…" : "刷新 Wi-Fi", () =>
             {
                 _status = "正在重新扫描全部无线网卡…";
-                ctx.Window.RunBackground(async () =>
+                ctx.Window.RunBackground(refreshOperation, "正在刷新 Wi-Fi 列表", async () =>
                 {
                     await ctx.Host.RescanAllAsync(CancellationToken.None).ConfigureAwait(false);
                     _status = "Wi-Fi 列表已刷新";
                 });
-            });
+            }, enabled: !refreshing);
         y += ctx.Scale(FieldRowHeight + 8);
 
         var issues = ctx.Host.WifiLibraryIssues;
@@ -363,16 +368,18 @@ internal sealed class CredentialsPage : IPage
         }
 
         var applyWidth = Widgets.MeasureButtonWidth(ctx, "写入到所有无线网卡");
-        Widgets.ButtonAt(ctx, new Rectangle(x, cy, applyWidth, ctx.Scale(32)), "写入到所有无线网卡", () =>
+        var applyOperation = $"credentials-apply-{entry.Id}";
+        var applying = ctx.Window.IsOperationRunning(applyOperation);
+        Widgets.ButtonAt(ctx, new Rectangle(x, cy, applyWidth, ctx.Scale(32)), applying ? "写入中…" : "写入到所有无线网卡", () =>
         {
             _status = $"正在写入 {entry.Ssid}…";
-            ctx.Window.RunBackground(async () =>
+            ctx.Window.RunBackground(applyOperation, $"正在将 {entry.Ssid} 写入所有无线网卡", async () =>
             {
                 var results = await ctx.Host.ApplyWifiLibraryEntryAsync(entry.Id, null, CancellationToken.None)
                     .ConfigureAwait(false);
                 _status = $"{entry.Ssid}：{string.Join("；", results)}";
             });
-        }, enabled: !string.IsNullOrWhiteSpace(entry.Ssid));
+        }, enabled: !applying && !string.IsNullOrWhiteSpace(entry.Ssid));
 
         var removeWidth = Widgets.MeasureButtonWidth(ctx, "删除该网络");
         Widgets.ButtonAt(ctx, new Rectangle(x + applyWidth + ctx.Scale(8), cy, removeWidth, ctx.Scale(32)), "删除该网络", () =>
@@ -385,20 +392,22 @@ internal sealed class CredentialsPage : IPage
         // Removing the entry from the library and removing the profile from Windows are two different
         // things: the profile was written per interface, so the cleanup button walks every adapter.
         var purgeWidth = Widgets.MeasureButtonWidth(ctx, "从系统删除配置");
+        var purgeOperation = $"credentials-purge-{entry.Id}";
+        var purging = ctx.Window.IsOperationRunning(purgeOperation);
         Widgets.ButtonAt(ctx, new Rectangle(x + applyWidth + removeWidth + ctx.Scale(16), cy, purgeWidth, ctx.Scale(32)),
-            "从系统删除配置",
+            purging ? "删除中…" : "从系统删除配置",
             () =>
             {
                 var profileName = entry.EffectiveProfileName;
                 _status = $"正在从所有网卡删除 {profileName}…";
-                ctx.Window.RunBackground(async () =>
+                ctx.Window.RunBackground(purgeOperation, $"正在从系统删除 {profileName}", async () =>
                 {
                     var result = await Task.Run(() => ctx.Host.RemoveWifiProfileEverywhere(profileName))
                         .ConfigureAwait(false);
                     _status = $"{profileName}：{result.Describe()}";
                 });
             },
-            enabled: !string.IsNullOrWhiteSpace(entry.EffectiveProfileName));
+            enabled: !purging && !string.IsNullOrWhiteSpace(entry.EffectiveProfileName));
 
         canvas.Text(
             entry.Eap == WifiEapMethod.PeapMschapv2

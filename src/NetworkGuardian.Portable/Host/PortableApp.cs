@@ -225,10 +225,12 @@ internal sealed class PortableApp
                 _window.ShowToast(_host.IsPaused ? "已暂停自动恢复" : "已恢复自动恢复");
                 break;
             case "test":
-                _window.RunBackground(() => _host.RunConnectivityTestAsync(CancellationToken.None), "连通性测试完成");
+                _window.RunBackground("connectivity-test", "正在执行连通性测试",
+                    () => _host.RunConnectivityTestAsync(CancellationToken.None), "连通性测试完成");
                 break;
             case "rescan":
-                _window.RunBackground(() => _host.RescanAllAsync(CancellationToken.None), "已重新扫描全部网卡");
+                _window.RunBackground("wireless-scan-all", "正在扫描全部无线网卡",
+                    () => _host.RescanAllAsync(CancellationToken.None), "已重新扫描全部网卡");
                 break;
             case "reset":
                 _host.ResetDerating();

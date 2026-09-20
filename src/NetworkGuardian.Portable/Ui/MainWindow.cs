@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -53,6 +54,8 @@ internal sealed class MainWindow
     private int _pressedIndex = -1;
     private int _toastTicks;
     private string? _toast;
+    private int _activityFrame;
+    private readonly ConcurrentDictionary<string, string> _operations = new(StringComparer.Ordinal);
 
     public MainWindow(PortableApp app, GuardianHostService host, IReadOnlyList<IPage> pages, string startPage)
     {
@@ -196,9 +199,19 @@ internal sealed class MainWindow
         Invalidate();
     }
 
-    /// <summary>Runs a background action without letting an exception kill the process.</summary>
-    public void RunBackground(Func<Task> work, string? successToast = null)
+    public bool IsOperationRunning(string operationId) => _operations.ContainsKey(operationId);
+
+    /// <summary>Runs one named background action with visible progress and duplicate-click protection.</summary>
+    public void RunBackground(string operationId, string busyMessage, Func<Task> work, string? successToast = null)
     {
+        if (!_operations.TryAdd(operationId, busyMessage))
+        {
+            return;
+        }
+
+        CloseEditor(commit: true);
+        RequestRefresh();
+
         _ = Task.Run(async () =>
         {
             try
@@ -213,6 +226,10 @@ internal sealed class MainWindow
             {
                 _host.LogUiFailure(ex.Message);
                 ShowToast($"操作失败：{ex.Message}");
+            }
+            finally
+            {
+                _operations.TryRemove(operationId, out _);
             }
 
             RequestRefresh();
@@ -530,6 +547,12 @@ internal sealed class MainWindow
             }
 
             case WM_TIMER:
+                if (!_operations.IsEmpty)
+                {
+                    _activityFrame = (_activityFrame + 1) % 4;
+                    Invalidate();
+                }
+
                 if ((int)wParam == ToastTimerId && _toastTicks > 0)
                 {
                     _toastTicks--;
@@ -749,10 +772,14 @@ internal sealed class MainWindow
         var buttonHeight = Scale(32);
         var buttonTop = Scale(16);
 
+        const string testOperation = "connectivity-test";
+        var testing = IsOperationRunning(testOperation);
+        var testLabel = testing ? "测试中…" : "连通性测试";
         var testWidth = Widgets.MeasureButtonWidth(pageContext, "连通性测试");
         var testRect = new Rectangle(right - testWidth, buttonTop, testWidth, buttonHeight);
-        Widgets.ButtonAt(pageContext, testRect, "连通性测试",
-            () => RunBackground(() => _host.RunConnectivityTestAsync(CancellationToken.None), "连通性测试完成"));
+        Widgets.ButtonAt(pageContext, testRect, testLabel,
+            () => RunBackground(testOperation, "正在执行连通性测试", () => _host.RunConnectivityTestAsync(CancellationToken.None), "连通性测试完成"),
+            enabled: !testing);
 
         var pauseLabel = _host.IsPaused ? "恢复自动恢复" : "暂停自动恢复";
         var pauseWidth = Widgets.MeasureButtonWidth(pageContext, pauseLabel);
@@ -858,16 +885,23 @@ internal sealed class MainWindow
 
     private void DrawToast(Canvas canvas, RECT client)
     {
-        if (string.IsNullOrEmpty(_toast))
+        var operation = _operations.FirstOrDefault();
+        var hasOperation = !string.IsNullOrEmpty(operation.Key);
+        if (!hasOperation && string.IsNullOrEmpty(_toast))
         {
             return;
         }
 
         var height = Scale(ToastHeight);
         var rect = new Rectangle(ContentRect.Left, client.Height - height, ContentRect.Width, height);
-        canvas.Fill(rect, Palette.HeaderBackground);
-        canvas.Line(rect.Left, rect.Top, rect.Right, rect.Top + 1, Palette.CardBorder);
-        canvas.Text(_toast, new Rectangle(rect.Left + Scale(20), rect.Top, rect.Width - Scale(40), rect.Height), Palette.TextSecondary, TextStyle.Body);
+        canvas.Fill(rect, hasOperation ? Palette.AccentBackground : Palette.HeaderBackground);
+        canvas.Line(rect.Left, rect.Top, rect.Right, rect.Top + 1, hasOperation ? Palette.Accent : Palette.CardBorder);
+
+        var message = hasOperation
+            ? $"{operation.Value}{new string('.', _activityFrame + 1)}  请稍候"
+            : _toast!;
+        canvas.Text(message, new Rectangle(rect.Left + Scale(20), rect.Top, rect.Width - Scale(40), rect.Height),
+            hasOperation ? Palette.Accent : Palette.TextSecondary, TextStyle.Body);
     }
 
     public void Dispose()

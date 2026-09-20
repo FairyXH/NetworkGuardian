@@ -40,7 +40,10 @@ internal sealed class SettingsPage : IPage
         y += ctx.Scale(22);
 
         // ---------- toolbar ----------
-        var save = Widgets.Button(ctx, area.Left, y, "保存并应用", () =>
+        const string saveOperation = "settings-save";
+        var saving = ctx.Window.IsOperationRunning(saveOperation);
+        var save = new Rectangle(area.Left, y, Widgets.MeasureButtonWidth(ctx, "保存并应用"), ctx.Scale(32));
+        Widgets.ButtonAt(ctx, save, saving ? "保存中…" : "保存并应用", () =>
         {
             var issues = new ConfigValidator().Normalize(config);
             _status = issues.Count == 0
@@ -52,20 +55,24 @@ internal sealed class SettingsPage : IPage
             // until they are saved again.
             var target = Clone(config);
             ctx.Window.RunBackground(
+                saveOperation,
+                "正在保存并应用设置",
                 () => ctx.Window.App.ApplyConfigAsync(target),
                 "配置已保存并应用");
-        }, primary: true);
+        }, primary: true, enabled: !saving);
 
-        Widgets.Button(ctx, save.Right + ctx.Scale(8), y, "重新加载", () =>
+        const string reloadOperation = "settings-reload";
+        var reloading = ctx.Window.IsOperationRunning(reloadOperation);
+        Widgets.Button(ctx, save.Right + ctx.Scale(8), y, reloading ? "加载中…" : "重新加载", () =>
         {
-            ctx.Window.RunBackground(async () =>
+            ctx.Window.RunBackground(reloadOperation, "正在从磁盘重新加载设置", async () =>
             {
                 var reloaded = await ctx.Window.App.ReloadConfigAsync().ConfigureAwait(false);
                 _working = Clone(reloaded);
                 _status = "已从磁盘重新加载";
                 _dirty = false;
             });
-        });
+        }, enabled: !reloading);
 
         Widgets.Button(
             ctx,
