@@ -258,6 +258,26 @@ public sealed class CandidateSelectorTests
     }
 
     [Fact]
+    public void CampusNetwork_IsSkippedDuringQuietPeriod()
+    {
+        var settings = new WifiSettings
+        {
+            CampusQuietPeriodEnabled = true,
+            CampusQuietStartMinutes = 0,
+            CampusQuietEndMinutes = 0,
+            CampusNetworkSsids = new List<string> { "CampusWiFi" },
+        };
+        var scan = TestData.Scan(
+            TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "CampusWiFi", 90),
+            TestData.Network(TestData.AdapterA, "DormWiFi", 50));
+
+        var candidates = Select(settings, scan, new[] { "CampusWiFi", "DormWiFi" });
+
+        Assert.Equal("DormWiFi", Assert.Single(candidates).Ssid);
+    }
+
+    [Fact]
     public void RecentlyBlacklistedProfile_IsSkipped()
     {
         var blacklist = new ConnectFailureBlacklist(TimeSpan.FromSeconds(300));
@@ -394,6 +414,23 @@ public sealed class AdapterAssignmentPlannerTests
 public sealed class CampusAuthRateLimitTests
 {
     [Fact]
+    public void CampusAuth_IsSuspendedDuringQuietPeriod()
+    {
+        var config = TestData.Config(c =>
+        {
+            c.CampusAuth.Enabled = true;
+            c.CampusAuth.ExecutablePath = @"C:\tools\campus.exe";
+            c.CampusAuth.TriggerAfterConsecutiveFailures = 1;
+            c.Wifi.CampusQuietPeriodEnabled = true;
+            c.Wifi.CampusQuietStartMinutes = 0;
+            c.Wifi.CampusQuietEndMinutes = 0;
+        });
+        var engine = new GuardianDecisionEngine(config);
+
+        RunCampusAuth(engine, config, new[] { TestData.EthernetInterface() }, TestData.Now, expectAuth: false);
+    }
+
+    [Fact]
     public void CampusAuth_RespectsMinimumIntervalAndHourlyBudget()
     {
         var config = TestData.Config(c =>
@@ -504,7 +541,7 @@ public sealed class CampusAuthRateLimitTests
     }
 
     [Fact]
-    public void InterfaceMetrics_AreReconciledOnlyWhenEnabledAndDifferent()
+    public void InterfaceMetrics_AreAlwaysReconciledForAutomaticFailover()
     {
         var mismatched = TestData.WifiInterface(TestData.AdapterA) with { InterfaceMetric = 1 };
         var enabled = TestData.Config(c => c.General.ManageInterfaceMetrics = true);
@@ -523,7 +560,7 @@ public sealed class CampusAuthRateLimitTests
 
         Assert.Contains(decision.Actions, action => action is ApplyInterfaceMetricsAction);
 
-        enabled.General.ManageInterfaceMetrics = false;
+        enabled.General.ManageInterfaceMetrics = false; // legacy setting no longer disables safety policy
         decision = engine.Evaluate(new GuardianInput
         {
             Now = TestData.Now.AddSeconds(20),
@@ -535,7 +572,10 @@ public sealed class CampusAuthRateLimitTests
             Radio = TestData.RadioOn,
         });
 
-        Assert.DoesNotContain(decision.Actions, action => action is ApplyInterfaceMetricsAction);
+        var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
+            Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
+        Assert.Equal(50, metrics.EthernetMetric);
+        Assert.Equal(10, metrics.WifiMetric);
     }
 
     private static void RunCampusAuth(

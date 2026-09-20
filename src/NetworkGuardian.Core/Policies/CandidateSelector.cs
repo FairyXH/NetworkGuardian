@@ -69,6 +69,12 @@ public sealed class CandidateSelector
                 continue;
             }
 
+            if (CampusQuietPeriod.IsActive(settings, now) && CampusQuietPeriod.IsCampusSsid(settings, network.Ssid))
+            {
+                rejections.Add($"{network.Ssid}: 校园网关闭时段内暂停自动连接");
+                continue;
+            }
+
             if (network.BssType == WifiBssType.Independent)
             {
                 rejections.Add($"{network.Ssid}: ad-hoc (independent BSS) networks are never auto-joined");

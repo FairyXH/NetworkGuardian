@@ -86,6 +86,15 @@ public sealed class ConfigMigrator
             applied.Add("v5: wireless credential library + 3s radio watchdog + 5 EAP connect attempts.");
         }
 
+        if (version < 6)
+        {
+            config.General.ManageInterfaceMetrics = true;
+            config.Wifi.CampusNetworkSsids ??= new List<string>();
+            config.Version = 6;
+            version = 6;
+            applied.Add("v6: automatic wired-first route failover + campus quiet-period policy.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

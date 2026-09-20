@@ -33,6 +33,8 @@ public sealed class ConfigValidator
         config.InterfaceDenyList ??= new List<string>();
         config.Wifi.SsidDenyList ??= new List<string>();
         config.Wifi.SsidAllowList ??= new List<string>();
+        config.Wifi.CampusNetworkSsids ??= new List<string>();
+        config.General.ManageInterfaceMetrics = true;
 
         if (config.ProbeEndpoints is null || config.ProbeEndpoints.Count == 0)
         {
@@ -76,6 +78,8 @@ public sealed class ConfigValidator
         config.Wifi.RecentProfileBonus = Clamp(config.Wifi.RecentProfileBonus, -100, 100, "wifi.recentProfileBonus", issues);
         config.Wifi.DisconnectGraceSeconds = Clamp(config.Wifi.DisconnectGraceSeconds, 0, 600, "wifi.disconnectGraceSeconds", issues);
         config.Wifi.EapConnectMaxAttempts = Clamp(config.Wifi.EapConnectMaxAttempts, 1, 50, "wifi.eapConnectMaxAttempts", issues);
+        config.Wifi.CampusQuietStartMinutes = Clamp(config.Wifi.CampusQuietStartMinutes, 0, 1439, "wifi.campusQuietStartMinutes", issues);
+        config.Wifi.CampusQuietEndMinutes = Clamp(config.Wifi.CampusQuietEndMinutes, 0, 1439, "wifi.campusQuietEndMinutes", issues);
 
         config.Ethernet.FailureThreshold = Clamp(config.Ethernet.FailureThreshold, 1, 100, "ethernet.failureThreshold", issues);
         config.Ethernet.LinkUpGraceSeconds = Clamp(config.Ethernet.LinkUpGraceSeconds, 0, 600, "ethernet.linkUpGraceSeconds", issues);

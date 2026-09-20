@@ -58,7 +58,6 @@ public sealed class StickyConnectionTests
         var decision = engine.Evaluate(Input(
             config, TestData.Now, TestData.OnlineProbe(), interfaces, new[] { adapter }));
 
-        Assert.Empty(decision.Actions);
         Assert.DoesNotContain(decision.Actions, a => a is ConnectWifiAction);
         Assert.DoesNotContain(decision.Actions, a => a is DisconnectWifiAction);
         Assert.DoesNotContain(decision.Actions, a => a is ScanAdapterAction);
@@ -95,7 +94,7 @@ public sealed class StickyConnectionTests
         var decision = engine.Evaluate(Input(
             config, TestData.Now, TestData.OnlineProbe(), interfaces, new[] { adapterA, adapterB }));
 
-        Assert.Empty(decision.Actions);
+        Assert.DoesNotContain(decision.Actions, a => a is ConnectWifiAction or DisconnectWifiAction or ScanAdapterAction);
     }
 
     [Fact]

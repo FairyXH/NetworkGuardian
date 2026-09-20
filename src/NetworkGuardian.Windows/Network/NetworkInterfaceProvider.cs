@@ -296,15 +296,26 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
     /// </summary>
     public Task<IReadOnlyList<string>> ApplyInterfaceMetricsAsync(GuardianConfig config, CancellationToken cancellationToken)
     {
+        if (!config.General.ManageInterfaceMetrics)
+        {
+            return Task.FromResult<IReadOnlyList<string>>(
+                new[] { "Interface metric management is disabled in configuration." });
+        }
+
+        return ApplyInterfaceMetricsAsync(
+            config.General.PreferredEthernetMetric,
+            config.General.PreferredWifiMetric,
+            cancellationToken);
+    }
+
+    public Task<IReadOnlyList<string>> ApplyInterfaceMetricsAsync(
+        int ethernetMetric,
+        int wifiMetric,
+        CancellationToken cancellationToken)
+    {
         return Task.Run<IReadOnlyList<string>>(() =>
         {
             var notes = new List<string>();
-
-            if (!config.General.ManageInterfaceMetrics)
-            {
-                notes.Add("Interface metric management is disabled in configuration.");
-                return notes;
-            }
 
             lock (_metricGate)
             {
@@ -336,8 +347,8 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                     }
 
                     var desired = state.Kind == InterfaceKind.Ethernet
-                        ? config.General.PreferredEthernetMetric
-                        : config.General.PreferredWifiMetric;
+                        ? ethernetMetric
+                        : wifiMetric;
 
                     if (state.InterfaceMetric == desired)
                     {

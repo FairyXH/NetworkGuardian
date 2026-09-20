@@ -513,12 +513,18 @@ public sealed class GuardianDecisionEngine
         var internetFailures = _internetTracker.ConsecutiveFailures;
 
         var shouldAuth = campusAuthConfigured &&
+                         !CampusQuietPeriod.IsActive(config.Wifi, now) &&
                          config.Ethernet.Enabled &&
                          config.Ethernet.AuthenticateWhenLinkUpButOffline &&
                          (!internetOnline || captivePortal) &&
                          internetFailures >= config.CampusAuth.TriggerAfterConsecutiveFailures &&
                          (ethernetEligible || !config.CampusAuth.RequireEthernetLink) &&
                          (!captivePortal || config.CampusAuth.RunOnCaptivePortal);
+
+        if (campusAuthConfigured && CampusQuietPeriod.IsActive(config.Wifi, now))
+        {
+            notes.Add("当前处于校园网关闭时段，已暂停校园网认证程序及校园 Wi-Fi 连接重试。");
+        }
 
         if (shouldAuth)
         {
@@ -982,17 +988,24 @@ public sealed class GuardianDecisionEngine
             }
         }
 
-        // Metrics are reconciled on every health sweep. The provider itself is idempotent and only
-        // writes interfaces whose current value differs, so an external tool or driver reset cannot
-        // permanently undo the configured Ethernet/Wi-Fi preference.
-        if (config.General.ManageInterfaceMetrics && input.Interfaces.Any(i =>
+        // Wired is primary only while its own bound probe succeeds. If Ethernet loses the Internet,
+        // Wi-Fi becomes primary immediately; once Ethernet recovers the values are reversed again.
+        var ethernetShouldLead = ethernetWithInternet ||
+                                 (internetOnline && ethernetInterfaces.Any(i => i.IsDefaultRoute && i.IsUp));
+        var desiredEthernetMetric = ethernetShouldLead ? 10 : 50;
+        var desiredWifiMetric = ethernetShouldLead ? 50 : 10;
+        if (input.Interfaces.Any(i =>
                 i.IsPhysicalDevice != false &&
-                ((i.Kind == InterfaceKind.Ethernet && i.InterfaceMetric != config.General.PreferredEthernetMetric) ||
-                 (i.Kind == InterfaceKind.Wifi && i.InterfaceMetric != config.General.PreferredWifiMetric))))
+                ((i.Kind == InterfaceKind.Ethernet && i.InterfaceMetric != desiredEthernetMetric) ||
+                 (i.Kind == InterfaceKind.Wifi && i.InterfaceMetric != desiredWifiMetric))))
         {
             actions.Add(new ApplyInterfaceMetricsAction
             {
-                Reason = "one or more physical interface metrics differ from the configured values",
+                EthernetMetric = desiredEthernetMetric,
+                WifiMetric = desiredWifiMetric,
+                Reason = ethernetShouldLead
+                    ? "Ethernet has Internet access and is the preferred route"
+                    : "Ethernet is unavailable/offline; Wi-Fi is the failover route",
             });
         }
 

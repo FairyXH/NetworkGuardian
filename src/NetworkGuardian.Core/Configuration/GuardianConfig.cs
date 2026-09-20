@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 5;
+    public const int CurrentVersion = 6;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -108,8 +108,8 @@ public sealed class GeneralSettings
     /// <summary>How long to wait for the OS to complete DHCP after a successful association.</summary>
     public int DhcpWaitSeconds { get; set; } = 20;
 
-    /// <summary>Set <c>InterfaceMetric</c> automatically. Off by default; never changes user routing.</summary>
-    public bool ManageInterfaceMetrics { get; set; }
+    /// <summary>Set <c>InterfaceMetric</c> automatically for wired-first failover.</summary>
+    public bool ManageInterfaceMetrics { get; set; } = true;
 
     /// <summary>Preferred metric given to Ethernet when <see cref="ManageInterfaceMetrics"/> is on.</summary>
     public int PreferredEthernetMetric { get; set; } = 10;
@@ -323,6 +323,16 @@ public sealed class WifiSettings
     /// for the rest of the run. The counter is not persisted: the next start tries again.
     /// </summary>
     public int EapConnectMaxAttempts { get; set; } = 5;
+
+    /// <summary>Networks that must not be joined during the configured campus authentication outage.</summary>
+    public List<string> CampusNetworkSsids { get; set; } = new();
+
+    public bool CampusQuietPeriodEnabled { get; set; }
+
+    /// <summary>Local minutes after midnight. A period whose end is before its start crosses midnight.</summary>
+    public int CampusQuietStartMinutes { get; set; }
+
+    public int CampusQuietEndMinutes { get; set; } = 360;
 }
 
 public sealed class EthernetSettings

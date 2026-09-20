@@ -141,7 +141,12 @@ public sealed record RefreshAdaptersAction : GuardianAction
 /// <summary>Requests the host to re-apply interface metrics (disabled by default).</summary>
 public sealed record ApplyInterfaceMetricsAction : GuardianAction
 {
-    public override string Describe() => $"ApplyInterfaceMetrics({Reason})";
+    public required int EthernetMetric { get; init; }
+
+    public required int WifiMetric { get; init; }
+
+    public override string Describe() =>
+        $"ApplyInterfaceMetrics(ethernet={EthernetMetric}, wifi={WifiMetric}, {Reason})";
 }
 
 /// <summary>Full plan returned by <c>GuardianDecisionEngine.Evaluate</c>.</summary>
