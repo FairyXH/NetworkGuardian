@@ -331,9 +331,15 @@ internal sealed class WirelessPage : IPage
 
                 var isCampus = ctx.Host.Config.Wifi.CampusNetworkSsids.Any(value =>
                     string.Equals(value, network.Ssid, StringComparison.OrdinalIgnoreCase));
+                var hasAssignment = ctx.Host.Config.Wifi.CampusWifiAdapterAssignments.TryGetValue(
+                    network.Ssid, out var assignedAdapterText);
+                var assignedHere = hasAssignment && Guid.TryParse(assignedAdapterText, out var assignedAdapterGuid) &&
+                                   assignedAdapterGuid == guid;
                 var campusWidth = Widgets.MeasureButtonWidth(ctx, isCampus ? "校园网 ✓" : "标为校园网");
                 var connectWidth = Widgets.MeasureButtonWidth(ctx, "连接");
-                var campusRight = card.Right - ctx.Scale(16) -
+                var assignmentLabel = assignedHere ? "取消指定" : hasAssignment ? "改为本卡" : "指定本卡";
+                var assignmentWidth = isCampus ? Widgets.MeasureButtonWidth(ctx, assignmentLabel) : 0;
+                var campusRight = card.Right - ctx.Scale(16) - assignmentWidth - (isCampus ? ctx.Scale(6) : 0) -
                                   (network.HasProfile && network.Connectable && !network.IsCurrentConnection
                                       ? connectWidth + ctx.Scale(6)
                                       : 0);
@@ -347,6 +353,7 @@ internal sealed class WirelessPage : IPage
                     {
                         updated.Wifi.CampusNetworkSsids.RemoveAll(value =>
                             string.Equals(value, ssidForCampus, StringComparison.OrdinalIgnoreCase));
+                        updated.Wifi.CampusWifiAdapterAssignments.Remove(ssidForCampus);
                     }
                     else
                     {
@@ -357,6 +364,30 @@ internal sealed class WirelessPage : IPage
                         () => ctx.Window.App.ApplyConfigAsync(updated),
                         isCampus ? $"已取消 {ssidForCampus} 的校园网标记" : $"已将 {ssidForCampus} 标为校园网");
                 }, enabled: !ctx.Window.IsOperationRunning(campusOperation));
+
+                if (isCampus)
+                {
+                    var assignmentRect = new Rectangle(campusRight + ctx.Scale(6), cy - ctx.Scale(4), assignmentWidth, ctx.Scale(26));
+                    var assignmentOperation = $"wireless-assignment-{ssidForCampus}";
+                    Widgets.ButtonAt(ctx, assignmentRect, assignmentLabel, () =>
+                    {
+                        var updated = ConfigJson.Deserialize(ConfigJson.Serialize(ctx.Host.Config)) ?? GuardianConfig.CreateDefault();
+                        if (assignedHere)
+                        {
+                            updated.Wifi.CampusWifiAdapterAssignments.Remove(ssidForCampus);
+                        }
+                        else
+                        {
+                            updated.Wifi.CampusWifiAdapterAssignments[ssidForCampus] = guid.ToString("D");
+                        }
+
+                        ctx.Window.RunBackground(assignmentOperation, $"正在保存 {ssidForCampus} 的网卡指定",
+                            () => ctx.Window.App.ApplyConfigAsync(updated),
+                            assignedHere
+                                ? $"已取消 {ssidForCampus} 的无线网卡指定"
+                                : $"{ssidForCampus} 已指定使用 {adapter.Description}");
+                    }, enabled: !ctx.Window.IsOperationRunning(assignmentOperation));
+                }
 
                 if (network.HasProfile && network.Connectable && !network.IsCurrentConnection)
                 {
