@@ -82,9 +82,10 @@ public sealed class ConfigValidator
             Math.Max(config.Probe.TimeoutMs, config.Probe.PingTimeoutMs), 120000, "probe.roundTimeoutMs", issues);
         config.Probe.MaxConcurrency = Clamp(config.Probe.MaxConcurrency, 1, 16, "probe.maxConcurrency", issues);
 
-        var enabledIcmpEndpoints = config.Probe.AllowIcmp ? config.Probe.PingTargets.Count : 0;
+        var enabledWebEndpoints = config.ProbeEndpoints.Count(endpoint =>
+            endpoint.Enabled && endpoint.Kind is ProbeKind.Http or ProbeKind.Https);
         config.Probe.RequiredSuccessCount = Clamp(config.Probe.RequiredSuccessCount, 1,
-            Math.Max(1, enabledIcmpEndpoints), "probe.requiredSuccessCount", issues);
+            Math.Max(1, enabledWebEndpoints), "probe.requiredSuccessCount", issues);
 
         config.Wifi.SignalHysteresis = Clamp(config.Wifi.SignalHysteresis, 0, 100, "wifi.signalHysteresis", issues);
         config.Wifi.MinimumSignalQuality = Clamp(config.Wifi.MinimumSignalQuality, 0, 100, "wifi.minimumSignalQuality", issues);

@@ -14,8 +14,9 @@ namespace NetworkGuardian.Windows.Connectivity;
 
 /// <summary>
 /// Multi-signal Internet probe. A single failing endpoint never declares the Internet down; the
-/// verdict needs <c>RequiredSuccessCount</c> successful single-packet ICMP attempts. Several public
-/// targets are probed concurrently so one host blocking ICMP does not create a false outage.
+/// verdict needs <c>RequiredSuccessCount</c> successful HTTP/HTTPS attempts against lightweight
+/// connectivity pages and common sites. ICMP may cross a campus gateway before authentication and
+/// therefore cannot prove usable Internet access.
 /// </summary>
 public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 {
@@ -138,7 +139,8 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             .OrderBy(a => a.EndpointName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var successCount = attemptList.Count(a => a.IsSuccess && a.Kind == ProbeKind.Icmp);
+        var successCount = attemptList.Count(a =>
+            a.IsSuccess && a.Kind is ProbeKind.Http or ProbeKind.Https);
         var required = Math.Max(1, request.Settings.RequiredSuccessCount);
         var captiveAttempt = attemptList.FirstOrDefault(a => a.Outcome == ProbeOutcome.CaptivePortalRedirect);
         var captiveSuspected = captiveAttempt is not null;

@@ -169,6 +169,42 @@ public sealed class ConfigMigrator
             applied.Add("v9: editable single-packet Ping timeout and target list.");
         }
 
+        if (version < 10)
+        {
+            var defaults = ProbeEndpointSettings.CreateDefaults();
+            var enabledWebNames = defaults
+                .Where(endpoint => endpoint.Enabled && endpoint.Kind is ProbeKind.Http or ProbeKind.Https)
+                .Select(endpoint => endpoint.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var endpoint in config.ProbeEndpoints)
+            {
+                endpoint.Enabled = enabledWebNames.Contains(endpoint.Name);
+            }
+
+            foreach (var webEndpoint in defaults.Where(endpoint => enabledWebNames.Contains(endpoint.Name)))
+            {
+                var index = config.ProbeEndpoints.FindIndex(endpoint =>
+                    string.Equals(endpoint.Name, webEndpoint.Name, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                {
+                    config.ProbeEndpoints.Add(webEndpoint);
+                }
+                else
+                {
+                    config.ProbeEndpoints[index] = webEndpoint;
+                }
+            }
+
+            config.Probe.AllowIcmp = false;
+            config.Probe.RequiredSuccessCount = 1;
+            config.Probe.TimeoutMs = 2000;
+            config.Probe.RoundTimeoutMs = 3500;
+            config.Version = 10;
+            version = 10;
+            applied.Add("v10: fast multi-site HTTP/HTTPS verdict; ICMP no longer proves Internet access.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

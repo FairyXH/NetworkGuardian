@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 9;
+    public const int CurrentVersion = 10;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -165,10 +165,10 @@ public sealed class ProbeSettings
     public int IntervalSeconds { get; set; } = 15;
 
     /// <summary>Per-attempt timeout. Keep short so recovery stays responsive.</summary>
-    public int TimeoutMs { get; set; } = 1200;
+    public int TimeoutMs { get; set; } = 2000;
 
     /// <summary>Total budget for one full probe round.</summary>
-    public int RoundTimeoutMs { get; set; } = 2500;
+    public int RoundTimeoutMs { get; set; } = 3500;
 
     /// <summary>Concurrent attempt limit.</summary>
     public int MaxConcurrency { get; set; } = 4;
@@ -183,7 +183,7 @@ public sealed class ProbeSettings
     public bool PerInterfaceProbing { get; set; } = true;
 
     /// <summary>Enable the ICMP fallback probes in the endpoint list.</summary>
-    public bool AllowIcmp { get; set; } = true;
+    public bool AllowIcmp { get; set; }
 
     /// <summary>Timeout for each single ICMP echo request.</summary>
     public int PingTimeoutMs { get; set; } = 1200;
@@ -235,8 +235,6 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Http,
             Target = "http://www.msftconnecttest.com/connecttest.txt",
             BodyMarker = "Microsoft Connect Test",
-            TimeoutMs = 2500,
-            Enabled = false,
         },
         new ProbeEndpointSettings
         {
@@ -244,40 +242,47 @@ public sealed class ProbeEndpointSettings
             Kind = ProbeKind.Https,
             Target = "https://www.msftconnecttest.com/connecttest.txt",
             BodyMarker = "Microsoft Connect Test",
-            TimeoutMs = 3000,
-            Enabled = false,
         },
         new ProbeEndpointSettings
         {
             Name = "BaiduHttps",
             Kind = ProbeKind.Https,
             Target = "https://www.baidu.com/",
-            TimeoutMs = 3500,
-            Enabled = false,
         },
         new ProbeEndpointSettings
         {
             Name = "BingHttps",
             Kind = ProbeKind.Https,
             Target = "https://www.bing.com/",
-            TimeoutMs = 3500,
-            Enabled = false,
         },
         new ProbeEndpointSettings
         {
             Name = "QQHttps",
             Kind = ProbeKind.Https,
             Target = "https://www.qq.com/",
-            TimeoutMs = 3500,
-            Enabled = false,
         },
         new ProbeEndpointSettings
         {
             Name = "CloudflareHttps",
             Kind = ProbeKind.Https,
             Target = "https://www.cloudflare.com/cdn-cgi/trace",
-            TimeoutMs = 3500,
             Enabled = false,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "GoogleGenerate204",
+            Kind = ProbeKind.Http,
+            Target = "http://connectivitycheck.gstatic.com/generate_204",
+            ExpectedStatusMin = 204,
+            ExpectedStatusMax = 204,
+        },
+        new ProbeEndpointSettings
+        {
+            Name = "MiuiGenerate204",
+            Kind = ProbeKind.Http,
+            Target = "http://connect.rom.miui.com/generate_204",
+            ExpectedStatusMin = 204,
+            ExpectedStatusMax = 204,
         },
         new ProbeEndpointSettings
         {

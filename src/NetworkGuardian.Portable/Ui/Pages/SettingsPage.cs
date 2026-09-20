@@ -125,14 +125,11 @@ internal sealed class SettingsPage : IPage
         probe.Number("探测周期（秒）", config.Probe.IntervalSeconds, 3, 3600, v => config.Probe.IntervalSeconds = v);
         probe.Number("单次超时（毫秒）", config.Probe.TimeoutMs, 200, 60000, v => config.Probe.TimeoutMs = v);
         probe.Number("整轮超时（毫秒）", config.Probe.RoundTimeoutMs, 500, 120000, v => config.Probe.RoundTimeoutMs = v);
-        probe.Number("Ping 单包失败超时（毫秒）", config.Probe.PingTimeoutMs, 200, 10000, v => config.Probe.PingTimeoutMs = v);
         probe.Number("判定在线所需成功数", config.Probe.RequiredSuccessCount, 1, 10, v => config.Probe.RequiredSuccessCount = v);
         probe.Toggle("按接口分别探测（判断某张网卡自身是否可用）", config.Probe.PerInterfaceProbing, v => config.Probe.PerInterfaceProbing = v);
         probe.Toggle("允许 ICMP 探测", config.Probe.AllowIcmp, v => config.Probe.AllowIcmp = v);
         probe.Toggle("被认证页拦截时视为离线", config.Probe.TreatCaptivePortalAsOffline, v => config.Probe.TreatCaptivePortalAsOffline = v);
-        probe.Text("Ping 目标（一行一个域名或 IP）", Join(config.Probe.PingTargets),
-            value => config.Probe.PingTargets = Split(value), multiline: true);
-        probe.Note("程序会并行向每个目标各发送 1 个 ICMP 包；任意一个回应即在线，全部失败才离线。其他类型端点仅用于诊断。");
+        probe.Note("程序并行访问多个轻量连通性页面和常见网站；任意一个返回有效响应即在线，全部失败才离线。Ping 只能用于诊断，不参与在线判定。");
         probe.Subtitle("探测端点");
 
         var endpoints = config.ProbeEndpoints;
