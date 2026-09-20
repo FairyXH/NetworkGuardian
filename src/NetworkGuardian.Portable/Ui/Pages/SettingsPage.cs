@@ -463,6 +463,15 @@ internal sealed class SettingsPage : IPage
 
                 set(next);
                 _owner.MarkDirty();
+            }, text =>
+            {
+                if (!int.TryParse(text.Trim(), out var parsed))
+                {
+                    throw new FormatException($"请输入 {min} 到 {max} 之间的整数");
+                }
+
+                set(Math.Clamp(parsed, min, max));
+                _owner.MarkDirty();
             }));
 
 

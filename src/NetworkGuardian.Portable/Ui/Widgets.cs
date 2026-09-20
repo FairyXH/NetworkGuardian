@@ -193,8 +193,17 @@ internal static class Widgets
         return consumed + height + ctx.Scale(8);
     }
 
-    /// <summary>Numeric field with -/+ buttons; the value is only ever changed through the callbacks.</summary>
-    public static int StepField(PageContext ctx, int x, int y, int width, string label, string display, Action<int> onDelta, bool readOnly = false)
+    /// <summary>Numeric field with -/+ buttons and an editable centre value.</summary>
+    public static int StepField(
+        PageContext ctx,
+        int x,
+        int y,
+        int width,
+        string label,
+        string display,
+        Action<int> onDelta,
+        Action<string>? onCommit = null,
+        bool readOnly = false)
     {
         var canvas = ctx.Canvas;
         var consumed = string.IsNullOrEmpty(label) ? 0 : Caption(ctx, x, y, width, label);
@@ -215,6 +224,12 @@ internal static class Widgets
         {
             DrawStepButton(ctx, minus, "-", () => onDelta(-1));
             DrawStepButton(ctx, plus, "+", () => onDelta(1));
+            if (onCommit is not null)
+            {
+                var valueRect = new Rectangle(minus.Right, rect.Top, plus.Left - minus.Right, rect.Height);
+                var editorRect = canvas.ToClient(valueRect);
+                canvas.Hit(valueRect, () => ctx.Window.BeginEdit(new FieldEdit(editorRect, display, false, onCommit)), kind: "field");
+            }
         }
 
         return consumed + height + ctx.Scale(8);
@@ -239,6 +254,14 @@ internal static class Widgets
             {
                 set(next);
             }
+        }, text =>
+        {
+            if (!int.TryParse(text.Trim(), out var parsed))
+            {
+                throw new FormatException($"请输入 {min} 到 {max} 之间的整数");
+            }
+
+            set(Math.Clamp(parsed, min, max));
         });
     }
 

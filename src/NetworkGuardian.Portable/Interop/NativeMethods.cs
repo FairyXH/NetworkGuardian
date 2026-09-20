@@ -89,6 +89,12 @@ internal static class NativeMethods
     internal const string ComDlg32 = "comdlg32.dll";
     internal const string Kernel32 = "kernel32.dll";
 
+    // ---------- message boxes ----------
+    internal const uint MB_YESNO = 0x00000004;
+    internal const uint MB_ICONWARNING = 0x00000030;
+    internal const uint MB_DEFBUTTON2 = 0x00000100;
+    internal const int IDYES = 6;
+
     // ---------- window messages ----------
     internal const uint WM_NULL = 0x0000;
     internal const uint WM_CREATE = 0x0001;

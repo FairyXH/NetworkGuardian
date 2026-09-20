@@ -174,6 +174,9 @@ internal sealed class MainWindow
         Invalidate();
     }
 
+    public bool Confirm(string message, string caption = "请确认") =>
+        MessageBoxW(_hwnd, message, caption, MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
+
     /// <summary>True when the hovered region contains <paramref name="rect"/> (client coordinates).</summary>
     public bool IsHovered(Rectangle rect)
     {
@@ -451,6 +454,9 @@ internal sealed class MainWindow
                 {
                     var target = _hits[pressed].OnClick;
                     target();
+                    // Most controls mutate in-memory state synchronously. Paint that state now instead
+                    // of waiting for the next monitor snapshot, which can be several seconds away.
+                    Invalidate();
                 }
 
                 return IntPtr.Zero;
