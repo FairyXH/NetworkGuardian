@@ -39,6 +39,12 @@ public sealed class ConfigValidator
         config.Wifi.CampusWifiAdapterAssignments = new Dictionary<string, string>(
             config.Wifi.CampusWifiAdapterAssignments,
             StringComparer.OrdinalIgnoreCase);
+        config.Probe.PingTargets ??= new List<string>();
+        config.Probe.PingTargets = config.Probe.PingTargets
+            .Where(target => !string.IsNullOrWhiteSpace(target))
+            .Select(target => target.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         config.General.ManageInterfaceMetrics = true;
 
         if (config.ProbeEndpoints is null || config.ProbeEndpoints.Count == 0)
@@ -71,10 +77,12 @@ public sealed class ConfigValidator
 
         config.Probe.IntervalSeconds = Clamp(config.Probe.IntervalSeconds, 3, 3600, "probe.intervalSeconds", issues);
         config.Probe.TimeoutMs = Clamp(config.Probe.TimeoutMs, 200, 60000, "probe.timeoutMs", issues);
-        config.Probe.RoundTimeoutMs = Clamp(config.Probe.RoundTimeoutMs, config.Probe.TimeoutMs, 120000, "probe.roundTimeoutMs", issues);
+        config.Probe.PingTimeoutMs = Clamp(config.Probe.PingTimeoutMs, 200, 10000, "probe.pingTimeoutMs", issues);
+        config.Probe.RoundTimeoutMs = Clamp(config.Probe.RoundTimeoutMs,
+            Math.Max(config.Probe.TimeoutMs, config.Probe.PingTimeoutMs), 120000, "probe.roundTimeoutMs", issues);
         config.Probe.MaxConcurrency = Clamp(config.Probe.MaxConcurrency, 1, 16, "probe.maxConcurrency", issues);
 
-        var enabledIcmpEndpoints = config.ProbeEndpoints.Count(e => e.Enabled && e.Kind == ProbeKind.Icmp);
+        var enabledIcmpEndpoints = config.Probe.AllowIcmp ? config.Probe.PingTargets.Count : 0;
         config.Probe.RequiredSuccessCount = Clamp(config.Probe.RequiredSuccessCount, 1,
             Math.Max(1, enabledIcmpEndpoints), "probe.requiredSuccessCount", issues);
 

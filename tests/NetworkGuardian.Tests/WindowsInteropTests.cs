@@ -140,7 +140,13 @@ public sealed class ConnectivityProbeTests
                     TimeoutMs = 500,
                 },
             },
-            Settings = new ProbeSettings { RequiredSuccessCount = 1, RoundTimeoutMs = 4000, MaxConcurrency = 2 },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 4000,
+                MaxConcurrency = 2,
+                PingTargets = new List<string>(),
+            },
         }, CancellationToken.None);
         await server;
 
@@ -167,6 +173,7 @@ public sealed class ConnectivityProbeTests
             Settings = new ProbeSettings
             {
                 AllowIcmp = true,
+                PingTargets = new List<string> { "127.0.0.1" },
                 RequiredSuccessCount = 1,
                 RoundTimeoutMs = 2500,
                 MaxConcurrency = 1,
@@ -195,7 +202,13 @@ public sealed class ConnectivityProbeTests
                 new ProbeEndpointSettings { Name = "dead", Kind = ProbeKind.Tcp, Target = "127.0.0.1:1", TimeoutMs = 700 },
                 new ProbeEndpointSettings { Name = "alive", Kind = ProbeKind.Tcp, Target = $"127.0.0.1:{port}", TimeoutMs = 1500 },
             },
-            Settings = new ProbeSettings { RequiredSuccessCount = 1, RoundTimeoutMs = 6000, MaxConcurrency = 2 },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 6000,
+                MaxConcurrency = 2,
+                PingTargets = new List<string>(),
+            },
         }, CancellationToken.None);
 
         Assert.False(report.IsOnline);
@@ -213,7 +226,13 @@ public sealed class ConnectivityProbeTests
             {
                 new ProbeEndpointSettings { Name = "dead", Kind = ProbeKind.Tcp, Target = "127.0.0.1:1", TimeoutMs = 500 },
             },
-            Settings = new ProbeSettings { RequiredSuccessCount = 1, RoundTimeoutMs = 3000, MaxConcurrency = 1 },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 3000,
+                MaxConcurrency = 1,
+                PingTargets = new List<string>(),
+            },
         }, CancellationToken.None);
 
         Assert.False(report.IsOnline);

@@ -49,9 +49,21 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         }
 
         var endpoints = request.Endpoints
-            .Where(e => e.Enabled)
-            .Where(e => e.Kind != ProbeKind.Icmp || request.Settings.AllowIcmp)
+            .Where(e => e.Enabled && e.Kind != ProbeKind.Icmp)
             .ToList();
+        if (request.Settings.AllowIcmp)
+        {
+            endpoints.AddRange(request.Settings.PingTargets
+                .Where(target => !string.IsNullOrWhiteSpace(target))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select((target, index) => new ProbeEndpointSettings
+                {
+                    Name = $"Ping-{index + 1}",
+                    Kind = ProbeKind.Icmp,
+                    Target = target.Trim(),
+                    TimeoutMs = request.Settings.PingTimeoutMs,
+                }));
+        }
 
         if (endpoints.Count == 0)
         {

@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 8;
+    public const int CurrentVersion = 9;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -184,6 +184,19 @@ public sealed class ProbeSettings
 
     /// <summary>Enable the ICMP fallback probes in the endpoint list.</summary>
     public bool AllowIcmp { get; set; } = true;
+
+    /// <summary>Timeout for each single ICMP echo request.</summary>
+    public int PingTimeoutMs { get; set; } = 1200;
+
+    /// <summary>Domains or IP addresses probed concurrently, one ICMP packet per target.</summary>
+    public List<string> PingTargets { get; set; } = new()
+    {
+        "www.baidu.com",
+        "www.bing.com",
+        "www.sogou.com",
+        "223.5.5.5",
+        "119.29.29.29",
+    };
 
     /// <summary>Do not follow HTTP redirects; a 3xx means a portal is intercepting.</summary>
     public bool DetectCaptivePortalRedirects { get; set; } = true;

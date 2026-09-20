@@ -149,6 +149,26 @@ public sealed class ConfigMigrator
             applied.Add("v8: fast single-packet ICMP verdict using four parallel public targets.");
         }
 
+        if (version < 9)
+        {
+            config.Probe.PingTimeoutMs = config.Probe.TimeoutMs is >= 200 and <= 10000
+                ? config.Probe.TimeoutMs
+                : 1200;
+            config.Probe.PingTargets = new List<string>
+            {
+                "www.baidu.com",
+                "www.bing.com",
+                "www.sogou.com",
+                "223.5.5.5",
+                "119.29.29.29",
+            };
+            config.Probe.AllowIcmp = true;
+            config.Probe.RequiredSuccessCount = 1;
+            config.Version = 9;
+            version = 9;
+            applied.Add("v9: editable single-packet Ping timeout and target list.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)
