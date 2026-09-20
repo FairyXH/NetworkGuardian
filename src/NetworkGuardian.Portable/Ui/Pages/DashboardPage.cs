@@ -7,6 +7,12 @@ namespace NetworkGuardian.Portable.Ui.Pages;
 /// <summary>总览：外网状态、以太网、默认路由、无线电、网卡数量、恢复状态机与最近动作。</summary>
 internal sealed class DashboardPage : IPage
 {
+    private const string ProxyCompatibilityGuidance =
+        "为保证每张网卡的外网探测只走该网卡，请按以下方式放行：\n" +
+        "• Proxifier：添加最高优先级规则，应用程序 NetworkGuardian.exe，目标/端口任意，动作选择 Direct；不要使用“Proxifier”右键方式启动本程序。\n" +
+        "• YogaDNS：将探测域名设为 Bypass，或让 DNS 规则绑定对应网络接口，并启用“接口断开时忽略规则”。\n" +
+        "• 其他代理、VPN、加速器或流量聚合软件：把 NetworkGuardian.exe 加入直连/绕过名单，禁止透明代理或强制接管。否则探测结果可能代表代理出口，而不是对应网卡。";
+
     public string Tag => "dashboard";
 
     public string Label => "总览";
@@ -20,6 +26,26 @@ internal sealed class DashboardPage : IPage
         var canvas = ctx.Canvas;
         var snapshot = ctx.Snapshot;
         var y = area.Top + Widgets.Heading(ctx, area, Title, Description);
+
+        var proxyTextWidth = area.Width - ctx.Scale(32);
+        var proxyTextHeight = canvas.MeasureWrappedHeight(ProxyCompatibilityGuidance, proxyTextWidth, TextStyle.Body);
+        var proxyCardHeight = ctx.Scale(12 + 24) + proxyTextHeight + ctx.Scale(14);
+        var proxyCard = new Rectangle(area.Left, y, area.Width, proxyCardHeight);
+        canvas.Card(proxyCard, Palette.Warn);
+
+        var proxyInner = new Rectangle(
+            proxyCard.Left + ctx.Scale(16),
+            proxyCard.Top + ctx.Scale(12),
+            proxyTextWidth,
+            ctx.Scale(24));
+        canvas.Text("重要：代理与 DNS 软件必须设置直连", proxyInner, Palette.Warn, TextStyle.Section);
+        canvas.Text(
+            ProxyCompatibilityGuidance,
+            new Rectangle(proxyInner.Left, proxyInner.Bottom, proxyInner.Width, proxyTextHeight),
+            Palette.TextPrimary,
+            TextStyle.Body,
+            wrap: TextWrap.Wrap);
+        y = proxyCard.Bottom + ctx.Scale(12);
 
         // Windows 位置权限受限时先提示，并区分三种受限情形。
         if (snapshot.Location.HasProblem)
