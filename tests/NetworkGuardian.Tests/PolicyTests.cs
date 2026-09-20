@@ -577,7 +577,7 @@ public sealed class CampusAuthRateLimitTests
             Radio = TestData.RadioOn,
         });
 
-        Assert.Contains(decision.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.DoesNotContain(decision.Actions, action => action is ApplyInterfaceMetricsAction);
 
         enabled.General.ManageInterfaceMetrics = false; // legacy setting no longer disables safety policy
         decision = engine.Evaluate(new GuardianInput
@@ -617,6 +617,17 @@ public sealed class CampusAuthRateLimitTests
             Radio = TestData.RadioOn,
         });
 
+        decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now.AddSeconds(5),
+            Config = config,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { healthy, offline },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
         var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
             Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
         Assert.Equal(10, metrics.MetricsByInterfaceId[healthy.Id]);
@@ -648,10 +659,53 @@ public sealed class CampusAuthRateLimitTests
             Radio = TestData.RadioOn,
         });
 
+        decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now.AddSeconds(5),
+            Config = config,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { ethernet, wifi },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
         var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
             Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
         Assert.Equal(80, metrics.MetricsByInterfaceId[ethernet.Id]);
         Assert.Equal(10, metrics.MetricsByInterfaceId[wifi.Id]);
+    }
+
+    [Fact]
+    public void AlternatingProbeRounds_DoNotRewriteMetrics()
+    {
+        var config = TestData.Config(c => c.Probe.PerInterfaceProbing = true);
+        var engine = new GuardianDecisionEngine(config);
+        var ethernetOffline = TestData.EthernetInterface(
+            probe: TestData.OfflineProbe("10.10.10.20")) with { InterfaceMetric = 10 };
+        var ethernetOnline = ethernetOffline with { Probe = TestData.OnlineProbe("10.10.10.20") };
+        var wifiOnline = TestData.WifiInterface(
+            TestData.AdapterA,
+            probe: TestData.OnlineProbe("10.20.30.40")) with { InterfaceMetric = 50 };
+
+        GuardianDecision Evaluate(DateTimeOffset now, InterfaceRuntimeState ethernet) => engine.Evaluate(new GuardianInput
+        {
+            Now = now,
+            Config = config,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { ethernet, wifiOnline },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
+        var first = Evaluate(TestData.Now, ethernetOffline);
+        var second = Evaluate(TestData.Now.AddSeconds(5), ethernetOnline);
+        var third = Evaluate(TestData.Now.AddSeconds(10), ethernetOffline);
+
+        Assert.DoesNotContain(first.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.DoesNotContain(second.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.DoesNotContain(third.Actions, action => action is ApplyInterfaceMetricsAction);
     }
 
     private static void RunCampusAuth(

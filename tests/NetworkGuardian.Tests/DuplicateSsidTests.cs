@@ -75,6 +75,32 @@ public sealed class DuplicateSsidTests
     }
 
     [Fact]
+    public void DuplicateOwner_DoesNotFlipWhenSignalStrengthChanges()
+    {
+        var config = TestData.Config(c => c.Wifi.AllowSameSsidOnMultipleAdapters = false);
+        var engine = new GuardianDecisionEngine(config);
+
+        var first = engine.Evaluate(Input(config, new[]
+        {
+            Connected(TestData.AdapterA, 82, "Adapter A"),
+            Connected(TestData.AdapterB, 38, "Adapter B"),
+        }));
+        Assert.Contains(first.Actions,
+            action => action is DisconnectWifiAction { InterfaceGuid: var guid } && guid == TestData.AdapterB);
+
+        var second = engine.Evaluate(Input(config, new[]
+        {
+            Connected(TestData.AdapterA, 25, "Adapter A"),
+            Connected(TestData.AdapterB, 95, "Adapter B"),
+        }, TestData.Now.AddSeconds(61)));
+
+        Assert.DoesNotContain(second.Actions,
+            action => action is DisconnectWifiAction { InterfaceGuid: var guid } && guid == TestData.AdapterA);
+        Assert.Contains(second.Actions,
+            action => action is DisconnectWifiAction { InterfaceGuid: var guid } && guid == TestData.AdapterB);
+    }
+
+    [Fact]
     public void OneSsidPerAdapterIsTheDefault()
     {
         var config = TestData.Config();

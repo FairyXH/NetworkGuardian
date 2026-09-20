@@ -596,7 +596,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         var byAdapter = new Dictionary<Guid, ConnectivityProbeReport>();
         var byInterfaceId = new Dictionary<string, ConnectivityProbeReport>(StringComparer.Ordinal);
         var interfaces = _interfaces.GetInterfaces();
-        var globalTask = _probe.ProbeAsync(request, cancellationToken);
+        Task<ConnectivityProbeReport>? globalTask = null;
 
         if (_config.Probe.PerInterfaceProbing)
         {
@@ -613,6 +613,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                     InterfaceIndex = candidate.InterfaceIndex,
                     InterfaceId = candidate.Id,
                     GatewayAddress = candidate.PrimaryGateway,
+                    MaxConcurrencyOverride = 2,
                 };
 
                 var report = await _probe.ProbeAsync(interfaceRequest, cancellationToken).ConfigureAwait(false);
@@ -629,9 +630,19 @@ public sealed class GuardianHostService : IAsyncDisposable
 
                 byInterfaceId[candidate.Id] = report;
             }
+
+            _globalProbe = interfaceReports
+                .Select(item => item.Report)
+                .FirstOrDefault(report => report.IsOnline)
+                ?? interfaceReports.Select(item => item.Report).FirstOrDefault()
+                ?? ConnectivityProbeReport.NotAttempted(DateTimeOffset.UtcNow, "no-up-interface");
+        }
+        else
+        {
+            globalTask = _probe.ProbeAsync(request, cancellationToken);
+            _globalProbe = await globalTask.ConfigureAwait(false);
         }
 
-        _globalProbe = await globalTask.ConfigureAwait(false);
         _wifiProbeByAdapter = byAdapter;
         _probeByInterfaceId = byInterfaceId;
     }

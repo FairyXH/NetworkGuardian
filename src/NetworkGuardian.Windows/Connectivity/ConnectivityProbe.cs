@@ -85,7 +85,8 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         using var roundCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         roundCts.CancelAfter(roundTimeout);
 
-        using var throttle = new SemaphoreSlim(Math.Max(1, request.Settings.MaxConcurrency));
+        using var throttle = new SemaphoreSlim(Math.Max(1,
+            request.MaxConcurrencyOverride ?? request.Settings.MaxConcurrency));
         var attempts = new ConcurrentBag<ProbeAttemptResult>();
 
         var tasks = endpoints.Select(async endpoint =>

@@ -123,6 +123,9 @@ public sealed record ProbeRequest
 
     public string? InterfaceId { get; init; }
 
+    /// <summary>Optional per-request cap used to keep multi-interface checks lightweight.</summary>
+    public int? MaxConcurrencyOverride { get; init; }
+
     /// <summary>Gateway used for the optional ICMP probe.</summary>
     public string? GatewayAddress { get; init; }
 }

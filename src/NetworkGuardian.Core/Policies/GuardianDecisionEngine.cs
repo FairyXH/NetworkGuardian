@@ -54,6 +54,7 @@ public sealed class GuardianDecisionEngine
     private readonly NetworkDeviceClassifier _classifier;
     private readonly RecoveryStateMachine _stateMachine;
     private readonly Dictionary<Guid, AdapterPolicyState> _adapters = new();
+    private readonly Dictionary<string, Guid> _ssidOwners = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SlidingWindowRateLimiter> _commandLimiters = new(StringComparer.OrdinalIgnoreCase);
     private readonly FailureTracker _internetTracker;
     private readonly FailureTracker _ethernetTracker;
@@ -66,6 +67,8 @@ public sealed class GuardianDecisionEngine
     private string? _lastRecoveryAction;
     private DateTimeOffset? _lastInternetSuccessUtc;
     private bool _internetWasOnline;
+    private string? _pendingMetricSignature;
+    private int _pendingMetricObservations;
 
     public GuardianDecisionEngine(
         GuardianConfig config,
@@ -645,8 +648,11 @@ public sealed class GuardianDecisionEngine
                     .ThenBy(a => a.Description, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                var keep = ranked[0];
-                foreach (var loser in ranked.Skip(1))
+                var keep = _ssidOwners.TryGetValue(group.Key, out var ownerGuid)
+                    ? ranked.FirstOrDefault(adapter => adapter.InterfaceGuid == ownerGuid) ?? ranked[0]
+                    : ranked[0];
+                _ssidOwners[group.Key] = keep.InterfaceGuid;
+                foreach (var loser in ranked.Where(adapter => adapter.InterfaceGuid != keep.InterfaceGuid))
                 {
                     var key = $"duplicate-ssid:{loser.InterfaceGuid}";
                     var limiter = GetCommandLimiter(key, 12, TimeSpan.FromSeconds(60), 4);
@@ -675,6 +681,14 @@ public sealed class GuardianDecisionEngine
                     }
                 }
             }
+        }
+
+        foreach (var single in adapters
+                     .Where(adapter => adapter.IsConnected && !string.IsNullOrWhiteSpace(adapter.CurrentSsid))
+                     .GroupBy(adapter => adapter.CurrentSsid!, StringComparer.OrdinalIgnoreCase)
+                     .Where(group => group.Count() == 1))
+        {
+            _ssidOwners[single.Key] = single.First().InterfaceGuid;
         }
 
         foreach (var adapter in adapters)
@@ -949,7 +963,30 @@ public sealed class GuardianDecisionEngine
                 : 90;
         }
 
-        if (metricInterfaces.Any(i => metrics.TryGetValue(i.Id, out var desired) && i.InterfaceMetric != desired))
+        var metricsDiffer = metricInterfaces.Any(i =>
+            metrics.TryGetValue(i.Id, out var desired) && i.InterfaceMetric != desired);
+        var metricSignature = string.Join("|", metrics.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(pair => $"{pair.Key}={pair.Value}"));
+
+        if (!metricsDiffer)
+        {
+            _pendingMetricSignature = null;
+            _pendingMetricObservations = 0;
+        }
+        else if (string.Equals(_pendingMetricSignature, metricSignature, StringComparison.Ordinal))
+        {
+            _pendingMetricObservations++;
+        }
+        else
+        {
+            _pendingMetricSignature = metricSignature;
+            _pendingMetricObservations = 1;
+        }
+
+        // Never rewrite the route table from one noisy probe round. Two identical consecutive
+        // proposals are required in either direction; alternating results therefore leave the last
+        // known working outlet untouched instead of making every connection flap.
+        if (metricsDiffer && _pendingMetricObservations >= 2)
         {
             actions.Add(new ApplyInterfaceMetricsAction
             {
@@ -958,6 +995,8 @@ public sealed class GuardianDecisionEngine
                     ? $"{usableEthernet.Count} Ethernet interface(s) have Internet access; wired routes ranked first"
                     : "all Ethernet interfaces are unavailable/offline; Wi-Fi is the failover route",
             });
+            _pendingMetricSignature = null;
+            _pendingMetricObservations = 0;
         }
 
         return BuildDecision(now, actions, notes, connectivity);
