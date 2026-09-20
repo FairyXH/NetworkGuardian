@@ -20,6 +20,7 @@ namespace NetworkGuardian.Windows.Connectivity;
 /// </summary>
 public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 {
+    private const SocketOptionName IpUnicastInterface = (SocketOptionName)31;
     private readonly ILogger<ConnectivityProbe> _logger;
     private readonly ConcurrentDictionary<string, HttpClient> _httpClients = new(StringComparer.OrdinalIgnoreCase);
     private readonly bool _ownsClients = true;
@@ -258,7 +259,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         foreach (var address in addresses)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var socket = CreateBoundSocket(address, request.SourceAddress, timeout);
+            using var socket = CreateBoundSocket(address, request.SourceAddress, request.InterfaceIndex, timeout);
             if (socket is null)
             {
                 return Attempt(endpoint, request, ProbeOutcome.NotAttempted, stopwatch,
@@ -299,7 +300,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 detail: $"target '{endpoint.Target}' is not an absolute URI");
         }
 
-        var client = GetClient(request.SourceAddress, request.Settings);
+        var client = GetClient(request.SourceAddress, request.InterfaceIndex, request.Settings);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(timeout);
 
@@ -479,7 +480,11 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         }
     }
 
-    private static Socket? CreateBoundSocket(IPAddress target, string? sourceAddress, TimeSpan timeout)
+    private static Socket? CreateBoundSocket(
+        IPAddress target,
+        string? sourceAddress,
+        uint? interfaceIndex,
+        TimeSpan timeout)
     {
         var socket = new Socket(target.AddressFamily, SocketType.Stream, ProtocolType.Tcp)
         {
@@ -496,6 +501,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 
             try
             {
+                PinSocketToInterface(socket, source, interfaceIndex);
                 socket.Bind(new IPEndPoint(source, 0));
             }
             catch (SocketException)
@@ -509,9 +515,9 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         return socket;
     }
 
-    private HttpClient GetClient(string? sourceAddress, ProbeSettings settings)
+    private HttpClient GetClient(string? sourceAddress, uint? interfaceIndex, ProbeSettings settings)
     {
-        var key = $"{sourceAddress ?? "any"}|{settings.DetectCaptivePortalRedirects}|{settings.UserAgent}";
+        var key = $"{sourceAddress ?? "any"}|{interfaceIndex?.ToString() ?? "any"}|{settings.DetectCaptivePortalRedirects}|{settings.UserAgent}";
 
         return _httpClients.GetOrAdd(key, _ =>
         {
@@ -522,6 +528,10 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
                 MaxConnectionsPerServer = 4,
                 AutomaticDecompression = DecompressionMethods.None,
+                // Connectivity probes must represent the selected adapter itself. A system proxy
+                // (including a local traffic aggregator) would otherwise collapse every adapter
+                // onto the proxy's route and make their results change together.
+                UseProxy = false,
             };
 
             if (!string.IsNullOrWhiteSpace(sourceAddress) && IPAddress.TryParse(sourceAddress, out var source))
@@ -531,6 +541,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                     var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
                     try
                     {
+                        PinSocketToInterface(socket, source, interfaceIndex);
                         socket.Bind(new IPEndPoint(source, 0));
                         await socket.ConnectAsync(context.DnsEndPoint, token).ConfigureAwait(false);
                         return new NetworkStream(socket, ownsSocket: true);
@@ -548,6 +559,19 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 Timeout = Timeout.InfiniteTimeSpan, // cancellation is handled per request
             };
         });
+    }
+
+    private static void PinSocketToInterface(Socket socket, IPAddress source, uint? interfaceIndex)
+    {
+        if (interfaceIndex is not > 0 || source.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return;
+        }
+
+        socket.SetSocketOption(
+            SocketOptionLevel.IP,
+            IpUnicastInterface,
+            IPAddress.HostToNetworkOrder(unchecked((int)interfaceIndex.Value)));
     }
 
     private static (string? Host, int Port) ParseTcpTarget(string target)

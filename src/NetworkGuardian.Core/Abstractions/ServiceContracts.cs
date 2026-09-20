@@ -118,6 +118,9 @@ public sealed record ProbeRequest
     /// <summary>Local IPv4 address to bind to, enabling per-interface probing.</summary>
     public string? SourceAddress { get; init; }
 
+    /// <summary>Windows IPv4 interface index used in addition to source-address binding.</summary>
+    public uint? InterfaceIndex { get; init; }
+
     public string? InterfaceId { get; init; }
 
     /// <summary>Gateway used for the optional ICMP probe.</summary>

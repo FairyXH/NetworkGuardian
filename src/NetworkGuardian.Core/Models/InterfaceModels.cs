@@ -17,6 +17,9 @@ public sealed record InterfaceRuntimeState
 
     public Guid? WlanInterfaceGuid { get; init; }
 
+    /// <summary>Windows IPv4 interface index used to pin outbound probe sockets.</summary>
+    public uint InterfaceIndex { get; init; }
+
     public string? DeviceInstanceId { get; init; }
 
     public bool IsUp { get; init; }

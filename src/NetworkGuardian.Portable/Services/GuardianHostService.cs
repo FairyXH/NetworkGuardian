@@ -601,6 +601,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 var interfaceRequest = request with
                 {
                     SourceAddress = candidate.PrimaryIpv4Address,
+                    InterfaceIndex = candidate.InterfaceIndex,
                     InterfaceId = candidate.Id,
                     GatewayAddress = candidate.PrimaryGateway,
                 };
