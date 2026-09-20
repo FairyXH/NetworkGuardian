@@ -327,6 +327,10 @@ public sealed class WifiSettings
     /// <summary>Networks that must not be joined during the configured campus authentication outage.</summary>
     public List<string> CampusNetworkSsids { get; set; } = new();
 
+    /// <summary>Optional SSID to WLAN interface binding for campus networks.</summary>
+    public Dictionary<string, string> CampusWifiAdapterAssignments { get; set; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
     public bool CampusQuietPeriodEnabled { get; set; }
 
     /// <summary>Local minutes after midnight. A period whose end is before its start crosses midnight.</summary>

@@ -75,6 +75,15 @@ public sealed class CandidateSelector
                 continue;
             }
 
+            if (CampusQuietPeriod.IsCampusSsid(settings, network.Ssid) &&
+                settings.CampusWifiAdapterAssignments.TryGetValue(network.Ssid, out var assignedAdapter) &&
+                Guid.TryParse(assignedAdapter, out var assignedGuid) &&
+                assignedGuid != interfaceGuid)
+            {
+                rejections.Add($"{network.Ssid}: 已指定由无线网卡 {assignedGuid:D} 连接");
+                continue;
+            }
+
             if (network.BssType == WifiBssType.Independent)
             {
                 rejections.Add($"{network.Ssid}: ad-hoc (independent BSS) networks are never auto-joined");

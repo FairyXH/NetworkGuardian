@@ -278,6 +278,25 @@ public sealed class CandidateSelectorTests
     }
 
     [Fact]
+    public void CampusNetwork_CanBeBoundToOneWifiAdapter()
+    {
+        var settings = new WifiSettings
+        {
+            CampusNetworkSsids = new List<string> { "CampusWiFi" },
+            CampusWifiAdapterAssignments = new Dictionary<string, string>
+            {
+                ["CampusWiFi"] = TestData.AdapterB.ToString("D"),
+            },
+        };
+        var scan = TestData.Scan(TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "CampusWiFi", 90));
+
+        var candidates = Select(settings, scan, new[] { "CampusWiFi" });
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
     public void RecentlyBlacklistedProfile_IsSkipped()
     {
         var blacklist = new ConnectFailureBlacklist(TimeSpan.FromSeconds(300));
@@ -574,8 +593,34 @@ public sealed class CampusAuthRateLimitTests
 
         var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
             Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
-        Assert.Equal(50, metrics.EthernetMetric);
-        Assert.Equal(10, metrics.WifiMetric);
+        Assert.Equal(10, metrics.MetricsByInterfaceId[mismatched.Id]);
+    }
+
+    [Fact]
+    public void MultipleEthernetAdapters_AreRankedByIndividualProbeHealth()
+    {
+        var config = TestData.Config();
+        var engine = new GuardianDecisionEngine(config);
+        var healthy = TestData.EthernetInterface(
+            probe: TestData.OnlineProbe("10.10.10.20"), id: "luid:1001") with { InterfaceMetric = 80 };
+        var offline = TestData.EthernetInterface(
+            probe: TestData.OfflineProbe("10.10.20.20"), id: "luid:1002") with { InterfaceMetric = 10 };
+
+        var decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now,
+            Config = config,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { healthy, offline },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
+        var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
+            Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
+        Assert.Equal(10, metrics.MetricsByInterfaceId[healthy.Id]);
+        Assert.Equal(80, metrics.MetricsByInterfaceId[offline.Id]);
     }
 
     private static void RunCampusAuth(

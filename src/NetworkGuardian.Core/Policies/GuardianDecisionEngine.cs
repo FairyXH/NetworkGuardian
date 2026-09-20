@@ -988,24 +988,51 @@ public sealed class GuardianDecisionEngine
             }
         }
 
-        // Wired is primary only while its own bound probe succeeds. If Ethernet loses the Internet,
-        // Wi-Fi becomes primary immediately; once Ethernet recovers the values are reversed again.
-        var ethernetShouldLead = ethernetWithInternet ||
-                                 (internetOnline && ethernetInterfaces.Any(i => i.IsDefaultRoute && i.IsUp));
-        var desiredEthernetMetric = ethernetShouldLead ? 10 : 50;
-        var desiredWifiMetric = ethernetShouldLead ? 50 : 10;
-        if (input.Interfaces.Any(i =>
-                i.IsPhysicalDevice != false &&
-                ((i.Kind == InterfaceKind.Ethernet && i.InterfaceMetric != desiredEthernetMetric) ||
-                 (i.Kind == InterfaceKind.Wifi && i.InterfaceMetric != desiredWifiMetric))))
+        // Rank every physical interface independently. A dead Ethernet link must never receive the
+        // same metric as a healthy Ethernet merely because another wired adapter passed its probe.
+        var metricInterfaces = input.Interfaces
+            .Where(i => i.IsPhysicalDevice != false && i.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi)
+            .ToList();
+        var usableEthernet = ethernetInterfaces
+            .Where(i => i.Probe?.IsOnline == true ||
+                        (i.Probe is null && internetOnline && i.IsDefaultRoute && i.IsUp))
+            .OrderByDescending(i => i.IsDefaultRoute)
+            .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var ethernetShouldLead = usableEthernet.Count > 0;
+        var metrics = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        for (var index = 0; index < usableEthernet.Count; index++)
+        {
+            metrics[usableEthernet[index].Id] = 10 + (index * 10);
+        }
+
+        foreach (var iface in ethernetInterfaces.Where(i => !metrics.ContainsKey(i.Id)))
+        {
+            metrics[iface.Id] = iface.IsUp ? 80 : 90;
+        }
+
+        var wifiInterfaces = metricInterfaces.Where(i => i.Kind == InterfaceKind.Wifi)
+            .OrderByDescending(i => i.Probe?.IsOnline == true)
+            .ThenByDescending(i => i.IsDefaultRoute)
+            .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        for (var index = 0; index < wifiInterfaces.Count; index++)
+        {
+            var iface = wifiInterfaces[index];
+            metrics[iface.Id] = iface.IsUp
+                ? (ethernetShouldLead ? 50 : 10) + (index * 10)
+                : 90;
+        }
+
+        if (metricInterfaces.Any(i => metrics.TryGetValue(i.Id, out var desired) && i.InterfaceMetric != desired))
         {
             actions.Add(new ApplyInterfaceMetricsAction
             {
-                EthernetMetric = desiredEthernetMetric,
-                WifiMetric = desiredWifiMetric,
+                MetricsByInterfaceId = metrics,
                 Reason = ethernetShouldLead
-                    ? "Ethernet has Internet access and is the preferred route"
-                    : "Ethernet is unavailable/offline; Wi-Fi is the failover route",
+                    ? $"{usableEthernet.Count} Ethernet interface(s) have Internet access; wired routes ranked first"
+                    : "all Ethernet interfaces are unavailable/offline; Wi-Fi is the failover route",
             });
         }
 

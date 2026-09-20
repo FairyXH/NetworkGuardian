@@ -90,6 +90,7 @@ public sealed class ConfigMigrator
         {
             config.General.ManageInterfaceMetrics = true;
             config.Wifi.CampusNetworkSsids ??= new List<string>();
+            config.Wifi.CampusWifiAdapterAssignments ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             config.Version = 6;
             version = 6;
             applied.Add("v6: automatic wired-first route failover + campus quiet-period policy.");

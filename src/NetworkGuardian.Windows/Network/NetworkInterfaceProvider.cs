@@ -313,6 +313,19 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
         int wifiMetric,
         CancellationToken cancellationToken)
     {
+        var metrics = GetInterfaces()
+            .Where(state => state.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi)
+            .ToDictionary(
+                state => state.Id,
+                state => state.Kind == InterfaceKind.Ethernet ? ethernetMetric : wifiMetric,
+                StringComparer.OrdinalIgnoreCase);
+        return ApplyInterfaceMetricsAsync(metrics, cancellationToken);
+    }
+
+    public Task<IReadOnlyList<string>> ApplyInterfaceMetricsAsync(
+        IReadOnlyDictionary<string, int> metricsByInterfaceId,
+        CancellationToken cancellationToken)
+    {
         return Task.Run<IReadOnlyList<string>>(() =>
         {
             var notes = new List<string>();
@@ -346,9 +359,10 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                         continue;
                     }
 
-                    var desired = state.Kind == InterfaceKind.Ethernet
-                        ? ethernetMetric
-                        : wifiMetric;
+                    if (!metricsByInterfaceId.TryGetValue(state.Id, out var desired))
+                    {
+                        continue;
+                    }
 
                     if (state.InterfaceMetric == desired)
                     {

@@ -1020,8 +1020,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 case ApplyInterfaceMetricsAction metrics:
                 {
                     var notes = await _interfaces.ApplyInterfaceMetricsAsync(
-                            metrics.EthernetMetric,
-                            metrics.WifiMetric,
+                            metrics.MetricsByInterfaceId,
                             cancellationToken)
                         .ConfigureAwait(false);
                     foreach (var note in notes)

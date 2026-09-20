@@ -34,6 +34,10 @@ public sealed class ConfigValidator
         config.Wifi.SsidDenyList ??= new List<string>();
         config.Wifi.SsidAllowList ??= new List<string>();
         config.Wifi.CampusNetworkSsids ??= new List<string>();
+        config.Wifi.CampusWifiAdapterAssignments ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        config.Wifi.CampusWifiAdapterAssignments = new Dictionary<string, string>(
+            config.Wifi.CampusWifiAdapterAssignments,
+            StringComparer.OrdinalIgnoreCase);
         config.General.ManageInterfaceMetrics = true;
 
         if (config.ProbeEndpoints is null || config.ProbeEndpoints.Count == 0)
