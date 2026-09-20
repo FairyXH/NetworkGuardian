@@ -11,11 +11,14 @@ namespace NetworkGuardian.Tests;
 /// </summary>
 public sealed class FaultedDeviceHandlingTests
 {
-    private static GuardianInput Input(Core.Configuration.GuardianConfig config, IReadOnlyList<ManagedDevice> devices) => new()
+    private static GuardianInput Input(
+        Core.Configuration.GuardianConfig config,
+        IReadOnlyList<ManagedDevice> devices,
+        bool internetOnline = false) => new()
     {
         Now = TestData.Now,
         Config = config,
-        GlobalProbe = TestData.OnlineProbe(),
+        GlobalProbe = internetOnline ? TestData.OnlineProbe() : TestData.OfflineProbe(),
         Interfaces = Array.Empty<InterfaceRuntimeState>(),
         WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
         Devices = devices,
@@ -102,6 +105,28 @@ public sealed class FaultedDeviceHandlingTests
 
         Assert.Contains(decision.Actions, a => a is EnableWifiDeviceAction);
         Assert.DoesNotContain(decision.Actions, a => a is RestartWifiDeviceAction);
+    }
+
+    [Fact]
+    public void AvailableInternet_PreventsIntrusiveDeviceRecovery()
+    {
+        var config = TestData.Config(c =>
+        {
+            c.General.AutoEnableWifiDevices = true;
+            c.General.AutoRestartFaultedWifiDevices = true;
+        });
+        var engine = new GuardianDecisionEngine(config);
+        var disabled = TestData.Managed(
+            TestData.Pnp(@"USB\VID_0E8D&PID_7961\000000000", problemCode: 22, started: false),
+            physical: true);
+        var faulted = TestData.Managed(
+            TestData.Pnp(@"PCI\VEN_8086&DEV_7A70\FAULTED", problemCode: 43, started: false),
+            physical: true);
+
+        var decision = engine.Evaluate(Input(config, new[] { disabled, faulted }, internetOnline: true));
+
+        Assert.DoesNotContain(decision.Actions,
+            action => action is EnableWifiDeviceAction or RestartWifiDeviceAction);
     }
 
     [Theory]

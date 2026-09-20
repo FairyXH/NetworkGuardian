@@ -367,7 +367,11 @@ public sealed class GuardianDecisionEngine
 
         if (input.Radio.State == RadioState.Off)
         {
-            if (config.General.AutoEnableWifiRadio)
+            if (internetOnline)
+            {
+                notes.Add("Wi-Fi radio is off, but Internet is already available; leaving user state unchanged.");
+            }
+            else if (config.General.AutoEnableWifiRadio)
             {
                 if (_radioLimiter.TryAcquire(now, out var radioRetry, out var radioReason))
                 {
@@ -408,6 +412,12 @@ public sealed class GuardianDecisionEngine
         {
             var friendly = faulted.Record.FriendlyName ?? faulted.Record.DeviceDescription ?? "Wi-Fi adapter";
 
+            if (internetOnline)
+            {
+                notes.Add($"物理无线网卡「{friendly}」未运行，但当前已有外网；为保持网络稳定，暂不重启。 ");
+                continue;
+            }
+
             if (!config.General.AutoRestartFaultedWifiDevices)
             {
                 notes.Add($"物理无线网卡「{friendly}」存在但未运行（problemCode={faulted.Record.ProblemCode}）；" +
@@ -439,7 +449,7 @@ public sealed class GuardianDecisionEngine
             }
         }
 
-        if (disabledDevices.Count > 0 && config.General.AutoEnableWifiDevices)
+        if (disabledDevices.Count > 0 && config.General.AutoEnableWifiDevices && !internetOnline)
         {
             foreach (var device in disabledDevices)
             {
@@ -476,7 +486,9 @@ public sealed class GuardianDecisionEngine
         }
         else if (disabledDevices.Count > 0)
         {
-            notes.Add($"{disabledDevices.Count} physical Wi-Fi device(s) are disabled; autoEnableWifiDevices is off.");
+            notes.Add(internetOnline
+                ? $"{disabledDevices.Count} physical Wi-Fi device(s) are disabled; Internet is available, so they remain untouched."
+                : $"{disabledDevices.Count} physical Wi-Fi device(s) are disabled; autoEnableWifiDevices is off.");
         }
 
         if (actions.OfType<RestartWifiDeviceAction>().Any())
