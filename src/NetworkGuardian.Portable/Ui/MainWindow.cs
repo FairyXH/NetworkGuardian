@@ -441,6 +441,12 @@ internal sealed class MainWindow
 
             case WM_LBUTTONDOWN:
                 _pressedIndex = HitTest(lParam);
+                if (_pressedIndex < 0)
+                {
+                    // A self-drawn blank area cannot take native focus by itself, so explicitly end
+                    // the child EDIT session just like a normal desktop form would.
+                    CloseEditor(commit: true);
+                }
                 _host.LogUiDebug($"mouse down at {Point(lParam)} -> hit {_pressedIndex}");
                 SetCapture(_hwnd);
                 return IntPtr.Zero;
@@ -663,6 +669,9 @@ internal sealed class MainWindow
             return;
         }
 
+        // Native EDIT controls do not participate in the canvas offset. Leaving one open while the
+        // page scrolls makes it appear pinned over unrelated settings, so commit it before moving.
+        CloseEditor(commit: true);
         _scrollY = clamped;
         Invalidate();
     }

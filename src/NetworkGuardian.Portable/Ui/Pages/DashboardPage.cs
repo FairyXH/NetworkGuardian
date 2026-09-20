@@ -231,6 +231,9 @@ internal sealed class DashboardPage : IPage
             : null;
         var connection = wifi?.IsConnected == true ? $"｜SSID {wifi.CurrentSsid}" : string.Empty;
         var probe = iface.Probe is null ? "尚无按接口探测结果" : Format.ProbeReport(iface.Probe);
-        return $"{iface.Description}{connection}｜IPv4 {iface.PrimaryIpv4Address ?? "无"}｜{probe}";
+        var probeTime = iface.Probe is null
+            ? "上次探测 —"
+            : $"上次探测 {iface.Probe.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
+        return $"{iface.Description}{connection}｜IPv4 {iface.PrimaryIpv4Address ?? "无"}｜{probe}｜{probeTime}";
     }
 }
