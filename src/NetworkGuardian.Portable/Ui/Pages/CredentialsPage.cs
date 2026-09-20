@@ -286,6 +286,11 @@ internal sealed class CredentialsPage : IPage
             "清除",
             () =>
             {
+                if (!ctx.Window.Confirm($"确定清除“{entry.Ssid}”保存的密码吗？"))
+                {
+                    return;
+                }
+
                 entry.Password = string.Empty;
                 entry.PasswordDecryptionFailed = false;
                 _revealed.Remove(entry.Id);
@@ -384,6 +389,11 @@ internal sealed class CredentialsPage : IPage
         var removeWidth = Widgets.MeasureButtonWidth(ctx, "删除该网络");
         Widgets.ButtonAt(ctx, new Rectangle(x + applyWidth + ctx.Scale(8), cy, removeWidth, ctx.Scale(32)), "删除该网络", () =>
         {
+            if (!ctx.Window.Confirm($"确定从凭据库删除“{entry.Ssid}”吗？"))
+            {
+                return;
+            }
+
             entries.Remove(entry);
             MarkDirty();
             _status = "已删除该网络，点击“保存并应用”生效（系统里已写入的配置不会自动删除）";
@@ -399,6 +409,11 @@ internal sealed class CredentialsPage : IPage
             () =>
             {
                 var profileName = entry.EffectiveProfileName;
+                if (!ctx.Window.Confirm($"确定从所有无线网卡删除系统配置“{profileName}”吗？"))
+                {
+                    return;
+                }
+
                 _status = $"正在从所有网卡删除 {profileName}…";
                 ctx.Window.RunBackground(purgeOperation, $"正在从系统删除 {profileName}", async () =>
                 {

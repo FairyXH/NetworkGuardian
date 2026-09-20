@@ -24,6 +24,7 @@ internal sealed class PortableApp
     private readonly SimpleLoggerFactory _loggerFactory;
     private readonly ILogger<PortableApp> _logger;
     private readonly StartupRegistration _startup = new();
+    private readonly SemaphoreSlim _configApplyGate = new(1, 1);
 
     private GuardianHostService? _host;
     private MainWindow? _window;
@@ -283,17 +284,25 @@ internal sealed class PortableApp
     /// <summary>Saves the configuration and applies everything the UI changed.</summary>
     public async Task ApplyConfigAsync(GuardianConfig config)
     {
-        if (_host is null)
+        await _configApplyGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
+            if (_host is null)
+            {
+                return;
+            }
+
+            await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
+            ApplyLoggingSettings(config);
+
+            if (!_startup.SetEnabled(config.Startup.RunAtLogon))
+            {
+                _logger.LogWarning("The run-at-logon registration could not be updated");
+            }
         }
-
-        await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
-        ApplyLoggingSettings(config);
-
-        if (!_startup.SetEnabled(config.Startup.RunAtLogon))
+        finally
         {
-            _logger.LogWarning("The run-at-logon registration could not be updated");
+            _configApplyGate.Release();
         }
     }
 

@@ -5,7 +5,7 @@ using NetworkGuardian.Core.Models;
 namespace NetworkGuardian.Portable.Ui.Pages;
 
 /// <summary>
-/// 设置：所有开关与阈值、探测端点、离线命令。编辑的是一份深拷贝，只有“保存并应用”才写回。
+/// 设置：所有开关与阈值、探测端点、离线命令。改动经过短暂防抖后自动保存并生效。
 /// </summary>
 internal sealed class SettingsPage : IPage
 {
@@ -21,6 +21,9 @@ internal sealed class SettingsPage : IPage
     private GuardianConfig? _working;
     private string _status = "尚未加载";
     private bool _dirty;
+    private MainWindow? _window;
+    private CancellationTokenSource? _autoSaveCancellation;
+    private long _editRevision;
 
     public string Tag => "settings";
 
@@ -28,11 +31,12 @@ internal sealed class SettingsPage : IPage
 
     public string Title => "设置";
 
-    public string Description => "所有改动先落在工作副本上，点击“保存并应用”才会写入 config.json 并立即生效。";
+    public string Description => "所有改动都会自动写入 config.json 并立即生效；“保存并应用”可用于立即确认保存结果。";
 
     public int Render(PageContext ctx, Rectangle area)
     {
         var canvas = ctx.Canvas;
+        _window = ctx.Window;
         var config = Working(ctx);
         var y = area.Top + Widgets.Heading(ctx, area, Title, Description);
 
@@ -45,11 +49,9 @@ internal sealed class SettingsPage : IPage
         var save = new Rectangle(area.Left, y, Widgets.MeasureButtonWidth(ctx, "保存并应用"), ctx.Scale(32));
         Widgets.ButtonAt(ctx, save, saving ? "保存中…" : "保存并应用", () =>
         {
+            _autoSaveCancellation?.Cancel();
             var issues = new ConfigValidator().Normalize(config);
-            _status = issues.Count == 0
-                ? $"已保存 {DateTimeOffset.Now:HH:mm:ss}"
-                : $"已保存；{issues.Count} 项被修正：{string.Join("；", issues)}";
-            _dirty = false;
+            _status = "正在保存…";
 
             // The live configuration gets its own copy so later edits keep hitting the working copy
             // until they are saved again.
@@ -57,8 +59,15 @@ internal sealed class SettingsPage : IPage
             ctx.Window.RunBackground(
                 saveOperation,
                 "正在保存并应用设置",
-                () => ctx.Window.App.ApplyConfigAsync(target),
-                "配置已保存并应用");
+                async () =>
+                {
+                    await ctx.Window.App.ApplyConfigAsync(target).ConfigureAwait(false);
+                    _status = issues.Count == 0
+                        ? $"保存成功 {DateTimeOffset.Now:HH:mm:ss}"
+                        : $"保存成功；{issues.Count} 项被修正：{string.Join("；", issues)}";
+                    _dirty = false;
+                },
+                "保存成功，配置已应用");
         }, primary: true, enabled: !saving);
 
         const string reloadOperation = "settings-reload";
@@ -169,6 +178,11 @@ internal sealed class SettingsPage : IPage
                     "删除",
                     () =>
                     {
+                        if (!ctx.Window.Confirm($"确定删除探测端点“{endpoint.Name}”吗？此操作会立即保存。"))
+                        {
+                            return;
+                        }
+
                         endpoints.RemoveAt(index);
                         MarkDirty();
                     });
@@ -324,6 +338,11 @@ internal sealed class SettingsPage : IPage
                 var buttonWidth = Widgets.MeasureButtonWidth(ctx, "删除");
                 Widgets.ButtonAt(ctx, new Rectangle(rect.Right - buttonWidth, rect.Top + ctx.Scale(126), buttonWidth, ctx.Scale(30)), "删除", () =>
                 {
+                    if (!ctx.Window.Confirm($"确定删除离线命令“{command.Name}”吗？此操作会立即保存。"))
+                    {
+                        return;
+                    }
+
                     config.OfflineCommands.Remove(command);
                     MarkDirty();
                 });
@@ -384,7 +403,51 @@ internal sealed class SettingsPage : IPage
         return _working;
     }
 
-    private void MarkDirty() => _dirty = true;
+    private void MarkDirty()
+    {
+        _dirty = true;
+        _status = "等待自动保存…";
+
+        var window = _window;
+        var working = _working;
+        if (window is null || working is null)
+        {
+            return;
+        }
+
+        var revision = Interlocked.Increment(ref _editRevision);
+        _autoSaveCancellation?.Cancel();
+        _autoSaveCancellation?.Dispose();
+        _autoSaveCancellation = new CancellationTokenSource();
+        var token = _autoSaveCancellation.Token;
+        var snapshot = Clone(working);
+        _ = AutoSaveAsync(window, snapshot, revision, token);
+    }
+
+    private async Task AutoSaveAsync(MainWindow window, GuardianConfig config, long revision, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(350, cancellationToken).ConfigureAwait(false);
+            new ConfigValidator().Normalize(config);
+            await window.App.ApplyConfigAsync(config).ConfigureAwait(false);
+            if (revision == Interlocked.Read(ref _editRevision))
+            {
+                _dirty = false;
+                _status = $"已自动保存 {DateTimeOffset.Now:HH:mm:ss}";
+                window.RequestRefresh();
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            _status = $"自动保存失败：{ex.Message}";
+            window.ShowToast(_status);
+            window.RequestRefresh();
+        }
+    }
 
     /// <summary>Deep copy through the source generated serializer: no reflection, no shared references.</summary>
     private static GuardianConfig Clone(GuardianConfig config) =>
