@@ -623,6 +623,37 @@ public sealed class CampusAuthRateLimitTests
         Assert.Equal(80, metrics.MetricsByInterfaceId[offline.Id]);
     }
 
+    [Fact]
+    public void MissingEthernetProbe_DoesNotOverrideExplicitlyOnlineWifi()
+    {
+        var config = TestData.Config(c => c.Probe.PerInterfaceProbing = true);
+        var engine = new GuardianDecisionEngine(config);
+        var ethernet = TestData.EthernetInterface(probe: null) with
+        {
+            IsDefaultRoute = true,
+            InterfaceMetric = 10,
+        };
+        var wifi = TestData.WifiInterface(
+            TestData.AdapterA,
+            probe: TestData.OnlineProbe("10.20.30.40")) with { InterfaceMetric = 50 };
+
+        var decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now,
+            Config = config,
+            GlobalProbe = TestData.OnlineProbe(),
+            Interfaces = new[] { ethernet, wifi },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
+        var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
+            Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
+        Assert.Equal(80, metrics.MetricsByInterfaceId[ethernet.Id]);
+        Assert.Equal(10, metrics.MetricsByInterfaceId[wifi.Id]);
+    }
+
     private static void RunCampusAuth(
         GuardianDecisionEngine engine,
         GuardianConfig config,

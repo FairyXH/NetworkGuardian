@@ -918,7 +918,8 @@ public sealed class GuardianDecisionEngine
             .ToList();
         var usableEthernet = ethernetInterfaces
             .Where(i => i.Probe?.IsOnline == true ||
-                        (i.Probe is null && internetOnline && i.IsDefaultRoute && i.IsUp))
+                        (!config.Probe.PerInterfaceProbing &&
+                         i.Probe is null && internetOnline && i.IsDefaultRoute && i.IsUp))
             .OrderByDescending(i => i.IsDefaultRoute)
             .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();

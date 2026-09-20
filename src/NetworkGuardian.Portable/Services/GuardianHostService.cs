@@ -526,10 +526,22 @@ public sealed class GuardianHostService : IAsyncDisposable
 
             if (!IsPaused && _config.General.AutomaticRecovery)
             {
-                foreach (var action in decision.Actions)
+                // Route failover is time-critical. Apply metrics before scans, association waits,
+                // authentication commands, or any other recovery action can delay the cycle.
+                var orderedActions = decision.Actions
+                    .OrderByDescending(action => action is ApplyInterfaceMetricsAction)
+                    .ToList();
+                foreach (var action in orderedActions)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false);
+                }
+
+                // Metric changes alter the route table immediately. Re-read it before publishing so
+                // the dashboard never keeps showing the pre-failover outlet for another heartbeat.
+                if (orderedActions.Any(action => action is ApplyInterfaceMetricsAction))
+                {
+                    input = input with { Interfaces = BuildInterfaceStates() };
                 }
             }
 
@@ -581,11 +593,10 @@ public sealed class GuardianHostService : IAsyncDisposable
             Settings = _config.Probe,
         };
 
-        _globalProbe = await _probe.ProbeAsync(request, cancellationToken).ConfigureAwait(false);
-
         var byAdapter = new Dictionary<Guid, ConnectivityProbeReport>();
         var byInterfaceId = new Dictionary<string, ConnectivityProbeReport>(StringComparer.Ordinal);
         var interfaces = _interfaces.GetInterfaces();
+        var globalTask = _probe.ProbeAsync(request, cancellationToken);
 
         if (_config.Probe.PerInterfaceProbing)
         {
@@ -594,10 +605,8 @@ public sealed class GuardianHostService : IAsyncDisposable
                 .Where(i => i.IsUp && i.HasUsableIpv4 && i.PrimaryIpv4Address is not null)
                 .ToList();
 
-            foreach (var candidate in candidates)
+            var interfaceTasks = candidates.Select(async candidate =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
                 var interfaceRequest = request with
                 {
                     SourceAddress = candidate.PrimaryIpv4Address,
@@ -607,6 +616,12 @@ public sealed class GuardianHostService : IAsyncDisposable
                 };
 
                 var report = await _probe.ProbeAsync(interfaceRequest, cancellationToken).ConfigureAwait(false);
+                return (Candidate: candidate, Report: report);
+            }).ToArray();
+
+            var interfaceReports = await Task.WhenAll(interfaceTasks).ConfigureAwait(false);
+            foreach (var (candidate, report) in interfaceReports)
+            {
                 if (candidate.WlanInterfaceGuid is { } guid)
                 {
                     byAdapter[guid] = report;
@@ -616,6 +631,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             }
         }
 
+        _globalProbe = await globalTask.ConfigureAwait(false);
         _wifiProbeByAdapter = byAdapter;
         _probeByInterfaceId = byInterfaceId;
     }
