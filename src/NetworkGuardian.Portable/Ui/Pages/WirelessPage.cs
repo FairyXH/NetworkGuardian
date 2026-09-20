@@ -1,5 +1,7 @@
 using System.Drawing;
+using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Serialization;
 using NetworkGuardian.Core.Wlan;
 
 namespace NetworkGuardian.Portable.Ui.Pages;
@@ -327,9 +329,37 @@ internal sealed class WirelessPage : IPage
                     columnX += columns[i];
                 }
 
+                var isCampus = ctx.Host.Config.Wifi.CampusNetworkSsids.Any(value =>
+                    string.Equals(value, network.Ssid, StringComparison.OrdinalIgnoreCase));
+                var campusWidth = Widgets.MeasureButtonWidth(ctx, isCampus ? "校园网 ✓" : "标为校园网");
+                var connectWidth = Widgets.MeasureButtonWidth(ctx, "连接");
+                var campusRight = card.Right - ctx.Scale(16) -
+                                  (network.HasProfile && network.Connectable && !network.IsCurrentConnection
+                                      ? connectWidth + ctx.Scale(6)
+                                      : 0);
+                var campusRect = new Rectangle(campusRight - campusWidth, cy - ctx.Scale(4), campusWidth, ctx.Scale(26));
+                var ssidForCampus = network.Ssid;
+                var campusOperation = $"wireless-campus-{guid:D}-{ssidForCampus}";
+                Widgets.ButtonAt(ctx, campusRect, isCampus ? "校园网 ✓" : "标为校园网", () =>
+                {
+                    var updated = ConfigJson.Deserialize(ConfigJson.Serialize(ctx.Host.Config)) ?? GuardianConfig.CreateDefault();
+                    if (isCampus)
+                    {
+                        updated.Wifi.CampusNetworkSsids.RemoveAll(value =>
+                            string.Equals(value, ssidForCampus, StringComparison.OrdinalIgnoreCase));
+                    }
+                    else
+                    {
+                        updated.Wifi.CampusNetworkSsids.Add(ssidForCampus);
+                    }
+
+                    ctx.Window.RunBackground(campusOperation, $"正在保存 {ssidForCampus} 的校园网标记",
+                        () => ctx.Window.App.ApplyConfigAsync(updated),
+                        isCampus ? $"已取消 {ssidForCampus} 的校园网标记" : $"已将 {ssidForCampus} 标为校园网");
+                }, enabled: !ctx.Window.IsOperationRunning(campusOperation));
+
                 if (network.HasProfile && network.Connectable && !network.IsCurrentConnection)
                 {
-                    var connectWidth = Widgets.MeasureButtonWidth(ctx, "连接");
                     var connectRect = new Rectangle(card.Right - ctx.Scale(16) - connectWidth, cy - ctx.Scale(4), connectWidth, ctx.Scale(26));
                     var profileName = network.ProfileName ?? network.Ssid;
                     var ssid = network.Ssid;

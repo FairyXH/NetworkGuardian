@@ -115,9 +115,7 @@ internal sealed class SettingsPage : IPage
         general.Number("扫描超时（秒）", config.General.ScanTimeoutSeconds, 3, 120, v => config.General.ScanTimeoutSeconds = v);
         general.Number("手动扫描超时（秒）", config.General.ManualScanTimeoutSeconds, 3, 120, v => config.General.ManualScanTimeoutSeconds = v);
         general.Number("连接后等待 DHCP（秒）", config.General.DhcpWaitSeconds, 3, 300, v => config.General.DhcpWaitSeconds = v);
-        general.Toggle("自动调整接口度量（默认关闭，会改变路由优先级）", config.General.ManageInterfaceMetrics, v => config.General.ManageInterfaceMetrics = v);
-        general.Number("以太网接口度量", config.General.PreferredEthernetMetric, 1, 9999, v => config.General.PreferredEthernetMetric = v);
-        general.Number("Wi-Fi 接口度量", config.General.PreferredWifiMetric, 1, 9999, v => config.General.PreferredWifiMetric = v);
+        general.Note("接口跃点数由程序自动管理：有线外网正常时有线优先；有线失效时立即提升 Wi-Fi，恢复后自动切回。");
         y = DrawCard(ctx, area, y, "常规", general);
 
         // ---------- Internet 探测 ----------
@@ -238,6 +236,10 @@ internal sealed class SettingsPage : IPage
         var campus = new Form(ctx, this);
         var auth = config.CampusAuth;
         campus.Toggle("启用校园网认证程序", auth.Enabled, v => auth.Enabled = v);
+        campus.Toggle("启用校园网关闭时间段", config.Wifi.CampusQuietPeriodEnabled, v => config.Wifi.CampusQuietPeriodEnabled = v);
+        campus.Number("关闭时段开始（当天第几分钟，0 = 00:00）", config.Wifi.CampusQuietStartMinutes, 0, 1439, v => config.Wifi.CampusQuietStartMinutes = v);
+        campus.Number("关闭时段结束（当天第几分钟，360 = 06:00）", config.Wifi.CampusQuietEndMinutes, 0, 1439, v => config.Wifi.CampusQuietEndMinutes = v);
+        campus.Note("结束时间早于开始时间时表示跨越午夜；开始和结束相同表示全天关闭。扫描页可标记校园网 Wi-Fi。");
         campus.Text("名称", auth.Name, v => auth.Name = v);
         campus.Choice("运行方式", CommandKindLabels, (int)auth.Kind, v => auth.Kind = (CommandKind)v);
         campus.Path("可执行文件路径 / 命令行", auth.ExecutablePath, v => auth.ExecutablePath = v, "选择认证程序");

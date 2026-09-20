@@ -93,6 +93,42 @@ internal sealed class DashboardPage : IPage
             height += cardHeight + gap;
         }
 
+        // ---------- 每个物理适配器的外网状态 ----------
+        var physicalInterfaces = snapshot.Interfaces
+            .Where(i => i.IsPhysicalDevice != false && i.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi)
+            .OrderBy(i => i.Kind)
+            .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (physicalInterfaces.Count > 0)
+        {
+            canvas.Text("适配器外网状态", new Rectangle(area.Left, y, area.Width, ctx.Scale(24)), Palette.TextPrimary, TextStyle.Section);
+            y += ctx.Scale(30);
+
+            for (var row = 0; row < physicalInterfaces.Count; row += columns)
+            {
+                var rowItems = physicalInterfaces.Skip(row).Take(columns).ToList();
+                var rowHeight = rowItems.Max(iface => MeasureStatCard(ctx, columnWidth,
+                    iface.Kind == InterfaceKind.Ethernet ? "以太网适配器" : "无线适配器",
+                    InterfaceInternetState(iface), InterfaceInternetDetail(snapshot, iface)));
+
+                for (var column = 0; column < rowItems.Count; column++)
+                {
+                    var iface = rowItems[column];
+                    var online = iface.Probe?.IsOnline == true;
+                    DrawStatCard(ctx,
+                        new Rectangle(area.Left + (column * (columnWidth + gap)), y, columnWidth, rowHeight),
+                        iface.Name,
+                        InterfaceInternetState(iface),
+                        InterfaceInternetDetail(snapshot, iface),
+                        online ? Palette.Good : iface.IsUp ? Palette.Warn : Palette.Bad);
+                }
+
+                y += rowHeight + gap;
+                height += rowHeight + gap;
+            }
+        }
+
         // ---------- 恢复与认证 ----------
         var lastAction = snapshot.LastRecoveryAction ?? "—";
         var lastActionTime = snapshot.LastRecoveryActionUtc is { } actionTime
@@ -178,5 +214,23 @@ internal sealed class DashboardPage : IPage
 
         var detailHeight = Math.Max(ctx.Scale(18), canvas.MeasureWrappedHeight(detail, width, TextStyle.Body));
         canvas.Text(detail, new Rectangle(x, y, width, detailHeight), Palette.TextSecondary, TextStyle.Body, wrap: TextWrap.Wrap);
+    }
+
+    private static string InterfaceInternetState(InterfaceRuntimeState iface) => iface.Probe switch
+    {
+        { IsOnline: true } => "外网正常",
+        { AttemptCount: > 0 } => "外网不可用",
+        _ when !iface.IsUp => "链路断开",
+        _ => "等待探测",
+    };
+
+    private static string InterfaceInternetDetail(GuardianSnapshot snapshot, InterfaceRuntimeState iface)
+    {
+        var wifi = iface.WlanInterfaceGuid is { } guid
+            ? snapshot.WifiAdapters.FirstOrDefault(adapter => adapter.InterfaceGuid == guid)
+            : null;
+        var connection = wifi?.IsConnected == true ? $"｜SSID {wifi.CurrentSsid}" : string.Empty;
+        var probe = iface.Probe is null ? "尚无按接口探测结果" : Format.ProbeReport(iface.Probe);
+        return $"{iface.Description}{connection}｜IPv4 {iface.PrimaryIpv4Address ?? "无"}｜{probe}";
     }
 }
