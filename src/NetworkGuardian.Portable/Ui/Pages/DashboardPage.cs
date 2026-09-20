@@ -56,6 +56,12 @@ internal sealed class DashboardPage : IPage
             ? "—"
             : $"{Format.NextHop(route.NextHop)}（{route.InterfaceAlias ?? "未知接口"}，接口度量 " +
               $"{route.InterfaceMetric?.ToString() ?? "?"} + 路由度量 {route.RouteMetric?.ToString() ?? "?"}）";
+        var outlet = FindOutletInterface(snapshot, route);
+        var outletName = outlet?.Name ?? route?.InterfaceAlias ?? "未确定";
+        var outletDetail = outlet is null
+            ? routeText
+            : $"{outlet.Description}｜{FormatInterfaceKind(outlet.Kind)}｜IPv4 {outlet.PrimaryIpv4Address ?? "无"}｜" +
+              $"下一跳 {Format.NextHop(route?.NextHop)}｜有效跃点 {route?.EffectiveMetric?.ToString() ?? "?"}";
 
         var wifiSummary = snapshot.WifiAdapters.Count == 0
             ? "未发现物理无线网卡"
@@ -66,7 +72,8 @@ internal sealed class DashboardPage : IPage
         {
             ("Internet 状态", internetState, internetDetail, snapshot.GlobalProbe.IsOnline ? Palette.Good : Palette.Bad),
             ("以太网", ethernetState, ethernetDetail, ethernetUp > 0 ? Palette.Good : Palette.TextSecondary),
-            ("默认路由", route is null ? "—" : (route.InterfaceAlias ?? "未知接口"), routeText, null),
+            ("当前外网出口", snapshot.GlobalProbe.IsOnline ? outletName : $"{outletName}（外网不可用）", outletDetail,
+                snapshot.GlobalProbe.IsOnline ? Palette.Good : Palette.Bad),
             ("Wi-Fi 无线电", Format.RadioState(snapshot.Radio.State), snapshot.Radio.FailureReason ?? snapshot.Radio.Name ?? "—",
                 snapshot.Radio.State == RadioState.On ? Palette.Good : Palette.Warn),
             ("物理无线网卡", snapshot.WifiAdapters.Count.ToString(), wifiSummary, null),
@@ -236,4 +243,34 @@ internal sealed class DashboardPage : IPage
             : $"上次探测 {iface.Probe.TimestampUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         return $"{iface.Description}{connection}｜IPv4 {iface.PrimaryIpv4Address ?? "无"}｜{probe}｜{probeTime}";
     }
+
+    private static InterfaceRuntimeState? FindOutletInterface(
+        GuardianSnapshot snapshot,
+        DefaultRouteInfo? route)
+    {
+        if (route is null)
+        {
+            return null;
+        }
+
+        if (route.InterfaceLuid is { } luid)
+        {
+            var byLuid = snapshot.Interfaces.FirstOrDefault(iface =>
+                string.Equals(iface.Id, $"luid:{luid}", StringComparison.OrdinalIgnoreCase));
+            if (byLuid is not null)
+            {
+                return byLuid;
+            }
+        }
+
+        return snapshot.Interfaces.FirstOrDefault(iface =>
+            string.Equals(iface.Name, route.InterfaceAlias, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string FormatInterfaceKind(InterfaceKind kind) => kind switch
+    {
+        InterfaceKind.Ethernet => "以太网",
+        InterfaceKind.Wifi => "无线网卡",
+        _ => kind.ToString(),
+    };
 }
