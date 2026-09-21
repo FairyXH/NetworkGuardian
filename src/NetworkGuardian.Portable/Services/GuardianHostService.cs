@@ -926,7 +926,11 @@ public sealed class GuardianHostService : IAsyncDisposable
                     var snapshot = await _wifi.RequestScanAsync(scan.InterfaceGuid, scan.Force, timeout, cancellationToken)
                         .ConfigureAwait(false);
 
-                    _engine.NotifyScanFinished(scan.InterfaceGuid, DateTimeOffset.UtcNow, scan.Force);
+                    _engine.NotifyScanFinished(
+                        scan.InterfaceGuid,
+                        DateTimeOffset.UtcNow,
+                        scan.Force,
+                        success: !snapshot.Failed);
 
                     if (snapshot.Failed)
                     {
@@ -1211,7 +1215,11 @@ public sealed class GuardianHostService : IAsyncDisposable
             var timeout = TimeSpan.FromSeconds(Math.Max(5, _config.General.ManualScanTimeoutSeconds));
             var result = await _wifi.RequestScanAsync(interfaceGuid, force: true, timeout, cancellationToken)
                 .ConfigureAwait(false);
-            _engine.NotifyScanFinished(interfaceGuid, DateTimeOffset.UtcNow, forcedByUser: true);
+            _engine.NotifyScanFinished(
+                interfaceGuid,
+                DateTimeOffset.UtcNow,
+                forcedByUser: true,
+                success: !result.Failed);
             return result;
         }
         finally

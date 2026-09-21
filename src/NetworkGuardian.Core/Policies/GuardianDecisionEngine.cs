@@ -268,7 +268,7 @@ public sealed class GuardianDecisionEngine
         }
     }
 
-    public void NotifyScanFinished(Guid interfaceGuid, DateTimeOffset now, bool forcedByUser)
+    public void NotifyScanFinished(Guid interfaceGuid, DateTimeOffset now, bool forcedByUser, bool success)
     {
         lock (_gate)
         {
@@ -277,6 +277,13 @@ public sealed class GuardianDecisionEngine
             if (forcedByUser)
             {
                 state.ScanLimiter.Reset();
+            }
+            else if (success)
+            {
+                // RecordRun counts attempts so repeated API failures eventually back off. A completed
+                // scan is the corresponding success signal; without this reset, healthy periodic scans
+                // hit MaxConsecutiveRuns and stop discovering newly appeared access points.
+                state.ScanLimiter.NotifySuccess();
             }
         }
     }

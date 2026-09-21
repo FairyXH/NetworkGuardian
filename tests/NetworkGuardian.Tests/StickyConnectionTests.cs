@@ -315,6 +315,49 @@ public sealed class StickyConnectionTests
     }
 
     [Fact]
+    public void SuccessfulPeriodicScans_KeepDiscoveringNewlyAppearedSavedAp()
+    {
+        var config = TestData.Config(c =>
+        {
+            c.Wifi.DisconnectGraceSeconds = 0;
+            c.General.MinimumScanIntervalSeconds = 5;
+        });
+        var engine = new GuardianDecisionEngine(config);
+        var idle = TestData.DisconnectedAdapter(TestData.AdapterA, new[] { "ZhangAndroid" });
+        var interfaces = new[]
+        {
+            TestData.WifiInterface(TestData.AdapterA, up: false, hasAddress: false),
+        };
+
+        // More than the old 40-run cutoff: each completed scan must clear the consecutive-attempt
+        // counter so a healthy idle adapter never becomes permanently blind to a later AP.
+        for (var i = 0; i < 45; i++)
+        {
+            var now = TestData.Now.AddSeconds(i * 6);
+            var decision = engine.Evaluate(Input(
+                config, now, TestData.OnlineProbe(), interfaces, new[] { idle }));
+            Assert.Contains(decision.Actions, action => action is ScanAdapterAction);
+            engine.NotifyScanFinished(TestData.AdapterA, now, forcedByUser: false, success: true);
+        }
+
+        var appearedAt = TestData.Now.AddSeconds(45 * 6);
+        var scan = TestData.Scan(
+            TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "ZhangAndroid", 80)) with
+        {
+            StartedAtUtc = appearedAt.AddSeconds(-1),
+            CompletedAtUtc = appearedAt,
+        };
+        var visible = idle with { LastScan = scan };
+        var afterAppearance = engine.Evaluate(Input(
+            config, appearedAt.AddSeconds(1), TestData.OnlineProbe(), interfaces, new[] { visible }));
+
+        var connect = Assert.Single(afterAppearance.Actions.OfType<ConnectWifiAction>());
+        Assert.Equal("ZhangAndroid", connect.Ssid);
+        Assert.Equal(TestData.AdapterA, connect.InterfaceGuid);
+    }
+
+    [Fact]
     public void PausedEngine_ProducesNoActions()
     {
         var config = TestData.Config();
