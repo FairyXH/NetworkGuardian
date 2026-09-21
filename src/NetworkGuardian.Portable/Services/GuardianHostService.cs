@@ -266,6 +266,12 @@ public sealed class GuardianHostService : IAsyncDisposable
             _logger.LogWarning("无线网络库提示：{Issue}", issue);
         }
 
+        // Disabled adapters are absent from WlanEnumInterfaces. Enumerate PnP before writing profiles so
+        // exclusive auto-connect ownership stays stable while one of the adapters is disabled.
+        await RefreshEnumerationAsync(cancellationToken).ConfigureAwait(false);
+        _lastEnumerationUtc = DateTimeOffset.UtcNow;
+        _forceEnumeration = false;
+
         // Windows Settings can initiate a connection before the guardian ever selects a candidate.
         // Seed every current adapter with both the profile and the current user's separate EAP data
         // during startup, so that manual connection path does not fall back to a credential prompt.
@@ -1167,7 +1173,10 @@ public sealed class GuardianHostService : IAsyncDisposable
             return new WifiProfileApplyResult { Success = true };
         }
 
-        var result = _profiles.Apply(action.InterfaceGuid, entry, allowWrite: true);
+        var result = _profiles.Apply(
+            action.InterfaceGuid,
+            CredentialForAdapter(entry, action.InterfaceGuid),
+            allowWrite: true);
         if (!result.Success)
         {
             return result;
@@ -1436,6 +1445,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         }
 
         var results = new List<string>();
+        var autoConnectOwner = SelectAutoConnectOwner(adapters);
         foreach (var adapter in adapters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1444,9 +1454,18 @@ public sealed class GuardianHostService : IAsyncDisposable
             entry.AppliedFingerprint = null;
             entry.LastAppliedUtc = null;
 
-            var result = _profiles.Apply(adapter.InterfaceGuid, entry, allowWrite: true);
+            var allowAutoConnect = entry.ConnectAutomatically &&
+                                   (_config.Wifi.AllowSameSsidOnMultipleAdapters ||
+                                    adapter.InterfaceGuid == autoConnectOwner);
+            var result = _profiles.Apply(
+                adapter.InterfaceGuid,
+                CloneCredential(entry, allowAutoConnect),
+                allowWrite: true);
             results.Add(result.Success
-                ? $"{adapter.Description}：已写入"
+                ? $"{adapter.Description}：已写入" +
+                  (entry.ConnectAutomatically && !_config.Wifi.AllowSameSsidOnMultipleAdapters
+                      ? allowAutoConnect ? "（自动连接主网卡）" : "（已禁止重复自动连接）"
+                      : string.Empty)
                 : $"{adapter.Description}：{result.Failure}");
 
             if (result.Success)
@@ -1460,6 +1479,71 @@ public sealed class GuardianHostService : IAsyncDisposable
         RequestImmediateCycle();
         _logger.LogInformation("手动写入 802.1X 配置：{Results}", string.Join("；", results));
         return results;
+    }
+
+    private Guid? SelectAutoConnectOwner(IReadOnlyList<WifiAdapterInfo> availableAdapters)
+    {
+        var physicalGuids = _devicesSnapshot
+            .Where(device => device.Record.IsPresent && device.Classification.IsPhysical &&
+                             device.Classification.Category == DeviceCategory.PhysicalWifi)
+            .Select(device => device.Record.NetCfgInstanceId)
+            .Where(value => Guid.TryParse(value, out _))
+            .Select(value => Guid.Parse(value!));
+
+        return ExclusiveAutoConnectPolicy.SelectOwner(
+            physicalGuids,
+            availableAdapters.Select(adapter => adapter.InterfaceGuid));
+    }
+
+    private WifiNetworkCredential CredentialForAdapter(WifiNetworkCredential entry, Guid interfaceGuid)
+    {
+        if (_config.Wifi.AllowSameSsidOnMultipleAdapters || !entry.ConnectAutomatically)
+        {
+            return entry;
+        }
+
+        var owner = SelectAutoConnectOwner(_wifi.GetAdapters());
+        return CloneCredential(entry, interfaceGuid == owner);
+    }
+
+    private static WifiNetworkCredential CloneCredential(WifiNetworkCredential source, bool connectAutomatically)
+    {
+        var profileXml = source.ProfileXmlOverride;
+        if (!string.IsNullOrWhiteSpace(profileXml))
+        {
+            profileXml = profileXml.Replace(
+                connectAutomatically ? "<connectionMode>manual</connectionMode>" : "<connectionMode>auto</connectionMode>",
+                connectAutomatically ? "<connectionMode>auto</connectionMode>" : "<connectionMode>manual</connectionMode>",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        return new WifiNetworkCredential
+        {
+            Id = source.Id,
+            Ssid = source.Ssid,
+            ProfileName = source.ProfileName,
+            Auth = source.Auth,
+            Eap = source.Eap,
+            Identity = source.Identity,
+            AnonymousIdentity = source.AnonymousIdentity,
+            Domain = source.Domain,
+            Password = source.Password,
+            PasswordProtected = source.PasswordProtected,
+            PasswordDecryptionFailed = source.PasswordDecryptionFailed,
+            PasswordUpdatedUtc = source.PasswordUpdatedUtc,
+            UseWinLogonCredentials = source.UseWinLogonCredentials,
+            ServerNames = source.ServerNames.ToList(),
+            TrustedRootCaThumbprints = source.TrustedRootCaThumbprints.ToList(),
+            CertificateThumbprint = source.CertificateThumbprint,
+            DisableUserPromptForServerValidation = source.DisableUserPromptForServerValidation,
+            ConnectAutomatically = connectAutomatically,
+            Hidden = source.Hidden,
+            Enabled = source.Enabled,
+            ProfileXmlOverride = profileXml,
+            AppliedFingerprint = source.AppliedFingerprint,
+            LastAppliedUtc = source.LastAppliedUtc,
+            Notes = source.Notes,
+        };
     }
 
     /// <summary>Removes the generated profile from one adapter (used when the user deletes an entry).</summary>
