@@ -92,6 +92,7 @@ public sealed class ConfigValidator
         config.Wifi.HighBandBonus = Clamp(config.Wifi.HighBandBonus, -100, 100, "wifi.highBandBonus", issues);
         config.Wifi.RecentProfileBonus = Clamp(config.Wifi.RecentProfileBonus, -100, 100, "wifi.recentProfileBonus", issues);
         config.Wifi.DisconnectGraceSeconds = Clamp(config.Wifi.DisconnectGraceSeconds, 0, 600, "wifi.disconnectGraceSeconds", issues);
+        config.Wifi.StaleConnectionSeconds = Clamp(config.Wifi.StaleConnectionSeconds, 30, 3600, "wifi.staleConnectionSeconds", issues);
         config.Wifi.EapConnectMaxAttempts = Clamp(config.Wifi.EapConnectMaxAttempts, 1, 50, "wifi.eapConnectMaxAttempts", issues);
         config.Wifi.CampusQuietStartMinutes = Clamp(config.Wifi.CampusQuietStartMinutes, 0, 1439, "wifi.campusQuietStartMinutes", issues);
         config.Wifi.CampusQuietEndMinutes = Clamp(config.Wifi.CampusQuietEndMinutes, 0, 1439, "wifi.campusQuietEndMinutes", issues);

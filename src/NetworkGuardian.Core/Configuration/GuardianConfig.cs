@@ -355,6 +355,9 @@ public sealed class WifiSettings
     /// <summary>Allow an adapter that is connected but has no usable Internet to be re-evaluated.</summary>
     public bool RecoverStaleConnections { get; set; } = true;
 
+    /// <summary>Minimum continuous offline time before a connected adapter may switch networks.</summary>
+    public int StaleConnectionSeconds { get; set; } = 120;
+
     /// <summary>Prefer 5 GHz / 6 GHz candidates when scores are close.</summary>
     public bool PreferHighBand { get; set; } = true;
 
