@@ -186,6 +186,78 @@ public sealed class StickyConnectionTests
     }
 
     [Fact]
+    public void LongOfflineConnection_SwitchesOnlyWhenAnotherSavedNetworkIsVisible()
+    {
+        var config = TestData.Config(c =>
+        {
+            c.Recovery.WifiFailureThreshold = 2;
+            c.Wifi.RecoverStaleConnections = true;
+            c.Wifi.StaleConnectionSeconds = 120;
+        });
+        var engine = new GuardianDecisionEngine(config);
+        var interfaces = new[]
+        {
+            TestData.WifiInterface(TestData.AdapterA, probe: TestData.OfflineProbe("10.20.30.40")),
+        };
+        var connected = TestData.ConnectedAdapter(
+            TestData.AdapterA, "CampusWiFi", "CampusWiFi", 60) with
+        {
+            SavedProfiles = new[] { "CampusWiFi", "DormWiFi" },
+        };
+
+        engine.Evaluate(Input(config, TestData.Now, TestData.OfflineProbe(), interfaces, new[] { connected }));
+        var beforeTimeout = engine.Evaluate(Input(
+            config, TestData.Now.AddSeconds(90), TestData.OfflineProbe(), interfaces, new[] { connected }));
+        Assert.DoesNotContain(beforeTimeout.Actions, action => action is DisconnectWifiAction);
+
+        var freshScan = TestData.Scan(
+            TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "CampusWiFi", 70),
+            TestData.Network(TestData.AdapterA, "DormWiFi", 55)) with
+        {
+            StartedAtUtc = TestData.Now.AddSeconds(120),
+            CompletedAtUtc = TestData.Now.AddSeconds(121),
+        };
+        var stale = connected with { LastScan = freshScan };
+        var decision = engine.Evaluate(Input(
+            config, TestData.Now.AddSeconds(122), TestData.OfflineProbe(), interfaces, new[] { stale }));
+
+        var disconnect = Assert.Single(decision.Actions.OfType<DisconnectWifiAction>());
+        Assert.Equal("CampusWiFi", disconnect.Ssid);
+        Assert.True(disconnect.SuppressAutoReconnect);
+    }
+
+    [Fact]
+    public void LongOfflineConnection_IsPreservedWithoutAnAlternativeNetwork()
+    {
+        var config = TestData.Config(c =>
+        {
+            c.Recovery.WifiFailureThreshold = 1;
+            c.Wifi.StaleConnectionSeconds = 30;
+        });
+        var engine = new GuardianDecisionEngine(config);
+        var interfaces = new[]
+        {
+            TestData.WifiInterface(TestData.AdapterA, probe: TestData.OfflineProbe("10.20.30.40")),
+        };
+        var scan = TestData.Scan(
+            TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "CampusWiFi", 70));
+        var connected = TestData.ConnectedAdapter(
+            TestData.AdapterA, "CampusWiFi", "CampusWiFi", 60, scan);
+
+        engine.Evaluate(Input(config, TestData.Now, TestData.OfflineProbe(), interfaces, new[] { connected }));
+        var fresh = connected with
+        {
+            LastScan = scan with { CompletedAtUtc = TestData.Now.AddSeconds(31) },
+        };
+        var decision = engine.Evaluate(Input(
+            config, TestData.Now.AddSeconds(32), TestData.OfflineProbe(), interfaces, new[] { fresh }));
+
+        Assert.DoesNotContain(decision.Actions, action => action is DisconnectWifiAction);
+    }
+
+    [Fact]
     public void StickyConnectionDisabled_StillRequiresFailuresBeforeSwitching()
     {
         var config = TestData.Config(c =>

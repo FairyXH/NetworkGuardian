@@ -712,12 +712,25 @@ public sealed class GuardianDecisionEngine
             var state = GetAdapterState(adapter.InterfaceGuid, config);
             state.ApplyConfig(config.Recovery, config.General);
 
+            // The duplicate-SSID pass already decided this adapter must be released. Do not add a second
+            // disconnect or any scan/connect work for the same stale snapshot.
+            if (actions.OfType<DisconnectWifiAction>().Any(action => action.InterfaceGuid == adapter.InterfaceGuid))
+            {
+                continue;
+            }
+
             var iface = input.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == adapter.InterfaceGuid);
             var usable = DetermineAdapterUsable(input, adapter, iface, internetOnline);
 
             if (adapter.IsConnected)
             {
                 state.DisconnectedSinceUtc = null;
+                if (state.LastDisconnectActionUtc is not null &&
+                    !string.Equals(state.LastKnownSsid, adapter.CurrentSsid, StringComparison.OrdinalIgnoreCase))
+                {
+                    state.LastDisconnectActionUtc = null;
+                }
+
                 state.LastKnownSsid = adapter.CurrentSsid;
                 if (!string.IsNullOrWhiteSpace(adapter.Connection?.ProfileName))
                 {
@@ -737,15 +750,88 @@ public sealed class GuardianDecisionEngine
 
                 // Connected but not passing traffic: only now may we consider a change.
                 state.Connectivity.RecordFailure(now);
-                wifiNotes.Add($"{adapter.Description}: connected to '{adapter.CurrentSsid}' but traffic is failing " +
-                              $"({state.Connectivity.ConsecutiveFailures}/{config.Recovery.WifiFailureThreshold}); " +
-                              "preserving the existing connection");
+                var failureDuration = state.Connectivity.FirstFailureUtc is { } failedAt
+                    ? now - failedAt
+                    : TimeSpan.Zero;
+                var staleAfter = TimeSpan.FromSeconds(config.Wifi.StaleConnectionSeconds);
+                if (!config.Wifi.RecoverStaleConnections ||
+                    !state.Connectivity.IsFailing ||
+                    failureDuration < staleAfter)
+                {
+                    wifiNotes.Add($"{adapter.Description}: connected to '{adapter.CurrentSsid}' but traffic is failing " +
+                                  $"({state.Connectivity.ConsecutiveFailures}/{config.Recovery.WifiFailureThreshold}, " +
+                                  $"{failureDuration.TotalSeconds:F0}/{staleAfter.TotalSeconds:F0}s); preserving the connection");
+                    continue;
+                }
 
-                // A failed probe must never tear down an association the user or Windows already
-                // established. Probe failures can be caused by captive portals, DNS/proxy software,
-                // or the remote targets themselves. The only connected adapter we disconnect is a
-                // duplicate SSID loser handled above; recovery work is otherwise limited to idle
-                // adapters, which can scan and join an unoccupied saved network without disruption.
+                var staleScan = adapter.LastScan;
+                var staleScanAge = staleScan?.CompletedAtUtc is { } staleCompleted
+                    ? now - staleCompleted
+                    : (TimeSpan?)null;
+                var staleScanIsFresh = staleScan is { Completed: true } &&
+                                       staleScanAge is { } staleAge &&
+                                       staleAge < TimeSpan.FromSeconds(30);
+                if (!staleScanIsFresh)
+                {
+                    if (state.ScanLimiter.TryAcquire(now, out _, out var scanReason))
+                    {
+                        state.ScanLimiter.RecordRun(now);
+                        state.LastScanRequestUtc = now;
+                        actions.Add(new ScanAdapterAction
+                        {
+                            InterfaceGuid = adapter.InterfaceGuid,
+                            Force = false,
+                            Reason = "connected Wi-Fi has been offline long enough; scan before switching",
+                        });
+                        wifiNotes.Add($"{adapter.Description}: 已持续无法联网 {failureDuration.TotalSeconds:F0} 秒，换网前先扫描候选网络");
+                    }
+                    else
+                    {
+                        wifiNotes.Add($"{adapter.Description}: stale connection scan deferred - {scanReason}");
+                    }
+
+                    continue;
+                }
+
+                var occupiedSsids = adapters
+                    .Where(other => other.InterfaceGuid != adapter.InterfaceGuid && other.IsConnected &&
+                                    !string.IsNullOrWhiteSpace(other.CurrentSsid))
+                    .Select(other => other.CurrentSsid!)
+                    .Append(adapter.CurrentSsid ?? string.Empty)
+                    .Where(ssid => !string.IsNullOrWhiteSpace(ssid))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var alternatives = _selector.SelectCandidates(
+                    adapter.InterfaceGuid,
+                    staleScan,
+                    adapter.SavedProfiles,
+                    config.Wifi,
+                    now,
+                    out _,
+                    state.LastConnectedProfile,
+                    occupiedSsids,
+                    input.EapCatalog);
+
+                if (alternatives.Count > 0)
+                {
+                    actions.Add(new DisconnectWifiAction
+                    {
+                        InterfaceGuid = adapter.InterfaceGuid,
+                        Ssid = adapter.CurrentSsid ?? string.Empty,
+                        SuppressAutoReconnect = true,
+                        Reason = $"current Wi-Fi has been offline for {failureDuration.TotalSeconds:F0}s; " +
+                                 $"switching to visible saved network '{alternatives[0].Ssid}'",
+                    });
+                    state.LastDisconnectActionUtc = now;
+                    _stateMachine.Transition(RecoveryState.Recovering, now, "stale Wi-Fi connection has an alternative");
+                    RecordRecoveryAction($"{adapter.Description}: {adapter.CurrentSsid} 长期无法联网，准备切换到 {alternatives[0].Ssid}");
+                }
+                else
+                {
+                    wifiNotes.Add($"{adapter.Description}: 已持续无法联网 {failureDuration.TotalSeconds:F0} 秒，" +
+                                  "但没有其他可用的已保存网络，保留当前连接");
+                }
+
                 continue;
             }
 
@@ -805,14 +891,21 @@ public sealed class GuardianDecisionEngine
 
             // A network another adapter is already holding is not a candidate here (one SSID per
             // adapter), so a released duplicate stays released instead of instantly re-associating.
-            var excludeSsids = config.Wifi.AllowSameSsidOnMultipleAdapters
-                ? null
+            var excludedSsids = config.Wifi.AllowSameSsidOnMultipleAdapters
+                ? new List<string>()
                 : adapters
                     .Where(other => other.InterfaceGuid != adapter.InterfaceGuid &&
                                     other.IsConnected &&
                                     !string.IsNullOrWhiteSpace(other.CurrentSsid))
                     .Select(other => other.CurrentSsid!)
-                    .ToArray();
+                    .ToList();
+
+            if (state.LastDisconnectActionUtc is { } disconnectedAt &&
+                now - disconnectedAt < TimeSpan.FromSeconds(config.Wifi.StaleConnectionSeconds) &&
+                !string.IsNullOrWhiteSpace(state.LastKnownSsid))
+            {
+                excludedSsids.Add(state.LastKnownSsid);
+            }
 
             var candidates = _selector.SelectCandidates(
                 adapter.InterfaceGuid,
@@ -822,7 +915,7 @@ public sealed class GuardianDecisionEngine
                 now,
                 out var rejections,
                 state.LastConnectedProfile ?? state.LastKnownSsid,
-                excludeSsids,
+                excludedSsids,
                 input.EapCatalog);
 
             if (config.Logging.VerboseNetwork && rejections.Count > 0)
