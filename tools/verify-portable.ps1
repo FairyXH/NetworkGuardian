@@ -27,7 +27,7 @@ $windowClass = 'NetworkGuardianPortableWindow'
 if ($MaxExeMb -le 0) {
     $buildScript = Get-Content (Join-Path $PSScriptRoot 'build-portable.ps1') -Raw
     if ($buildScript -match '\[double\]\$MaxExeMb\s*=\s*([0-9.]+)') { $MaxExeMb = [double]$Matches[1] }
-    else { $MaxExeMb = 8.5 }
+    else { $MaxExeMb = 9.0 }
 }
 
 $script:passed = 0
