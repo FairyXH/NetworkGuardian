@@ -108,7 +108,7 @@ public sealed class FaultedDeviceHandlingTests
     }
 
     [Fact]
-    public void AvailableInternet_PreventsIntrusiveDeviceRecovery()
+    public void AvailableInternet_DoesNotPreventEnablingDisabledDevice()
     {
         var config = TestData.Config(c =>
         {
@@ -125,8 +125,31 @@ public sealed class FaultedDeviceHandlingTests
 
         var decision = engine.Evaluate(Input(config, new[] { disabled, faulted }, internetOnline: true));
 
-        Assert.DoesNotContain(decision.Actions,
-            action => action is EnableWifiDeviceAction or RestartWifiDeviceAction);
+        Assert.Contains(decision.Actions, action => action is EnableWifiDeviceAction);
+        Assert.DoesNotContain(decision.Actions, action => action is RestartWifiDeviceAction);
+    }
+
+    [Fact]
+    public void DisabledPhysicalEthernetDevice_IsEnabled()
+    {
+        var config = TestData.Config(c => c.General.AutoEnableWifiDevices = true);
+        var engine = new GuardianDecisionEngine(config);
+        var ethernet = TestData.Managed(
+            TestData.Pnp(
+                @"PCI\VEN_10EC&DEV_8125\ETHERNET",
+                service: "rt640x64",
+                physicalMediaType: 14,
+                friendlyName: "Realtek PCIe GbE Family Controller",
+                problemCode: 22,
+                started: false),
+            physical: true);
+
+        Assert.Equal(DeviceCategory.PhysicalEthernet, ethernet.Classification.Category);
+
+        var decision = engine.Evaluate(Input(config, new[] { ethernet }, internetOnline: true));
+
+        var enable = Assert.Single(decision.Actions.OfType<EnableWifiDeviceAction>());
+        Assert.Equal(ethernet.Record.DeviceInstanceId, enable.DeviceInstanceId);
     }
 
     [Theory]

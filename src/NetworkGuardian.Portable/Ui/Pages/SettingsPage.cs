@@ -104,7 +104,7 @@ internal sealed class SettingsPage : IPage
         general.Toggle("启用自动网络恢复", config.General.AutomaticRecovery, v => config.General.AutomaticRecovery = v);
         general.Toggle("以太网优先（不主动扰动 Wi-Fi 连接）", config.General.PreferEthernet, v => config.General.PreferEthernet = v);
         general.Toggle("允许自动打开 Wi-Fi 无线电开关", config.General.AutoEnableWifiRadio, v => config.General.AutoEnableWifiRadio = v);
-        general.Toggle("允许自动启用被禁用的物理无线网卡", config.General.AutoEnableWifiDevices, v => config.General.AutoEnableWifiDevices = v);
+        general.Toggle("允许自动启用被禁用的物理网卡（有线和无线）", config.General.AutoEnableWifiDevices, v => config.General.AutoEnableWifiDevices = v);
         general.Toggle("故障无线网卡自动重启（禁用+启用，用于驱动启动失败）", config.General.AutoRestartFaultedWifiDevices, v => config.General.AutoRestartFaultedWifiDevices = v);
         general.Toggle("启动时确保无线电为开启", config.General.EnsureRadioOnAtStartup, v => config.General.EnsureRadioOnAtStartup = v);
         general.Toggle("无线电看门狗：持续检查并打开所有无线网卡的软开关", config.General.RadioWatchdogEnabled, v => config.General.RadioWatchdogEnabled = v);

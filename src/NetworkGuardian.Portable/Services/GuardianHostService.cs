@@ -53,6 +53,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly WifiNetworkVault _vault;
     private readonly WifiProfileApplier _profiles;
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
+    private readonly SemaphoreSlim _cycleSignal = new(0, 1);
     private readonly Random _jitter = new();
 
     /// <summary>
@@ -299,6 +300,14 @@ public sealed class GuardianHostService : IAsyncDisposable
     {
         _forceProbe = true;
         _forceEnumeration = true;
+        try
+        {
+            _cycleSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // One pending wake-up is enough; the flags above preserve all requested work.
+        }
     }
 
     public void SetPaused(bool paused)
@@ -442,10 +451,13 @@ public sealed class GuardianHostService : IAsyncDisposable
             try
             {
                 // Event driven wake-up with a bounded fallback heartbeat.
-                var wifiWait = _wifi.WaitForNotificationAsync(heartbeat, cancellationToken);
-                var deviceWait = _deviceNotifications.WaitAsync(heartbeat, cancellationToken);
-                await Task.WhenAny(wifiWait, deviceWait, Task.Delay(heartbeat, cancellationToken))
-                    .ConfigureAwait(false);
+                using var wakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var wifiWait = _wifi.WaitForNotificationAsync(heartbeat, wakeCts.Token);
+                var deviceWait = _deviceNotifications.WaitAsync(heartbeat, wakeCts.Token);
+                var immediateWait = _cycleSignal.WaitAsync(wakeCts.Token);
+                var heartbeatWait = Task.Delay(heartbeat, wakeCts.Token);
+                await Task.WhenAny(wifiWait, deviceWait, immediateWait, heartbeatWait).ConfigureAwait(false);
+                await wakeCts.CancelAsync().ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -840,7 +852,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
                     if (result.Success)
                     {
-                        _logger.LogInformation("Enabled physical Wi-Fi device {Device}: {Detail}",
+                        _logger.LogInformation("Enabled physical network device {Device}: {Detail}",
                             enable.DeviceInstanceId, result.Detail);
                         Notification?.Invoke(this, $"已启用网卡 {enable.FriendlyName}");
                         await Task.Delay(
@@ -849,6 +861,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                             .ConfigureAwait(false);
                         _forceEnumeration = true;
                         _wifi.RefreshAdapters();
+                        RequestImmediateCycle();
                     }
                     else
                     {
@@ -1528,6 +1541,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _radio.Dispose();
         _probe.Dispose();
         _cycleGate.Dispose();
+        _cycleSignal.Dispose();
         _cts?.Dispose();
 
         _logger.LogInformation("Guardian host disposed");

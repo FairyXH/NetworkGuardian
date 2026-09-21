@@ -396,13 +396,19 @@ public sealed class GuardianDecisionEngine
             }
         }
 
-        // ---------- Disabled physical Wi-Fi devices ----------
-        var wifiDevices = input.Devices
+        // ---------- Disabled physical network devices ----------
+        // A disabled Ethernet/Wi-Fi adapter must be restored independently of the current route. Having
+        // Internet through another adapter is not evidence that the disabled hardware should stay off:
+        // it only hid the device until the active route failed in the previous implementation.
+        var physicalNetworkDevices = input.Devices
             .Where(d => d.Record.IsPresent && d.Classification.IsPhysical &&
-                        d.Classification.Category == DeviceCategory.PhysicalWifi)
+                        d.Classification.Category is DeviceCategory.PhysicalWifi or DeviceCategory.PhysicalEthernet)
+            .ToList();
+        var wifiDevices = physicalNetworkDevices
+            .Where(d => d.Classification.Category == DeviceCategory.PhysicalWifi)
             .ToList();
         // Only genuinely disabled devices (CM problem code 22/21) can simply be enabled.
-        var disabledDevices = wifiDevices.Where(d => d.IsDisabled).ToList();
+        var disabledDevices = physicalNetworkDevices.Where(d => d.IsDisabled).ToList();
 
         // A device whose driver failed to start (10, 43, ...) is not "disabled": CM_Enable_DevNode
         // changes nothing for it. The one PnP action that has a real chance is a restart (disable +
@@ -449,7 +455,7 @@ public sealed class GuardianDecisionEngine
             }
         }
 
-        if (disabledDevices.Count > 0 && config.General.AutoEnableWifiDevices && !internetOnline)
+        if (disabledDevices.Count > 0 && config.General.AutoEnableWifiDevices)
         {
             foreach (var device in disabledDevices)
             {
@@ -463,8 +469,8 @@ public sealed class GuardianDecisionEngine
                     actions.Add(new EnableWifiDeviceAction
                     {
                         DeviceInstanceId = device.Record.DeviceInstanceId,
-                        FriendlyName = device.Record.FriendlyName ?? device.Record.DeviceDescription ?? "Wi-Fi adapter",
-                        Reason = $"physical Wi-Fi device is present but disabled (problemCode={device.Record.ProblemCode})",
+                            FriendlyName = device.Record.FriendlyName ?? device.Record.DeviceDescription ?? "network adapter",
+                            Reason = $"physical network device is present but disabled (problemCode={device.Record.ProblemCode})",
                     });
                     _stateMachine.Transition(RecoveryState.EnablingWifiDevices, now, "disabled physical Wi-Fi device detected");
                 }
@@ -486,9 +492,7 @@ public sealed class GuardianDecisionEngine
         }
         else if (disabledDevices.Count > 0)
         {
-            notes.Add(internetOnline
-                ? $"{disabledDevices.Count} physical Wi-Fi device(s) are disabled; Internet is available, so they remain untouched."
-                : $"{disabledDevices.Count} physical Wi-Fi device(s) are disabled; autoEnableWifiDevices is off.");
+            notes.Add($"{disabledDevices.Count} physical network device(s) are disabled; autoEnableWifiDevices is off.");
         }
 
         if (actions.OfType<RestartWifiDeviceAction>().Any())
