@@ -14,6 +14,42 @@ namespace NetworkGuardian.Tests;
 /// </summary>
 public sealed class EapCredentialLibraryTests
 {
+    [Fact]
+    public void BuildPersonalProfile_CarriesProtectedAtRestPasswordIntoWindowsProfile()
+    {
+        var credential = new WifiNetworkCredential
+        {
+            Ssid = "HomeWiFi",
+            Kind = WifiCredentialKind.Personal,
+            Security = WifiSecurity.Wpa2Personal,
+            Password = "wifi<&password",
+        };
+
+        var result = EnterpriseProfileBuilder.BuildProfileXml(credential);
+
+        Assert.True(result.Success, result.Failure);
+        Assert.Contains("<authentication>WPA2PSK</authentication>", result.Xml);
+        Assert.Contains("<encryption>AES</encryption>", result.Xml);
+        Assert.Contains("<useOneX>false</useOneX>", result.Xml);
+        Assert.Contains("<keyMaterial>wifi&lt;&amp;password</keyMaterial>", result.Xml);
+    }
+
+    [Fact]
+    public void BuildOpenProfile_HasNoSharedKey()
+    {
+        var result = EnterpriseProfileBuilder.BuildProfileXml(new WifiNetworkCredential
+        {
+            Ssid = "Guest",
+            Kind = WifiCredentialKind.Open,
+            Security = WifiSecurity.Open,
+        });
+
+        Assert.True(result.Success, result.Failure);
+        Assert.Contains("<authentication>open</authentication>", result.Xml);
+        Assert.Contains("<encryption>none</encryption>", result.Xml);
+        Assert.DoesNotContain("sharedKey", result.Xml);
+    }
+
     private static WifiNetworkCredential Credential() => new()
     {
         Ssid = "HXXY-WiFi",

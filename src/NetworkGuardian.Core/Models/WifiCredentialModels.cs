@@ -1,5 +1,12 @@
 namespace NetworkGuardian.Core.Models;
 
+public enum WifiCredentialKind
+{
+    Enterprise = 0,
+    Personal,
+    Open,
+}
+
 /// <summary>802.1X authentication suite used by an enterprise Wi-Fi profile.</summary>
 public enum WifiEnterpriseAuth
 {
@@ -49,6 +56,12 @@ public sealed class WifiNetworkCredential
 
     /// <summary>Name of the Windows profile that is generated. Defaults to <see cref="Ssid"/>.</summary>
     public string? ProfileName { get; set; }
+
+    /// <summary>Authentication family. Enterprise is zero to preserve version-1 library semantics.</summary>
+    public WifiCredentialKind Kind { get; set; } = WifiCredentialKind.Enterprise;
+
+    /// <summary>Security observed during scan; used to generate a compatible personal/open profile.</summary>
+    public WifiSecurity Security { get; set; } = WifiSecurity.Wpa2Enterprise;
 
     public WifiEnterpriseAuth Auth { get; set; } = WifiEnterpriseAuth.Wpa2Enterprise;
 
@@ -131,13 +144,20 @@ public sealed class WifiNetworkCredential
     public string EffectiveProfileName => string.IsNullOrWhiteSpace(ProfileName) ? Ssid : ProfileName!;
 
     /// <summary>True when the entry needs a password to authenticate (EAP-TLS uses a certificate).</summary>
-    public bool RequiresPassword => Eap != WifiEapMethod.Tls && !UseWinLogonCredentials;
+    public bool RequiresPassword => Kind switch
+    {
+        WifiCredentialKind.Open => false,
+        WifiCredentialKind.Personal => true,
+        _ => Eap != WifiEapMethod.Tls && !UseWinLogonCredentials,
+    };
+
+    public bool IsEnterprise => Kind == WifiCredentialKind.Enterprise;
 }
 
 /// <summary>Persisted document of the self-maintained wireless network library.</summary>
 public sealed class WifiCredentialLibrary
 {
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
     public int Version { get; set; } = CurrentVersion;
 

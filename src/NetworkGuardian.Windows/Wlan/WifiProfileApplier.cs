@@ -104,7 +104,7 @@ public sealed class WifiProfileApplier
         var fingerprint = WifiProfileInspector.Fingerprint(profileXml);
 
         var userDataBuild = EnterpriseProfileBuilder.BuildEapUserDataXml(credential);
-        if (!userDataBuild.Success && credential.RequiresPassword)
+        if (credential.IsEnterprise && !userDataBuild.Success && credential.RequiresPassword)
         {
             // Without credentials an unattended handshake cannot succeed: report it instead of writing a
             // profile that would only make Windows prompt (or fail silently).
@@ -165,7 +165,7 @@ public sealed class WifiProfileApplier
         }
 
         var userDataWritten = false;
-        if (userDataBuild.Success)
+        if (credential.IsEnterprise && userDataBuild.Success)
         {
             var write = _wifi.SetProfileEapUserData(interfaceGuid, profileName, userDataBuild.Xml!);
             if (!write.Success)
@@ -200,7 +200,7 @@ public sealed class WifiProfileApplier
             };
         }
 
-        if (!WifiProfileInspector.IsEnterprise(readBack))
+        if (credential.IsEnterprise && !WifiProfileInspector.IsEnterprise(readBack))
         {
             return new WifiProfileApplyResult
             {

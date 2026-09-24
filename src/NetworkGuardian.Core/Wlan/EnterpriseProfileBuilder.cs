@@ -91,6 +91,11 @@ public static class EnterpriseProfileBuilder
                 : new EnterpriseProfileBuildResult(true, credential.ProfileXmlOverride.Trim(), problems);
         }
 
+        if (!credential.IsEnterprise)
+        {
+            return BuildPersonalOrOpenProfile(credential, problems);
+        }
+
         if (credential.Eap == WifiEapMethod.CustomXml)
         {
             problems.Add("EAP 方法为“自定义 XML”时必须提供完整的配置 XML（EAP-TTLS、PEAP-TLS、" +
@@ -168,6 +173,52 @@ public static class EnterpriseProfileBuilder
         xml.Append("\t</MacRandomization>\n");
         xml.Append("</WLANProfile>");
 
+        return new EnterpriseProfileBuildResult(true, xml.ToString(), problems);
+    }
+
+    private static EnterpriseProfileBuildResult BuildPersonalOrOpenProfile(
+        WifiNetworkCredential credential,
+        List<string> problems)
+    {
+        if (credential.Kind == WifiCredentialKind.Personal && string.IsNullOrEmpty(credential.Password))
+        {
+            problems.Add("个人网络必须填写 Wi-Fi 密码");
+        }
+
+        var (authentication, encryption) = credential.Kind == WifiCredentialKind.Open
+            ? ("open", "none")
+            : credential.Security switch
+            {
+                WifiSecurity.WpaPersonal => ("WPAPSK", "TKIP"),
+                WifiSecurity.Wpa3Personal => ("WPA3SAE", "AES"),
+                _ => ("WPA2PSK", "AES"),
+            };
+
+        if (problems.Count > 0)
+        {
+            return EnterpriseProfileBuildResult.Fail(problems.ToArray());
+        }
+
+        var xml = new StringBuilder(2048);
+        xml.Append("<?xml version=\"1.0\"?>\n");
+        xml.Append($"<WLANProfile xmlns=\"{WlanProfileNamespace}\">\n");
+        xml.Append($"\t<name>{Escape(credential.EffectiveProfileName)}</name>\n");
+        xml.Append("\t<SSIDConfig><SSID>");
+        xml.Append($"<hex>{ToHex(credential.Ssid)}</hex><name>{Escape(credential.Ssid)}</name>");
+        xml.Append("</SSID>");
+        if (credential.Hidden) xml.Append("<nonBroadcast>true</nonBroadcast>");
+        xml.Append("</SSIDConfig>\n");
+        xml.Append("\t<connectionType>ESS</connectionType>\n");
+        xml.Append($"\t<connectionMode>{(credential.ConnectAutomatically ? "auto" : "manual")}</connectionMode>\n");
+        xml.Append("\t<MSM><security><authEncryption>");
+        xml.Append($"<authentication>{authentication}</authentication><encryption>{encryption}</encryption><useOneX>false</useOneX>");
+        xml.Append("</authEncryption>");
+        if (credential.Kind == WifiCredentialKind.Personal)
+        {
+            xml.Append("<sharedKey><keyType>passPhrase</keyType><protected>false</protected>");
+            xml.Append($"<keyMaterial>{Escape(credential.Password!)}</keyMaterial></sharedKey>");
+        }
+        xml.Append("</security></MSM>\n</WLANProfile>");
         return new EnterpriseProfileBuildResult(true, xml.ToString(), problems);
     }
 

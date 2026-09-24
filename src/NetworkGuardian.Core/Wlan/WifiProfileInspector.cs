@@ -140,7 +140,7 @@ public static class WifiProfileInspector
             return ProfileUpdateReason.Missing;
         }
 
-        if (!IsEnterprise(currentProfileXml))
+        if (credential.IsEnterprise && !IsEnterprise(currentProfileXml))
         {
             return ProfileUpdateReason.NotEnterprise;
         }

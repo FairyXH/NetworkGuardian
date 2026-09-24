@@ -289,7 +289,7 @@ public sealed class WifiNetworkVault
     {
         var usableEntries = _library.Networks
             .Where(e => e.Enabled && !e.PasswordDecryptionFailed)
-            .Where(e => e.Eap == WifiEapMethod.Tls || e.UseWinLogonCredentials || !string.IsNullOrEmpty(e.Password))
+            .Where(e => !e.RequiresPassword || !string.IsNullOrEmpty(e.Password))
             .Where(e => !string.IsNullOrWhiteSpace(e.Ssid))
             .ToList();
         var usable = usableEntries.Select(e => e.Ssid).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -361,6 +361,8 @@ public sealed class WifiNetworkVault
     private static string Signature(WifiNetworkCredential entry) => string.Join('\u001f',
         entry.Ssid,
         entry.ProfileName ?? string.Empty,
+        entry.Kind.ToString(),
+        entry.Security.ToString(),
         entry.Auth.ToString(),
         entry.Eap.ToString(),
         entry.Identity,
@@ -382,6 +384,8 @@ public sealed class WifiNetworkVault
         Id = source.Id,
         Ssid = source.Ssid,
         ProfileName = source.ProfileName,
+        Kind = source.Kind,
+        Security = source.Security,
         Auth = source.Auth,
         Eap = source.Eap,
         Identity = source.Identity,
