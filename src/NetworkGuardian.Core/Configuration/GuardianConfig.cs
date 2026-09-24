@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 10;
+    public const int CurrentVersion = 11;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -126,6 +126,9 @@ public sealed class RecoverySettings
     /// <summary>Consecutive successful probes required to leave recovery mode (hysteresis).</summary>
     public int InternetRecoveryThreshold { get; set; } = 2;
 
+    /// <summary>Minimum stable time before a recovered preferred interface may lead again.</summary>
+    public int InterfaceRecoveryHoldSeconds { get; set; } = 6;
+
     /// <summary>Consecutive failed probes before an adapter's connection is considered dead.</summary>
     public int WifiFailureThreshold { get; set; } = 3;
 
@@ -163,6 +166,9 @@ public sealed class ProbeSettings
 
     /// <summary>Interval of the periodic Internet check.</summary>
     public int IntervalSeconds { get; set; } = 15;
+
+    /// <summary>Fast cadence used while automatic route failover is active.</summary>
+    public int FastRouteIntervalSeconds { get; set; } = 2;
 
     /// <summary>Retry interval while an interface is offline or behind a captive portal.</summary>
     public int FailureIntervalSeconds { get; set; } = 2;

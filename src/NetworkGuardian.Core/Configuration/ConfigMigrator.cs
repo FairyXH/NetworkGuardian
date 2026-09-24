@@ -205,6 +205,15 @@ public sealed class ConfigMigrator
             applied.Add("v10: fast multi-site HTTP/HTTPS verdict; ICMP no longer proves Internet access.");
         }
 
+        if (version < 11)
+        {
+            config.Probe.FastRouteIntervalSeconds = 2;
+            config.Recovery.InterfaceRecoveryHoldSeconds = 6;
+            config.Version = 11;
+            version = 11;
+            applied.Add("v11: fast route probes with delayed, verified failback hysteresis.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

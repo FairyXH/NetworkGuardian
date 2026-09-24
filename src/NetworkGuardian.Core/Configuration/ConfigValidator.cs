@@ -64,6 +64,7 @@ public sealed class ConfigValidator
 
         config.Recovery.InternetFailureThreshold = Clamp(config.Recovery.InternetFailureThreshold, 1, 100, "recovery.internetFailureThreshold", issues);
         config.Recovery.InternetRecoveryThreshold = Clamp(config.Recovery.InternetRecoveryThreshold, 1, 100, "recovery.internetRecoveryThreshold", issues);
+        config.Recovery.InterfaceRecoveryHoldSeconds = Clamp(config.Recovery.InterfaceRecoveryHoldSeconds, 0, 300, "recovery.interfaceRecoveryHoldSeconds", issues);
         config.Recovery.WifiFailureThreshold = Clamp(config.Recovery.WifiFailureThreshold, 1, 100, "recovery.wifiFailureThreshold", issues);
         config.Recovery.CooldownSeconds = Clamp(config.Recovery.CooldownSeconds, 0, 7200, "recovery.cooldownSeconds", issues);
         config.Recovery.BaseBackoffSeconds = Clamp(config.Recovery.BaseBackoffSeconds, 1, 3600, "recovery.baseBackoffSeconds", issues);
@@ -76,6 +77,7 @@ public sealed class ConfigValidator
         config.Recovery.OperationCircuitBreakerSeconds = Clamp(config.Recovery.OperationCircuitBreakerSeconds, 0, 86400, "recovery.operationCircuitBreakerSeconds", issues);
 
         config.Probe.IntervalSeconds = Clamp(config.Probe.IntervalSeconds, 3, 3600, "probe.intervalSeconds", issues);
+        config.Probe.FastRouteIntervalSeconds = Clamp(config.Probe.FastRouteIntervalSeconds, 1, 10, "probe.fastRouteIntervalSeconds", issues);
         config.Probe.FailureIntervalSeconds = Clamp(config.Probe.FailureIntervalSeconds, 1, 60, "probe.failureIntervalSeconds", issues);
         config.Probe.IndeterminateIntervalSeconds = Clamp(config.Probe.IndeterminateIntervalSeconds, 1, 300, "probe.indeterminateIntervalSeconds", issues);
         config.Probe.TimeoutMs = Clamp(config.Probe.TimeoutMs, 200, 60000, "probe.timeoutMs", issues);

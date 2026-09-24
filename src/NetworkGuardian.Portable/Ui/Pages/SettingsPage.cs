@@ -123,6 +123,7 @@ internal sealed class SettingsPage : IPage
         var probe = new Form(ctx, this);
         probe.Toggle("启用探测", config.Probe.Enabled, v => config.Probe.Enabled = v);
         probe.Number("探测周期（秒）", config.Probe.IntervalSeconds, 3, 3600, v => config.Probe.IntervalSeconds = v);
+        probe.Number("自动切换快速探测周期（秒）", config.Probe.FastRouteIntervalSeconds, 1, 10, v => config.Probe.FastRouteIntervalSeconds = v);
         probe.Number("故障重试周期（秒）", config.Probe.FailureIntervalSeconds, 1, 60, v => config.Probe.FailureIntervalSeconds = v);
         probe.Number("状态不确定重试周期（秒）", config.Probe.IndeterminateIntervalSeconds, 1, 300, v => config.Probe.IndeterminateIntervalSeconds = v);
         probe.Number("单次超时（毫秒）", config.Probe.TimeoutMs, 200, 60000, v => config.Probe.TimeoutMs = v);
@@ -225,6 +226,7 @@ internal sealed class SettingsPage : IPage
         var recovery = new Form(ctx, this);
         recovery.Number("外网连续失败阈值", config.Recovery.InternetFailureThreshold, 1, 100, v => config.Recovery.InternetFailureThreshold = v);
         recovery.Number("恢复判定所需连续成功次数", config.Recovery.InternetRecoveryThreshold, 1, 100, v => config.Recovery.InternetRecoveryThreshold = v);
+        recovery.Number("高优先级线路恢复观察时间（秒）", config.Recovery.InterfaceRecoveryHoldSeconds, 0, 300, v => config.Recovery.InterfaceRecoveryHoldSeconds = v);
         recovery.Number("无线连接失败阈值", config.Recovery.WifiFailureThreshold, 1, 100, v => config.Recovery.WifiFailureThreshold = v);
         recovery.Number("恢复冷却（秒）", config.Recovery.CooldownSeconds, 0, 7200, v => config.Recovery.CooldownSeconds = v);
         recovery.Number("退避基数（秒）", config.Recovery.BaseBackoffSeconds, 1, 3600, v => config.Recovery.BaseBackoffSeconds = v);

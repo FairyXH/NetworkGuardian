@@ -89,7 +89,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private ConnectivityProbeReport _globalProbe;
     private Dictionary<Guid, ConnectivityProbeReport> _wifiProbeByAdapter = new();
     private Dictionary<string, ConnectivityProbeReport> _probeByInterfaceId = new();
-    private readonly Dictionary<string, ProbeStabilityState> _probeStability = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, InterfaceProbeStability> _probeStability = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<Guid, (DateTimeOffset AtUtc, string Profile)> _lastConnectAttempt = new();
     private WifiEapCatalog _eapCatalog = WifiEapCatalog.Empty;
     private bool _disposed;
@@ -782,39 +782,20 @@ public sealed class GuardianHostService : IAsyncDisposable
     private ConnectivityProbeReport ApplyProbeStability(string interfaceId, ConnectivityProbeReport report)
     {
         _probeStability.TryGetValue(interfaceId, out var state);
-        state ??= new ProbeStabilityState();
-
-        if (report.IsOnline)
-        {
-            state.ConsecutiveSuccesses++;
-            state.ConsecutiveFailures = 0;
-            state.StableOnline = true;
-        }
-        else
-        {
-            state.ConsecutiveFailures++;
-            state.ConsecutiveSuccesses = 0;
-            if (report.Reachability == InternetReachability.CaptivePortal ||
-                state.ConsecutiveFailures >= 2 || !state.HasVerdict)
-            {
-                state.StableOnline = false;
-            }
-        }
-
-        state.HasVerdict = true;
+        state ??= new InterfaceProbeStability();
         _probeStability[interfaceId] = state;
-        return report with
-        {
-            StableOnline = state.StableOnline,
-            ConsecutiveSuccesses = state.ConsecutiveSuccesses,
-            ConsecutiveFailures = state.ConsecutiveFailures,
-        };
+        return state.Apply(
+            report,
+            failureThreshold: 2,
+            recoveryThreshold: _config.Recovery.InternetRecoveryThreshold,
+            recoveryHold: TimeSpan.FromSeconds(_config.Recovery.InterfaceRecoveryHoldSeconds),
+            now: DateTimeOffset.UtcNow);
     }
 
     private void ScheduleNextProbe(IEnumerable<ConnectivityProbeReport> reports)
     {
         var samples = reports.ToList();
-        var seconds = samples.Count == 0 || samples.Any(report =>
+        var adaptiveSeconds = samples.Count == 0 || samples.Any(report =>
                 report.Reachability is InternetReachability.Unknown or
                     InternetReachability.LocalOnly or
                     InternetReachability.CaptivePortal)
@@ -822,18 +803,10 @@ public sealed class GuardianHostService : IAsyncDisposable
             : samples.Any(report => report.Reachability == InternetReachability.InternetLikely)
                 ? _config.Probe.IndeterminateIntervalSeconds
                 : _config.Probe.IntervalSeconds;
+        var seconds = _config.General.AutomaticRecovery && _config.Probe.PerInterfaceProbing
+            ? Math.Min(adaptiveSeconds, _config.Probe.FastRouteIntervalSeconds)
+            : adaptiveSeconds;
         _nextProbeUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(Math.Max(1, seconds));
-    }
-
-    private sealed class ProbeStabilityState
-    {
-        public bool HasVerdict { get; set; }
-
-        public bool StableOnline { get; set; }
-
-        public int ConsecutiveSuccesses { get; set; }
-
-        public int ConsecutiveFailures { get; set; }
     }
 
     private IReadOnlyList<WifiAdapterRuntimeState> BuildAdapterStates()
