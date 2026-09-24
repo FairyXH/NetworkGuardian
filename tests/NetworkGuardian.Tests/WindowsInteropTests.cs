@@ -4,11 +4,24 @@ using NetworkGuardian.Core.Models;
 using NetworkGuardian.Windows.Connectivity;
 using NetworkGuardian.Windows.Devices;
 using NetworkGuardian.Windows.Location;
+using NetworkGuardian.Windows.Native;
 using NetworkGuardian.Windows.Network;
 using NetworkGuardian.Windows.Wlan;
 using Xunit;
 
 namespace NetworkGuardian.Tests;
+
+public sealed class NetworkHotPlugInteropTests
+{
+    [Fact]
+    public void NetworkInterfaceNotificationGuidMatchesWindowsSdk()
+    {
+        Assert.Equal(
+            new Guid("cac88484-7515-4c03-82e6-71a87abac361"),
+            SetupApiNative.GuidDevInterfaceNet);
+        Assert.NotEqual(SetupApiNative.GuidDevClassNet, SetupApiNative.GuidDevInterfaceNet);
+    }
+}
 
 /// <summary>Pure mapping helpers that back the Wi-Fi tables and the band preference policy.</summary>
 public sealed class WifiMappingTests

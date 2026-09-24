@@ -10,7 +10,7 @@ public sealed class NpcapProbeVerifier : IDisposable
 {
     private readonly ILogger _logger;
     private readonly NpcapApi? _api;
-    private readonly IReadOnlyDictionary<Guid, string> _devices;
+    private IReadOnlyDictionary<Guid, string> _devices = new Dictionary<Guid, string>();
 
     public NpcapProbeVerifier(ILogger<NpcapProbeVerifier> logger)
     {
@@ -25,10 +25,7 @@ public sealed class NpcapProbeVerifier : IDisposable
                 return;
             }
 
-            _devices = _api.EnumerateDevices();
-            Status = _devices.Count == 0
-                ? new NpcapRuntimeStatus(false, "Npcap 已加载，但没有可打开的网络接口", _api.Version)
-                : new NpcapRuntimeStatus(true, $"Npcap 可用，可捕获 {_devices.Count} 个接口", _api.Version);
+            RefreshDevices();
         }
         catch (Exception ex)
         {
@@ -38,12 +35,39 @@ public sealed class NpcapProbeVerifier : IDisposable
         }
     }
 
-    public NpcapRuntimeStatus Status { get; }
+    public NpcapRuntimeStatus Status { get; private set; } =
+        new(false, "Npcap 尚未初始化");
+
+    /// <summary>Re-enumerates capture devices after a network adapter hot-plug event.</summary>
+    public NpcapRuntimeStatus RefreshDevices()
+    {
+        if (_api is null)
+        {
+            return Status;
+        }
+
+        try
+        {
+            var devices = _api.EnumerateDevices();
+            Volatile.Write(ref _devices, devices);
+            Status = devices.Count == 0
+                ? new NpcapRuntimeStatus(false, "Npcap 已加载，但没有可打开的网络接口", _api.Version)
+                : new NpcapRuntimeStatus(true, $"Npcap 可用，可捕获 {devices.Count} 个接口", _api.Version);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Npcap 接口刷新失败");
+            Status = new NpcapRuntimeStatus(false, $"Npcap 接口刷新失败：{ex.Message}", _api.Version);
+        }
+
+        return Status;
+    }
 
     public NpcapCaptureSession? TryStart(Guid? adapterGuid, string? sourceAddress)
     {
         if (_api is null || !Status.IsAvailable || adapterGuid is not { } guid ||
-            string.IsNullOrWhiteSpace(sourceAddress) || !_devices.TryGetValue(guid, out var device))
+            string.IsNullOrWhiteSpace(sourceAddress) ||
+            !Volatile.Read(ref _devices).TryGetValue(guid, out var device))
         {
             return null;
         }

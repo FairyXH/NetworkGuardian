@@ -589,7 +589,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             var now = DateTimeOffset.UtcNow;
 
             _wifi.DrainNotifications();
-            _deviceNotifications.Drain(out var deviceChanges);
+            var deviceTreeChanged = _deviceNotifications.Drain(out var deviceChanges);
             if (deviceChanges.Count > 0)
             {
                 foreach (var change in deviceChanges)
@@ -597,7 +597,13 @@ public sealed class GuardianHostService : IAsyncDisposable
                     _logger.LogDebug("PnP device change: {Change}", change);
                 }
 
-                _forceEnumeration = true;
+                if (deviceTreeChanged)
+                {
+                    _forceEnumeration = true;
+                    _forceProbe = true;
+                    _logger.LogInformation(
+                        "检测到网卡热插拔，立即刷新设备、Npcap、跃点和出口探测");
+                }
             }
 
             var enumerationInterval = TimeSpan.FromSeconds(Math.Max(30, _config.General.EnumerationRefreshSeconds));
@@ -677,6 +683,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     {
         var adapterCount = _wifi.RefreshAdapters();
         _devicesSnapshot = await _devices.EnumerateAsync(cancellationToken).ConfigureAwait(false);
+        var npcapStatus = _npcap.RefreshDevices();
 
         _deviceByNetCfgGuid = _devicesSnapshot
             .Where(d => Guid.TryParse(d.Record.NetCfgInstanceId, out _))
@@ -701,8 +708,8 @@ public sealed class GuardianHostService : IAsyncDisposable
         var physical = _devicesSnapshot.Count(d => d.Classification.IsPhysical);
         _logger.LogInformation(
             "Enumeration complete: {AdapterCount} WLAN interface(s), {DeviceCount} network device(s), " +
-            "{PhysicalCount} classified physical",
-            adapterCount, _devicesSnapshot.Count, physical);
+            "{PhysicalCount} classified physical; Npcap={NpcapAvailable} ({NpcapDetail})",
+            adapterCount, _devicesSnapshot.Count, physical, npcapStatus.IsAvailable, npcapStatus.Detail);
     }
 
     private async Task RefreshProbesAsync(CancellationToken cancellationToken)

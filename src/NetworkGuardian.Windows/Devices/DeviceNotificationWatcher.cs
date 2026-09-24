@@ -62,7 +62,9 @@ public sealed class DeviceNotificationWatcher : IDisposable
             {
                 cbSize = 416,
                 FilterType = CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE,
-                ClassGuid = GuidDevClassNet,
+                // DEVICEINTERFACE filters require an interface-class GUID. GUID_DEVCLASS_NET is a
+                // setup-class GUID and registers successfully but does not deliver adapter arrivals.
+                ClassGuid = GuidDevInterfaceNet,
             };
 
             var size = Marshal.SizeOf<CM_NOTIFY_FILTER>();
@@ -86,7 +88,7 @@ public sealed class DeviceNotificationWatcher : IDisposable
             }
 
             _registered = true;
-            _logger.LogInformation("Registered PnP device notifications for the network setup class");
+            _logger.LogInformation("Registered PnP device notifications for the network interface class");
             return true;
         }
         catch (Exception ex)

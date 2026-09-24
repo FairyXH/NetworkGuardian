@@ -21,6 +21,9 @@ internal static class SetupApiNative
     /// <summary>Network adapters setup class GUID (GUID_DEVCLASS_NET).</summary>
     internal static readonly Guid GuidDevClassNet = new("4d36e972-e325-11ce-bfc1-08002be10318");
 
+    /// <summary>Network adapter device-interface class GUID (GUID_DEVINTERFACE_NET).</summary>
+    internal static readonly Guid GuidDevInterfaceNet = new("cac88484-7515-4c03-82e6-71a87abac361");
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct SP_DEVINFO_DATA
     {
