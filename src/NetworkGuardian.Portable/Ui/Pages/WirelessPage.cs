@@ -145,7 +145,10 @@ internal sealed class WirelessPage : IPage
         var canvas = ctx.Canvas;
         var networkCount = adapter.LastScan?.Networks.Count ?? 0;
         var networkRows = networkCount > 0 ? networkCount : 1;
-        var profilesRows = Math.Max(1, (adapter.SavedProfiles.Count + 5) / 6);
+        var compactNetworks = area.Width < ctx.Scale(920);
+        var networkRowHeight = compactNetworks ? ctx.Scale(52) : ctx.Scale(26);
+        var profileContentWidth = Math.Max(ctx.Scale(120), area.Width - ctx.Scale(32));
+        var profilesRows = MeasureChipRows(ctx, adapter.SavedProfiles, profileContentWidth);
 
         // The 802.1X accounts come from the application's own library, not from Windows.
         var librarySsids = ctx.Host.WifiLibraryEntries
@@ -163,7 +166,7 @@ internal sealed class WirelessPage : IPage
             ctx.Scale(22) +                   // "已保存的配置" caption
             (profilesRows * ctx.Scale(24)) +
             ctx.Scale(22) +                   // scanned networks caption
-            (networkRows * ctx.Scale(26)) +
+            (networkRows * networkRowHeight) +
             ctx.Scale(16);
 
         var card = new Rectangle(area.Left, y, area.Width, cardHeight);
@@ -286,9 +289,16 @@ internal sealed class WirelessPage : IPage
         }
         else
         {
-            var columns = new[] { ctx.Scale(240), ctx.Scale(70), ctx.Scale(90), ctx.Scale(150), ctx.Scale(180) };
+            var tableWidth = width;
+            var actionWidth = compactNetworks ? 0 : ctx.Scale(270);
+            var dataWidth = Math.Max(ctx.Scale(420), tableWidth - actionWidth);
+            var columns = compactNetworks
+                ? new[] { dataWidth * 38 / 100, dataWidth * 15 / 100, dataWidth * 18 / 100, dataWidth * 29 / 100 }
+                : new[] { dataWidth * 34 / 100, dataWidth * 12 / 100, dataWidth * 16 / 100, dataWidth * 20 / 100, dataWidth * 18 / 100 };
             var headerX = x;
-            var headers = new[] { "SSID", "信号", "RSSI", "频段", "配置 / 状态" };
+            var headers = compactNetworks
+                ? new[] { "SSID", "信号", "RSSI", "频段" }
+                : new[] { "SSID", "信号", "RSSI", "频段", "配置 / 状态" };
             for (var i = 0; i < headers.Length; i++)
             {
                 canvas.Text(headers[i], new Rectangle(headerX, cy, columns[i], ctx.Scale(18)), Palette.TextMuted, TextStyle.Caption);
@@ -313,7 +323,15 @@ internal sealed class WirelessPage : IPage
                     }
                 }
 
-                var cells = new[]
+                var cells = compactNetworks
+                    ? new[]
+                    {
+                        network.Ssid,
+                        $"{network.SignalQuality}%",
+                        $"{network.Rssi} dBm",
+                        network.Band == NetworkBand.Unknown ? "—" : $"{Format.Band(network.Band)} ch{network.Channel}",
+                    }
+                    : new[]
                 {
                     network.Ssid,
                     $"{network.SignalQuality}%",
@@ -329,6 +347,8 @@ internal sealed class WirelessPage : IPage
                     columnX += columns[i];
                 }
 
+                var actionY = compactNetworks ? cy + ctx.Scale(22) : cy - ctx.Scale(4);
+
                 var isCampus = ctx.Host.Config.Wifi.CampusNetworkSsids.Any(value =>
                     string.Equals(value, network.Ssid, StringComparison.OrdinalIgnoreCase));
                 var hasAssignment = ctx.Host.Config.Wifi.CampusWifiAdapterAssignments.TryGetValue(
@@ -343,7 +363,7 @@ internal sealed class WirelessPage : IPage
                                   (network.HasProfile && network.Connectable && !network.IsCurrentConnection
                                       ? connectWidth + ctx.Scale(6)
                                       : 0);
-                var campusRect = new Rectangle(campusRight - campusWidth, cy - ctx.Scale(4), campusWidth, ctx.Scale(26));
+                var campusRect = new Rectangle(campusRight - campusWidth, actionY, campusWidth, ctx.Scale(26));
                 var ssidForCampus = network.Ssid;
                 var campusOperation = $"wireless-campus-{guid:D}-{ssidForCampus}";
                 Widgets.ButtonAt(ctx, campusRect, isCampus ? "校园网 ✓" : "标为校园网", () =>
@@ -367,7 +387,7 @@ internal sealed class WirelessPage : IPage
 
                 if (isCampus)
                 {
-                    var assignmentRect = new Rectangle(campusRight + ctx.Scale(6), cy - ctx.Scale(4), assignmentWidth, ctx.Scale(26));
+                    var assignmentRect = new Rectangle(campusRight + ctx.Scale(6), actionY, assignmentWidth, ctx.Scale(26));
                     var assignmentOperation = $"wireless-assignment-{ssidForCampus}";
                     Widgets.ButtonAt(ctx, assignmentRect, assignmentLabel, () =>
                     {
@@ -391,7 +411,7 @@ internal sealed class WirelessPage : IPage
 
                 if (network.HasProfile && network.Connectable && !network.IsCurrentConnection)
                 {
-                    var connectRect = new Rectangle(card.Right - ctx.Scale(16) - connectWidth, cy - ctx.Scale(4), connectWidth, ctx.Scale(26));
+                    var connectRect = new Rectangle(card.Right - ctx.Scale(16) - connectWidth, actionY, connectWidth, ctx.Scale(26));
                     var profileName = network.ProfileName ?? network.Ssid;
                     var ssid = network.Ssid;
                     var connectOperation = $"wireless-connect-{guid:D}-{profileName}";
@@ -407,10 +427,40 @@ internal sealed class WirelessPage : IPage
                     }, enabled: !connecting);
                 }
 
-                cy += ctx.Scale(26);
+                if (compactNetworks)
+                {
+                    canvas.Text(stateCell, new Rectangle(x, actionY, Math.Max(0, campusRect.Left - x - ctx.Scale(8)), ctx.Scale(26)),
+                        Palette.TextMuted, TextStyle.Caption);
+                }
+
+                cy += networkRowHeight;
             }
         }
 
         return card.Bottom + ctx.Scale(12);
+    }
+
+    private static int MeasureChipRows(PageContext ctx, IReadOnlyList<string> profiles, int availableWidth)
+    {
+        if (profiles.Count == 0)
+        {
+            return 1;
+        }
+
+        var rows = 1;
+        var used = 0;
+        foreach (var profile in profiles)
+        {
+            var chipWidth = ctx.Canvas.Measure(profile, TextStyle.Caption).Width + ctx.Scale(16);
+            if (used > 0 && used + chipWidth > availableWidth)
+            {
+                rows++;
+                used = 0;
+            }
+
+            used += chipWidth + ctx.Scale(6);
+        }
+
+        return rows;
     }
 }
