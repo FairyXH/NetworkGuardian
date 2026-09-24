@@ -139,6 +139,39 @@ internal sealed class DashboardPage : IPage
             height += cardHeight + gap;
         }
 
+        // ---------- Windows 系统真实跃点 ----------
+        // Values below come from GetAdaptersAddresses/GetIpForwardTable2 in the one-second route
+        // snapshot. They are deliberately not derived from the policy planner.
+        var systemInterfaces = snapshot.Interfaces
+            .Where(iface => iface.Kind != InterfaceKind.Loopback)
+            .OrderByDescending(iface => iface.IsUp)
+            .ThenBy(iface => iface.Kind)
+            .ThenBy(iface => iface.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var metricLines = systemInterfaces.Count == 0
+            ? "系统未返回网络接口"
+            : string.Join(Environment.NewLine, systemInterfaces.Select(iface =>
+                FormatSystemMetricLine(snapshot, iface)));
+        var metricTextHeight = Math.Max(
+            ctx.Scale(20),
+            canvas.MeasureWrappedHeight(metricLines, area.Width - ctx.Scale(32), TextStyle.Mono));
+        var metricCardHeight = ctx.Scale(14 + 22 + 20 + 8 + 14) + metricTextHeight;
+        var metricCard = new Rectangle(area.Left, y, area.Width, metricCardHeight);
+        canvas.Card(metricCard);
+        var mx = metricCard.Left + ctx.Scale(16);
+        var my = metricCard.Top + ctx.Scale(14);
+        var mw = metricCard.Width - ctx.Scale(32);
+        my += Widgets.SectionTitle(ctx, mx, my, mw, "系统网卡跃点详情");
+        var observedText = snapshot.RouteObservedAtUtc is { } metricObserved
+            ? $"Windows 实时读取｜{systemInterfaces.Count} 个接口｜刷新 {metricObserved.ToLocalTime():HH:mm:ss}"
+            : $"Windows 实时读取｜{systemInterfaces.Count} 个接口";
+        canvas.Text(observedText, new Rectangle(mx, my, mw, ctx.Scale(20)), Palette.TextMuted, TextStyle.Caption);
+        my += ctx.Scale(28);
+        Widgets.Mono(ctx, mx, my, mw, metricLines);
+
+        y = metricCard.Bottom + gap;
+        height += metricCardHeight + gap;
+
         // ---------- 每个物理适配器的外网状态 ----------
         var physicalInterfaces = snapshot.Interfaces
             .Where(i => i.IsPhysicalDevice != false && i.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi)
@@ -304,6 +337,21 @@ internal sealed class DashboardPage : IPage
 
         return snapshot.Interfaces.FirstOrDefault(iface =>
             string.Equals(iface.Name, route.InterfaceAlias, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string FormatSystemMetricLine(GuardianSnapshot snapshot, InterfaceRuntimeState iface)
+    {
+        var routes = snapshot.DefaultRoutes.Where(route =>
+                route.InterfaceIndex == iface.InterfaceIndex ||
+                route.InterfaceLuid is { } luid &&
+                string.Equals(iface.Id, $"luid:{luid}", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var routeText = routes.Count == 0
+            ? "默认路由 —｜有效 —"
+            : $"默认路由 {string.Join(",", routes.Select(route => route.RouteMetric?.ToString() ?? "?"))}" +
+              $"｜有效 {string.Join(",", routes.Select(route => route.EffectiveMetric?.ToString() ?? "?"))}";
+        var state = iface.IsUp ? "Up" : "Down";
+        return $"{iface.Name}｜{FormatInterfaceKind(iface.Kind)}｜{state}｜接口 {iface.InterfaceMetric?.ToString() ?? "?"}｜{routeText}";
     }
 
     private static string FormatInterfaceKind(InterfaceKind kind) => kind switch
