@@ -19,7 +19,7 @@ public static class InterfaceMetricPlanner
         var usable = physical
             .Where(i => i.IsUp && i.HasUsableIpv4 && i.HasDefaultGateway)
             .ToList();
-        var verified = usable.Where(i => i.Probe?.IsOnline == true).ToList();
+        var verified = usable.Where(i => i.Probe?.IsStableOnline == true).ToList();
 
         // Until the first per-interface probe completes, prefer a usable wired path. Once probes
         // exist, only verified Internet paths lead the table; this prevents a linked but captive or

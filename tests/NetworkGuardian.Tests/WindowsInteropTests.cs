@@ -157,6 +157,70 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
+    public async Task VerifiedEndpoint_CancelsSlowerAttemptsImmediately()
+    {
+        using var fastListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        using var slowListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        fastListener.Start();
+        slowListener.Start();
+        var fastPort = ((System.Net.IPEndPoint)fastListener.LocalEndpoint).Port;
+        var slowPort = ((System.Net.IPEndPoint)slowListener.LocalEndpoint).Port;
+
+        var fastServer = Task.Run(async () =>
+        {
+            using var client = await fastListener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            var buffer = new byte[2048];
+            _ = await stream.ReadAsync(buffer);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
+            await stream.WriteAsync(response);
+        });
+        var slowServer = Task.Run(async () =>
+        {
+            using var client = await slowListener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            var buffer = new byte[2048];
+            _ = await stream.ReadAsync(buffer);
+            _ = await stream.ReadAsync(buffer);
+        });
+
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "fast-marker",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{fastPort}/",
+                    TimeoutMs = 3000,
+                    BodyMarker = "OK",
+                },
+                new ProbeEndpointSettings
+                {
+                    Name = "slow",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{slowPort}/",
+                    TimeoutMs = 3000,
+                },
+            },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 5000,
+                MaxConcurrency = 2,
+                PingTargets = new List<string>(),
+            },
+        }, CancellationToken.None);
+
+        await Task.WhenAll(fastServer, slowServer).WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(report.IsOnline);
+        Assert.True(report.Duration < TimeSpan.FromSeconds(1.5), $"probe took {report.Duration}");
+    }
+
+    [Fact]
     public async Task PingSuccessAlone_DoesNotDeclareUsableInternet()
     {
         using var probe = new ConnectivityProbe();

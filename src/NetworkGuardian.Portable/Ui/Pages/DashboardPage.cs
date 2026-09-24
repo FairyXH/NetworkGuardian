@@ -84,7 +84,7 @@ internal sealed class DashboardPage : IPage
               $"{route.InterfaceMetric?.ToString() ?? "?"} + 路由度量 {route.RouteMetric?.ToString() ?? "?"}）";
         var outlet = FindOutletInterface(snapshot, route);
         var outletName = outlet?.Name ?? route?.InterfaceAlias ?? "未确定";
-        var outletOnline = outlet?.Probe?.IsOnline ?? snapshot.GlobalProbe.IsOnline;
+        var outletOnline = outlet?.Probe?.IsStableOnline ?? snapshot.GlobalProbe.IsStableOnline;
         var expectedOutlet = snapshot.Interfaces.FirstOrDefault(iface =>
             string.Equals(iface.Id, snapshot.ExpectedOutletInterfaceId, StringComparison.OrdinalIgnoreCase));
         var policyState = snapshot.OutletMatchesPolicy switch
@@ -297,7 +297,7 @@ internal sealed class DashboardPage : IPage
 
     private static string InterfaceInternetState(InterfaceRuntimeState iface) => iface.Probe switch
     {
-        { IsOnline: true } => "外网正常",
+        { IsStableOnline: true } => "外网正常",
         { AttemptCount: > 0 } => "外网不可用",
         _ when !iface.IsUp => "链路断开",
         _ => "等待探测",

@@ -83,4 +83,25 @@ public sealed class InterfaceMetricPlannerTests
         Assert.Equal(10, metrics[strongStable.Id]);
         Assert.Equal(12, metrics[weakFast.Id]);
     }
+
+    [Fact]
+    public void SingleRawFailure_DoesNotDisplacePreviouslyStableInterface()
+    {
+        var transientFailure = TestData.OfflineProbe() with { StableOnline = true, ConsecutiveFailures = 1 };
+        var ethernet = TestData.EthernetInterface(probe: transientFailure) with
+        {
+            SpeedBitsPerSecond = 1_000_000_000,
+        };
+        var wifi = TestData.WifiInterface(TestData.AdapterA, probe: TestData.OnlineProbe()) with
+        {
+            SpeedBitsPerSecond = 600_000_000,
+        };
+
+        var metrics = InterfaceMetricPlanner.Plan(
+            new[] { ethernet, wifi },
+            new[] { TestData.ConnectedAdapter(TestData.AdapterA, "WiFi", "WiFi", 90) });
+
+        Assert.Equal(10, metrics[ethernet.Id]);
+        Assert.Equal(12, metrics[wifi.Id]);
+    }
 }

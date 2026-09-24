@@ -44,6 +44,17 @@ public sealed record ConnectivityProbeReport
 
     public bool IsOnline { get; init; }
 
+    /// <summary>
+    /// Debounced routing verdict. Null means no host-level stability state was applied.
+    /// </summary>
+    public bool? StableOnline { get; init; }
+
+    public int ConsecutiveSuccesses { get; init; }
+
+    public int ConsecutiveFailures { get; init; }
+
+    public bool IsStableOnline => StableOnline ?? IsOnline;
+
     public bool CaptivePortalSuspected { get; init; }
 
     public InternetReachability Reachability { get; init; }

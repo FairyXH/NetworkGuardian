@@ -133,7 +133,21 @@ internal static class Format
             return "尚未检测";
         }
 
-        var text = $"{report.Summary}｜用时 {report.Duration.TotalMilliseconds:F0} ms";
+        var reachability = report.Reachability switch
+        {
+            InternetReachability.InternetVerified => "外网已验证",
+            InternetReachability.InternetLikely => "疑似可访问外网",
+            InternetReachability.CaptivePortal => "认证门户/受限网络",
+            InternetReachability.LocalOnly => "仅局域网可达",
+            _ => "状态不确定",
+        };
+        var stability = report.ConsecutiveFailures > 0
+            ? $"｜连续失败 {report.ConsecutiveFailures}"
+            : report.ConsecutiveSuccesses > 0
+                ? $"｜连续成功 {report.ConsecutiveSuccesses}"
+                : string.Empty;
+        var text = $"{reachability}｜强证据 {report.SuccessCount}/{report.AttemptCount}" +
+                   $"｜用时 {report.Duration.TotalMilliseconds:F0} ms{stability}";
         return report.FirstFailureDetail is { Length: > 0 } detail ? $"{text}｜{detail}" : text;
     }
 

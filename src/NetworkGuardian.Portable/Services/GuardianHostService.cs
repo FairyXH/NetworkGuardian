@@ -70,6 +70,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private GuardianSnapshot _snapshot;
     private DateTimeOffset _lastEnumerationUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastProbeUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _nextProbeUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _lastPerInterfaceProbeUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _resumeQuietUntilUtc = DateTimeOffset.MinValue;
     private bool _forceEnumeration = true;
@@ -87,6 +88,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private ConnectivityProbeReport _globalProbe;
     private Dictionary<Guid, ConnectivityProbeReport> _wifiProbeByAdapter = new();
     private Dictionary<string, ConnectivityProbeReport> _probeByInterfaceId = new();
+    private readonly Dictionary<string, ProbeStabilityState> _probeStability = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<Guid, (DateTimeOffset AtUtc, string Profile)> _lastConnectAttempt = new();
     private WifiEapCatalog _eapCatalog = WifiEapCatalog.Empty;
     private bool _disposed;
@@ -363,8 +365,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
                 // Probes run outside this watchdog so network timeouts never delay the one-second
                 // metric check. Three seconds is the freshness target for outlet health.
-                if (DateTimeOffset.UtcNow >= _resumeQuietUntilUtc &&
-                    DateTimeOffset.UtcNow - _lastProbeUtc >= TimeSpan.FromSeconds(3))
+                if (DateTimeOffset.UtcNow >= _resumeQuietUntilUtc && DateTimeOffset.UtcNow >= _nextProbeUtc)
                 {
                     SignalMonitorCycle(forceProbe: true);
                 }
@@ -597,8 +598,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 _forceEnumeration = false;
             }
 
-            var probeInterval = TimeSpan.FromSeconds(Math.Max(3, _config.Probe.IntervalSeconds));
-            var probeDue = _forceProbe || now - _lastProbeUtc >= probeInterval;
+            var probeDue = _forceProbe || now >= _nextProbeUtc;
             if (probeDue && now >= _resumeQuietUntilUtc)
             {
                 await RefreshProbesAsync(cancellationToken).ConfigureAwait(false);
@@ -734,28 +734,88 @@ public sealed class GuardianHostService : IAsyncDisposable
             var interfaceReports = await Task.WhenAll(interfaceTasks).ConfigureAwait(false);
             foreach (var (candidate, report) in interfaceReports)
             {
+                var stabilized = ApplyProbeStability(candidate.Id, report);
                 if (candidate.WlanInterfaceGuid is { } guid)
                 {
-                    byAdapter[guid] = report;
+                    byAdapter[guid] = stabilized;
                 }
 
-                byInterfaceId[candidate.Id] = report;
+                byInterfaceId[candidate.Id] = stabilized;
             }
 
-            _globalProbe = interfaceReports
-                .Select(item => item.Report)
+            _globalProbe = byInterfaceId.Values
                 .FirstOrDefault(report => report.IsOnline)
-                ?? interfaceReports.Select(item => item.Report).FirstOrDefault()
+                ?? byInterfaceId.Values.FirstOrDefault()
                 ?? ConnectivityProbeReport.NotAttempted(DateTimeOffset.UtcNow, "no-up-interface");
         }
         else
         {
             globalTask = _probe.ProbeAsync(request, cancellationToken);
-            _globalProbe = await globalTask.ConfigureAwait(false);
+            _globalProbe = ApplyProbeStability(
+                "global",
+                await globalTask.ConfigureAwait(false));
         }
 
         _wifiProbeByAdapter = byAdapter;
         _probeByInterfaceId = byInterfaceId;
+        ScheduleNextProbe(byInterfaceId.Count > 0 ? byInterfaceId.Values : new[] { _globalProbe });
+    }
+
+    private ConnectivityProbeReport ApplyProbeStability(string interfaceId, ConnectivityProbeReport report)
+    {
+        _probeStability.TryGetValue(interfaceId, out var state);
+        state ??= new ProbeStabilityState();
+
+        if (report.IsOnline)
+        {
+            state.ConsecutiveSuccesses++;
+            state.ConsecutiveFailures = 0;
+            state.StableOnline = true;
+        }
+        else
+        {
+            state.ConsecutiveFailures++;
+            state.ConsecutiveSuccesses = 0;
+            if (report.Reachability == InternetReachability.CaptivePortal ||
+                state.ConsecutiveFailures >= 2 || !state.HasVerdict)
+            {
+                state.StableOnline = false;
+            }
+        }
+
+        state.HasVerdict = true;
+        _probeStability[interfaceId] = state;
+        return report with
+        {
+            StableOnline = state.StableOnline,
+            ConsecutiveSuccesses = state.ConsecutiveSuccesses,
+            ConsecutiveFailures = state.ConsecutiveFailures,
+        };
+    }
+
+    private void ScheduleNextProbe(IEnumerable<ConnectivityProbeReport> reports)
+    {
+        var samples = reports.ToList();
+        var seconds = samples.Count == 0 || samples.Any(report =>
+                report.Reachability is InternetReachability.Unknown or
+                    InternetReachability.LocalOnly or
+                    InternetReachability.CaptivePortal)
+            ? _config.Probe.FailureIntervalSeconds
+            : samples.Any(report => report.Reachability == InternetReachability.InternetLikely)
+                ? _config.Probe.IndeterminateIntervalSeconds
+                : _config.Probe.IntervalSeconds;
+        _nextProbeUtc = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(Math.Max(1, seconds));
+    }
+
+    private sealed class ProbeStabilityState
+    {
+        public bool HasVerdict { get; set; }
+
+        public bool StableOnline { get; set; }
+
+        public int ConsecutiveSuccesses { get; set; }
+
+        public int ConsecutiveFailures { get; set; }
     }
 
     private IReadOnlyList<WifiAdapterRuntimeState> BuildAdapterStates()
