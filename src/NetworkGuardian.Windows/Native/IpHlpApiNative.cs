@@ -212,6 +212,9 @@ internal static class IpHlpApiNative
     [DllImport(Dll, SetLastError = true)]
     internal static extern uint GetIpForwardTable2(uint family, out IntPtr table);
 
+    [DllImport(Dll, SetLastError = true)]
+    internal static extern uint SetIpForwardEntry2(ref MIB_IPFORWARD_ROW2 row);
+
 
     [DllImport(Dll)]
     internal static extern void FreeMibTable(IntPtr memory);

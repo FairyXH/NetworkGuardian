@@ -393,10 +393,74 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
                             state.Name, Win32Error.Describe((int)setStatus));
                     }
                 }
+
+                ApplyDefaultRouteMetrics(metricsByInterfaceId, notes, cancellationToken);
             }
 
             return notes;
         }, cancellationToken);
+    }
+
+    private void ApplyDefaultRouteMetrics(
+        IReadOnlyDictionary<string, int> metricsByInterfaceId,
+        List<string> notes,
+        CancellationToken cancellationToken)
+    {
+        var managedLuids = metricsByInterfaceId.Keys
+            .Select(ParseLuid)
+            .OfType<ulong>()
+            .ToHashSet();
+        if (managedLuids.Count == 0)
+        {
+            return;
+        }
+
+        var status = GetIpForwardTable2(AF_INET, out var table);
+        if (status != ERROR_SUCCESS || table == IntPtr.Zero)
+        {
+            notes.Add($"Default route metric read failed: {Win32Error.Describe((int)status)}");
+            return;
+        }
+
+        try
+        {
+            var count = Marshal.ReadInt32(table);
+            var rowSize = Marshal.SizeOf<MIB_IPFORWARD_ROW2>();
+            var firstRow = IntPtr.Add(table, Marshal.SizeOf<MIB_IPFORWARD_TABLE2_HEADER>());
+
+            for (var index = 0; index < count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var row = Marshal.PtrToStructure<MIB_IPFORWARD_ROW2>(IntPtr.Add(firstRow, index * rowSize));
+                if (row.DestinationPrefix.PrefixLength != 0 ||
+                    row.DestinationPrefix.Prefix.si_family != AF_INET ||
+                    !managedLuids.Contains(row.InterfaceLuid) ||
+                    row.Metric == 1)
+                {
+                    continue;
+                }
+
+                var oldMetric = row.Metric;
+                row.Metric = 1;
+                var setStatus = SetIpForwardEntry2(ref row);
+                if (setStatus == ERROR_SUCCESS)
+                {
+                    notes.Add($"Default route luid:{row.InterfaceLuid}: route metric {oldMetric} -> 1");
+                }
+                else
+                {
+                    notes.Add($"Default route luid:{row.InterfaceLuid}: {Win32Error.Describe((int)setStatus)}");
+                    _logger.LogWarning(
+                        "SetIpForwardEntry2 failed for LUID {Luid}: {Error}",
+                        row.InterfaceLuid,
+                        Win32Error.Describe((int)setStatus));
+                }
+            }
+        }
+        finally
+        {
+            FreeMibTable(table);
+        }
     }
 
     /// <summary>Reads the primary IPv4 default route target so the probe can use the right source.</summary>
