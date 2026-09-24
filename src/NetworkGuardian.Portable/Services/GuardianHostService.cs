@@ -44,6 +44,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly WifiRadioController _radio;
     private readonly NetworkInterfaceProvider _interfaces;
     private readonly ConnectivityProbe _probe;
+    private readonly NpcapProbeVerifier _npcap;
     private readonly PhysicalDeviceManager _devices;
     private readonly ExternalCommandRunner _commands;
     private readonly LocationPermissionService _location;
@@ -110,7 +111,8 @@ public sealed class GuardianHostService : IAsyncDisposable
         _radio = new WifiRadioController(
             loggerFactory.CreateLogger<WifiRadioController>(),
             access: new NativeRadioAccess(loggerFactory.CreateLogger<NativeRadioAccess>()));
-        _probe = new ConnectivityProbe(loggerFactory.CreateLogger<ConnectivityProbe>());
+        _npcap = new NpcapProbeVerifier(loggerFactory.CreateLogger<NpcapProbeVerifier>());
+        _probe = new ConnectivityProbe(loggerFactory.CreateLogger<ConnectivityProbe>(), _npcap);
         _commands = new ExternalCommandRunner(loggerFactory.CreateLogger<ExternalCommandRunner>());
         _location = new LocationPermissionService(
             () => _wifi.LocationPermission,
@@ -166,6 +168,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     public string ConfigPath => _configStore.ConfigPath;
 
     public string LogDirectory => GuardianPaths.LogDirectory;
+
+    public NpcapRuntimeStatus NpcapStatus => _npcap.Status;
 
     /// <summary>Logs a failure that happened in a UI action so it is visible in the log as well as the UI.</summary>
     public void LogUiFailure(string message) =>
@@ -722,6 +726,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                     SourceAddress = candidate.PrimaryIpv4Address,
                     InterfaceIndex = candidate.InterfaceIndex,
                     InterfaceId = candidate.Id,
+                    AdapterGuid = candidate.AdapterGuid,
                     DnsServerAddresses = candidate.DnsServers,
                     GatewayAddress = candidate.PrimaryGateway,
                     MaxConcurrencyOverride = 2,
@@ -1797,6 +1802,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _wifi.Dispose();
         _radio.Dispose();
         _probe.Dispose();
+        _npcap.Dispose();
         _cycleGate.Dispose();
         _cycleSignal.Dispose();
         _cts?.Dispose();

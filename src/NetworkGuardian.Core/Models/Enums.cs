@@ -117,6 +117,15 @@ public enum InternetReachability
     InternetVerified,
 }
 
+public enum PacketCaptureVerification
+{
+    NotRequested = 0,
+    Unavailable,
+    VerifiedOnTargetInterface,
+    NoTrafficOnTargetInterface,
+    CaptureFailed,
+}
+
 public enum ProbeKind
 {
     Tcp = 0,

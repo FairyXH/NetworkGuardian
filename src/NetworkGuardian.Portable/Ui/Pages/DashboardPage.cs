@@ -106,6 +106,7 @@ internal sealed class DashboardPage : IPage
             ? "未发现物理无线网卡"
             : string.Join("；", snapshot.WifiAdapters.Select(a =>
                 $"{Format.AdapterName(snapshot, a)}: {(a.IsConnected ? $"{a.CurrentSsid}（{a.SignalQuality}%）" : "未连接")}"));
+        var npcap = ctx.Host.NpcapStatus;
 
         var cards = new (string Title, string Value, string Detail, Rgb? Color)[]
         {
@@ -116,6 +117,8 @@ internal sealed class DashboardPage : IPage
             ("Wi-Fi 无线电", Format.RadioState(snapshot.Radio.State), snapshot.Radio.FailureReason ?? snapshot.Radio.Name ?? "—",
                 snapshot.Radio.State == RadioState.On ? Palette.Good : Palette.Warn),
             ("物理无线网卡", snapshot.WifiAdapters.Count.ToString(), wifiSummary, null),
+            ("Npcap 出口验证", npcap.IsAvailable ? "可用" : "不可用", npcap.Detail,
+                npcap.IsAvailable ? Palette.Good : Palette.Warn),
             ("恢复状态机", Format.RecoveryState(snapshot.State), Format.Health(snapshot.Health), null),
         };
 

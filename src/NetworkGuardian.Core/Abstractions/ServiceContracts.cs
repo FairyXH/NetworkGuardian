@@ -123,6 +123,8 @@ public sealed record ProbeRequest
 
     public string? InterfaceId { get; init; }
 
+    public Guid? AdapterGuid { get; init; }
+
     /// <summary>DNS servers assigned to the selected interface, used for interface-bound queries.</summary>
     public IReadOnlyList<string> DnsServerAddresses { get; init; } = Array.Empty<string>();
 

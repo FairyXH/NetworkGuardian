@@ -177,6 +177,9 @@ internal sealed class MainWindow
     public bool Confirm(string message, string caption = "请确认") =>
         MessageBoxW(_hwnd, message, caption, MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
 
+    public void ShowWarning(string message, string caption) =>
+        MessageBoxW(_hwnd, message, caption, MB_OK | MB_ICONWARNING);
+
     /// <summary>True when the hovered region contains <paramref name="rect"/> (client coordinates).</summary>
     public bool IsHovered(Rectangle rect)
     {

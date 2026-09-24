@@ -23,13 +23,17 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 {
     private const SocketOptionName IpUnicastInterface = (SocketOptionName)31;
     private readonly ILogger<ConnectivityProbe> _logger;
+    private readonly NpcapProbeVerifier? _npcap;
     private readonly ConcurrentDictionary<string, HttpClient> _httpClients = new(StringComparer.OrdinalIgnoreCase);
     private readonly bool _ownsClients = true;
     private bool _disposed;
 
-    public ConnectivityProbe(ILogger<ConnectivityProbe>? logger = null)
+    public ConnectivityProbe(
+        ILogger<ConnectivityProbe>? logger = null,
+        NpcapProbeVerifier? npcap = null)
     {
         _logger = logger ?? NullLogger<ConnectivityProbe>.Instance;
+        _npcap = npcap;
     }
 
     public async Task<ConnectivityProbeReport> ProbeAsync(ProbeRequest request, CancellationToken cancellationToken)
@@ -81,6 +85,8 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 CaptivePortalInterceptedBy = "no-enabled-endpoints",
             };
         }
+
+        var capture = _npcap?.TryStart(request.AdapterGuid, request.SourceAddress);
 
         var roundTimeout = TimeSpan.FromMilliseconds(Math.Max(500, request.Settings.RoundTimeoutMs));
         using var roundCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -191,6 +197,41 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                         ? InternetReachability.LocalOnly
                         : InternetReachability.Unknown;
 
+        var captureVerification = request.InterfaceId is null
+            ? PacketCaptureVerification.NotRequested
+            : _npcap?.Status.IsAvailable != true
+                ? PacketCaptureVerification.Unavailable
+                : capture is null
+                    ? PacketCaptureVerification.CaptureFailed
+                    : PacketCaptureVerification.NoTrafficOnTargetInterface;
+        string? captureDetail = _npcap?.Status.Detail;
+        if (isOnline && request.InterfaceId is not null && _npcap?.Status.IsAvailable == true && capture is null)
+        {
+            isOnline = false;
+            reachability = InternetReachability.InternetLikely;
+            captureDetail = "Npcap 可用，但无法打开目标接口验证本轮流量";
+        }
+        else if (capture is not null && isOnline)
+        {
+            await Task.Delay(75, CancellationToken.None).ConfigureAwait(false);
+            if (capture.IsVerified)
+            {
+                captureVerification = PacketCaptureVerification.VerifiedOnTargetInterface;
+                captureDetail = "Npcap 在目标接口捕获到探测请求和回包";
+            }
+            else
+            {
+                isOnline = false;
+                reachability = InternetReachability.InternetLikely;
+                captureDetail = "应用层探测成功，但 Npcap 未在目标接口捕获到完整双向流量";
+            }
+        }
+
+        if (capture is not null)
+        {
+            await capture.DisposeAsync().ConfigureAwait(false);
+        }
+
         var report = new ConnectivityProbeReport
         {
             TimestampUtc = started,
@@ -198,6 +239,8 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             SourceInterfaceId = request.InterfaceId,
             IsOnline = isOnline,
             Reachability = reachability,
+            CaptureVerification = captureVerification,
+            CaptureVerificationDetail = captureDetail,
             CaptivePortalSuspected = captiveSuspected,
             CaptivePortalInterceptedBy = captiveAttempt is null
                 ? null

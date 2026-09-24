@@ -59,6 +59,10 @@ public sealed record ConnectivityProbeReport
 
     public InternetReachability Reachability { get; init; }
 
+    public PacketCaptureVerification CaptureVerification { get; init; }
+
+    public string? CaptureVerificationDetail { get; init; }
+
     public string? CaptivePortalInterceptedBy { get; init; }
 
     public int SuccessCount { get; init; }

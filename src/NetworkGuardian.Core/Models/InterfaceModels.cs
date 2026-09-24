@@ -20,6 +20,8 @@ public sealed record InterfaceRuntimeState
     /// <summary>Windows IPv4 interface index used to pin outbound probe sockets.</summary>
     public uint InterfaceIndex { get; init; }
 
+    public Guid? AdapterGuid { get; init; }
+
     public string? DeviceInstanceId { get; init; }
 
     public bool IsUp { get; init; }

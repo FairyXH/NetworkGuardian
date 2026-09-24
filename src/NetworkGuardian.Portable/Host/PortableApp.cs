@@ -123,6 +123,14 @@ internal sealed class PortableApp
         try
         {
             _host.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+            if (!_host.NpcapStatus.IsAvailable)
+            {
+                _window.ShowWarning(
+                    $"{_host.NpcapStatus.Detail}\n\n" +
+                    "NetworkGuardian 将继续运行，但无法严格确认探测包实际经过哪块物理网卡。\n" +
+                    "请从 https://npcap.com 手动安装 Npcap，然后重新启动本软件。",
+                    "缺少 Npcap 抓包依赖");
+            }
         }
         catch (Exception ex)
         {

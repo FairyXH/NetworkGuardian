@@ -110,6 +110,7 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
             Kind = kind,
             WlanInterfaceGuid = kind == InterfaceKind.Wifi ? netCfgGuid : null,
             InterfaceIndex = adapter.IfIndex,
+            AdapterGuid = netCfgGuid,
             DeviceInstanceId = deviceRecord?.DeviceInstanceId,
             IsUp = isUp,
             IsPhysicalDevice = classification?.IsPhysical,

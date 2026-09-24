@@ -146,8 +146,16 @@ internal static class Format
             : report.ConsecutiveSuccesses > 0
                 ? $"｜连续成功 {report.ConsecutiveSuccesses}"
                 : string.Empty;
+        var capture = report.CaptureVerification switch
+        {
+            PacketCaptureVerification.VerifiedOnTargetInterface => "｜Npcap 已确认目标接口",
+            PacketCaptureVerification.NoTrafficOnTargetInterface => "｜Npcap 未发现目标接口双向流量",
+            PacketCaptureVerification.CaptureFailed => "｜Npcap 抓包失败",
+            PacketCaptureVerification.Unavailable => "｜Npcap 不可用",
+            _ => string.Empty,
+        };
         var text = $"{reachability}｜强证据 {report.SuccessCount}/{report.AttemptCount}" +
-                   $"｜用时 {report.Duration.TotalMilliseconds:F0} ms{stability}";
+                   $"｜用时 {report.Duration.TotalMilliseconds:F0} ms{stability}{capture}";
         return report.FirstFailureDetail is { Length: > 0 } detail ? $"{text}｜{detail}" : text;
     }
 
