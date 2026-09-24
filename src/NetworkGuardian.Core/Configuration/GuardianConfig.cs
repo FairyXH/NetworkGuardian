@@ -164,6 +164,12 @@ public sealed class ProbeSettings
     /// <summary>Interval of the periodic Internet check.</summary>
     public int IntervalSeconds { get; set; } = 15;
 
+    /// <summary>Retry interval while an interface is offline or behind a captive portal.</summary>
+    public int FailureIntervalSeconds { get; set; } = 2;
+
+    /// <summary>Retry interval when only weak/local evidence is available.</summary>
+    public int IndeterminateIntervalSeconds { get; set; } = 5;
+
     /// <summary>Per-attempt timeout. Keep short so recovery stays responsive.</summary>
     public int TimeoutMs { get; set; } = 2000;
 

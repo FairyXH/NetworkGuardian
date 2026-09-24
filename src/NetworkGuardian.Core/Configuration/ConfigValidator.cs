@@ -76,6 +76,8 @@ public sealed class ConfigValidator
         config.Recovery.OperationCircuitBreakerSeconds = Clamp(config.Recovery.OperationCircuitBreakerSeconds, 0, 86400, "recovery.operationCircuitBreakerSeconds", issues);
 
         config.Probe.IntervalSeconds = Clamp(config.Probe.IntervalSeconds, 3, 3600, "probe.intervalSeconds", issues);
+        config.Probe.FailureIntervalSeconds = Clamp(config.Probe.FailureIntervalSeconds, 1, 60, "probe.failureIntervalSeconds", issues);
+        config.Probe.IndeterminateIntervalSeconds = Clamp(config.Probe.IndeterminateIntervalSeconds, 1, 300, "probe.indeterminateIntervalSeconds", issues);
         config.Probe.TimeoutMs = Clamp(config.Probe.TimeoutMs, 200, 60000, "probe.timeoutMs", issues);
         config.Probe.PingTimeoutMs = Clamp(config.Probe.PingTimeoutMs, 200, 10000, "probe.pingTimeoutMs", issues);
         config.Probe.RoundTimeoutMs = Clamp(config.Probe.RoundTimeoutMs,

@@ -123,6 +123,8 @@ internal sealed class SettingsPage : IPage
         var probe = new Form(ctx, this);
         probe.Toggle("启用探测", config.Probe.Enabled, v => config.Probe.Enabled = v);
         probe.Number("探测周期（秒）", config.Probe.IntervalSeconds, 3, 3600, v => config.Probe.IntervalSeconds = v);
+        probe.Number("故障重试周期（秒）", config.Probe.FailureIntervalSeconds, 1, 60, v => config.Probe.FailureIntervalSeconds = v);
+        probe.Number("状态不确定重试周期（秒）", config.Probe.IndeterminateIntervalSeconds, 1, 300, v => config.Probe.IndeterminateIntervalSeconds = v);
         probe.Number("单次超时（毫秒）", config.Probe.TimeoutMs, 200, 60000, v => config.Probe.TimeoutMs = v);
         probe.Number("整轮超时（毫秒）", config.Probe.RoundTimeoutMs, 500, 120000, v => config.Probe.RoundTimeoutMs = v);
         probe.Number("判定在线所需成功数", config.Probe.RequiredSuccessCount, 1, 10, v => config.Probe.RequiredSuccessCount = v);
