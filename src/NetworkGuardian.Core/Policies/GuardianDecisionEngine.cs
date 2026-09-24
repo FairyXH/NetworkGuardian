@@ -67,8 +67,6 @@ public sealed class GuardianDecisionEngine
     private string? _lastRecoveryAction;
     private DateTimeOffset? _lastInternetSuccessUtc;
     private bool _internetWasOnline;
-    private string? _pendingMetricSignature;
-    private int _pendingMetricObservations;
 
     public GuardianDecisionEngine(
         GuardianConfig config,
@@ -1041,78 +1039,16 @@ public sealed class GuardianDecisionEngine
             }
         }
 
-        // Rank every physical interface independently. A dead Ethernet link must never receive the
-        // same metric as a healthy Ethernet merely because another wired adapter passed its probe.
-        var metricInterfaces = input.Interfaces
-            .Where(i => i.IsPhysicalDevice != false && i.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi)
-            .ToList();
-        var usableEthernet = ethernetInterfaces
-            .Where(i => i.Probe?.IsOnline == true ||
-                        (!config.Probe.PerInterfaceProbing &&
-                         i.Probe is null && internetOnline && i.IsDefaultRoute && i.IsUp))
-            .OrderByDescending(i => i.IsDefaultRoute)
-            .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        var ethernetShouldLead = usableEthernet.Count > 0;
-        var metrics = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-        for (var index = 0; index < usableEthernet.Count; index++)
-        {
-            metrics[usableEthernet[index].Id] = 10 + (index * 10);
-        }
-
-        foreach (var iface in ethernetInterfaces.Where(i => !metrics.ContainsKey(i.Id)))
-        {
-            metrics[iface.Id] = iface.IsUp ? 80 : 90;
-        }
-
-        var wifiInterfaces = metricInterfaces.Where(i => i.Kind == InterfaceKind.Wifi)
-            .OrderByDescending(i => i.Probe?.IsOnline == true)
-            .ThenByDescending(i => i.IsDefaultRoute)
-            .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        for (var index = 0; index < wifiInterfaces.Count; index++)
-        {
-            var iface = wifiInterfaces[index];
-            metrics[iface.Id] = iface.IsUp
-                ? (ethernetShouldLead ? 50 : 10) + (index * 10)
-                : 90;
-        }
-
-        var metricsDiffer = metricInterfaces.Any(i =>
+        var metrics = InterfaceMetricPlanner.Plan(input.Interfaces, input.WifiAdapters);
+        var metricsDiffer = input.Interfaces.Any(i =>
             metrics.TryGetValue(i.Id, out var desired) && i.InterfaceMetric != desired);
-        var metricSignature = string.Join("|", metrics.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(pair => $"{pair.Key}={pair.Value}"));
-
-        if (!metricsDiffer)
-        {
-            _pendingMetricSignature = null;
-            _pendingMetricObservations = 0;
-        }
-        else if (string.Equals(_pendingMetricSignature, metricSignature, StringComparison.Ordinal))
-        {
-            _pendingMetricObservations++;
-        }
-        else
-        {
-            _pendingMetricSignature = metricSignature;
-            _pendingMetricObservations = 1;
-        }
-
-        // Never rewrite the route table from one noisy probe round. Two identical consecutive
-        // proposals are required in either direction; alternating results therefore leave the last
-        // known working outlet untouched instead of making every connection flap.
-        if (metricsDiffer && _pendingMetricObservations >= 2)
+        if (metricsDiffer)
         {
             actions.Add(new ApplyInterfaceMetricsAction
             {
                 MetricsByInterfaceId = metrics,
-                Reason = ethernetShouldLead
-                    ? $"{usableEthernet.Count} Ethernet interface(s) have Internet access; wired routes ranked first"
-                    : "all Ethernet interfaces are unavailable/offline; Wi-Fi is the failover route",
+                Reason = "interface metric lock detected drift; restoring live Internet route order",
             });
-            _pendingMetricSignature = null;
-            _pendingMetricObservations = 0;
         }
 
         return BuildDecision(now, actions, notes, connectivity);

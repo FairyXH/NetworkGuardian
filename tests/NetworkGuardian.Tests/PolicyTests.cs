@@ -577,7 +577,7 @@ public sealed class CampusAuthRateLimitTests
             Radio = TestData.RadioOn,
         });
 
-        Assert.DoesNotContain(decision.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.Contains(decision.Actions, action => action is ApplyInterfaceMetricsAction);
 
         enabled.General.ManageInterfaceMetrics = false; // legacy setting no longer disables safety policy
         decision = engine.Evaluate(new GuardianInput
@@ -631,7 +631,7 @@ public sealed class CampusAuthRateLimitTests
         var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
             Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
         Assert.Equal(10, metrics.MetricsByInterfaceId[healthy.Id]);
-        Assert.Equal(80, metrics.MetricsByInterfaceId[offline.Id]);
+        Assert.Equal(60, metrics.MetricsByInterfaceId[offline.Id]);
     }
 
     [Fact]
@@ -672,12 +672,12 @@ public sealed class CampusAuthRateLimitTests
 
         var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
             Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
-        Assert.Equal(80, metrics.MetricsByInterfaceId[ethernet.Id]);
+        Assert.Equal(60, metrics.MetricsByInterfaceId[ethernet.Id]);
         Assert.Equal(10, metrics.MetricsByInterfaceId[wifi.Id]);
     }
 
     [Fact]
-    public void AlternatingProbeRounds_DoNotRewriteMetrics()
+    public void AlternatingProbeRounds_ImmediatelyFollowLatestInternetState()
     {
         var config = TestData.Config(c => c.Probe.PerInterfaceProbing = true);
         var engine = new GuardianDecisionEngine(config);
@@ -703,9 +703,9 @@ public sealed class CampusAuthRateLimitTests
         var second = Evaluate(TestData.Now.AddSeconds(5), ethernetOnline);
         var third = Evaluate(TestData.Now.AddSeconds(10), ethernetOffline);
 
-        Assert.DoesNotContain(first.Actions, action => action is ApplyInterfaceMetricsAction);
-        Assert.DoesNotContain(second.Actions, action => action is ApplyInterfaceMetricsAction);
-        Assert.DoesNotContain(third.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.Contains(first.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.Contains(second.Actions, action => action is ApplyInterfaceMetricsAction);
+        Assert.Contains(third.Actions, action => action is ApplyInterfaceMetricsAction);
     }
 
     private static void RunCampusAuth(
