@@ -867,77 +867,69 @@ public sealed class NativeWifiManager : INativeWifiService
             return WlanOperationResult.Fail("WLAN client handle is not open");
         }
 
-        var dispatcher = new List<IntPtr>();
-        string? ssid = null;
         try
         {
-            var adapter = GetAdapters().FirstOrDefault(a => a.InterfaceGuid == interfaceGuid);
-            var cached = GetLastScan(interfaceGuid);
-            ssid = cached?.Networks.FirstOrDefault(n =>
-                string.Equals(n.ProfileName, profileName, StringComparison.OrdinalIgnoreCase))?.Ssid;
-
-            _ = adapter;
-
-            var dot11Ssid = IntPtr.Zero;
-            if (!string.IsNullOrEmpty(ssid))
-            {
-                dot11Ssid = Marshal.AllocHGlobal(36);
-                dispatcher.Add(dot11Ssid);
-                unsafe
-                {
-                    var result = WlanStringToSsid(ssid, (byte*)dot11Ssid);
-                    if (result != ERROR_SUCCESS)
-                    {
-                        Marshal.FreeHGlobal(dot11Ssid);
-                        dispatcher.Remove(dot11Ssid);
-                        dot11Ssid = IntPtr.Zero;
-                    }
-                }
-            }
-
             var parameters = new WLAN_CONNECTION_PARAMETERS
             {
                 wlanConnectionMode = WlanConnectionModeProfile,
                 strProfile = profileName,
-                pDot11Ssid = dot11Ssid,
+                // Let Windows resolve every SSID encoded by the saved profile. Supplying an SSID
+                // copied from a scan cache makes our request stricter than Explorer's manual connect
+                // and is vulnerable to stale scan/profile mappings.
+                pDot11Ssid = IntPtr.Zero,
                 pDesiredBssidList = IntPtr.Zero,
                 dot11BssType = Dot11BssTypeInfrastructure,
                 dwFlags = 0,
             };
 
-            _logger.LogInformation("WlanConnect: adapter={Adapter} profile={Profile} ssid={Ssid} bssid={Bssid}",
-                interfaceGuid, profileName, ssid ?? "-", bssid ?? "any");
-
-            var connectResult = WlanConnect(handle, interfaceGuid, in parameters, IntPtr.Zero);
-            if (connectResult != ERROR_SUCCESS)
+            string? lastFailure = null;
+            for (var attempt = 1; attempt <= 2; attempt++)
             {
-                var code = (int)connectResult;
-                var accessDenied = Win32Error.IsAccessDenied(code);
-                if (accessDenied)
+                _lastAttemptFailure = null;
+                _logger.LogInformation(
+                    "WlanConnect: adapter={Adapter} profile={Profile} bssid={Bssid} attempt={Attempt}/2",
+                    interfaceGuid, profileName, bssid ?? "any", attempt);
+
+                var connectResult = WlanConnect(handle, interfaceGuid, in parameters, IntPtr.Zero);
+                if (connectResult != ERROR_SUCCESS)
                 {
-                    MarkLocationBlocked("WlanConnect");
+                    var code = (int)connectResult;
+                    var accessDenied = Win32Error.IsAccessDenied(code);
+                    if (accessDenied)
+                    {
+                        MarkLocationBlocked("WlanConnect");
+                    }
+
+                    return WlanOperationResult.Fail(
+                        Win32Error.Build("WlanConnect", code, $"adapter {interfaceGuid:N} profile {profileName}"),
+                        code,
+                        accessDenied,
+                        accessDenied);
                 }
 
-                return WlanOperationResult.Fail(
-                    Win32Error.Build("WlanConnect", code, $"adapter {interfaceGuid:N} profile {profileName}"),
-                    code,
-                    accessDenied,
-                    accessDenied);
-            }
+                var outcome = await WaitForStableConnectionAsync(
+                    interfaceGuid,
+                    profileName,
+                    DefaultConnectTimeout,
+                    cancellationToken).ConfigureAwait(false);
 
-            var outcome = await WaitForStateAsync(
-                interfaceGuid,
-                WifiConnectionState.Connected,
-                DefaultConnectTimeout,
-                cancellationToken).ConfigureAwait(false);
+                if (outcome.Success)
+                {
+                    return WlanOperationResult.Ok();
+                }
 
-            if (outcome.Success)
-            {
-                return WlanOperationResult.Ok();
+                lastFailure = outcome.Failure;
+                if (attempt < 2)
+                {
+                    _logger.LogWarning(
+                        "WlanConnect did not produce a stable connection on {Adapter} using {Profile}: {Failure}; retrying once",
+                        interfaceGuid, profileName, lastFailure);
+                    await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+                }
             }
 
             return WlanOperationResult.Fail(
-                outcome.Failure ?? $"adapter did not reach the connected state within {DefaultConnectTimeout.TotalSeconds:F0}s");
+                lastFailure ?? $"adapter did not reach a stable connected state within {DefaultConnectTimeout.TotalSeconds:F0}s");
         }
         catch (OperationCanceledException)
         {
@@ -948,13 +940,70 @@ public sealed class NativeWifiManager : INativeWifiService
             _logger.LogError(ex, "WlanConnect threw for {Adapter}", interfaceGuid);
             return WlanOperationResult.Fail($"{ex.GetType().Name}: {ex.Message}");
         }
-        finally
+    }
+
+    private async Task<(bool Success, string? Failure)> WaitForStableConnectionAsync(
+        Guid interfaceGuid,
+        string profileName,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var elapsed = Stopwatch.StartNew();
+        DateTimeOffset? connectedSince = null;
+        string? lastFailure = null;
+        var stabilityWindow = TimeSpan.FromSeconds(3);
+
+        while (elapsed.Elapsed < timeout)
         {
-            foreach (var pointer in dispatcher)
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var connection = GetConnection(interfaceGuid);
+            var targetIsConnected = connection is
             {
-                Marshal.FreeHGlobal(pointer);
+                State: WifiConnectionState.Connected,
+            } && string.Equals(connection.ProfileName, profileName, StringComparison.OrdinalIgnoreCase);
+
+            if (targetIsConnected)
+            {
+                connectedSince ??= DateTimeOffset.UtcNow;
+                if (DateTimeOffset.UtcNow - connectedSince >= stabilityWindow)
+                {
+                    return (true, null);
+                }
             }
+            else
+            {
+                if (connectedSince is not null)
+                {
+                    return (false, $"profile '{profileName}' connected briefly, then disconnected before the " +
+                                   $"{stabilityWindow.TotalSeconds:F0}s stability check completed");
+                }
+
+                connectedSince = null;
+                if (connection is { State: WifiConnectionState.Connected } &&
+                    !string.IsNullOrWhiteSpace(connection.ProfileName))
+                {
+                    lastFailure = $"adapter connected to unexpected profile '{connection.ProfileName}'";
+                }
+                else if (connection is { State: WifiConnectionState.Disconnected } &&
+                         elapsed.Elapsed > TimeSpan.FromSeconds(3))
+                {
+                    lastFailure = "adapter returned to the disconnected state during the connect attempt";
+                    return (false, lastFailure);
+                }
+            }
+
+            if (_lastAttemptFailure is { } attemptFailure &&
+                DateTimeOffset.UtcNow - attemptFailure.AtUtc < TimeSpan.FromSeconds(5))
+            {
+                return (false, $"connection attempt failed: {attemptFailure.Description}");
+            }
+
+            await Task.Delay(400, cancellationToken).ConfigureAwait(false);
         }
+
+        return (false, lastFailure ??
+            $"timed out after {timeout.TotalSeconds:F0}s waiting for stable connection to '{profileName}'");
     }
 
     public async Task<WlanOperationResult> DisconnectAsync(Guid interfaceGuid, CancellationToken cancellationToken)
