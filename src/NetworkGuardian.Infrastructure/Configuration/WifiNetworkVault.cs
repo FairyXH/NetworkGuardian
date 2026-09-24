@@ -9,7 +9,7 @@ using NetworkGuardian.Core.Serialization;
 namespace NetworkGuardian.Infrastructure.Configuration;
 
 /// <summary>
-/// The application's own wireless network library: one entry per 802.1X/EAP network, stored in
+/// The application's own wireless network library: one entry per known Wi-Fi network, stored in
 /// <c>wifi-networks.json</c> next to <c>config.json</c>, independent of the Windows profile store.
 /// </summary>
 /// <remarks>
@@ -131,7 +131,7 @@ public sealed class WifiNetworkVault
                 if (!TryUnprotect(entry))
                 {
                     issues.Add($"「{entry.Ssid}」的密码无法解密（可能由其他用户或其他电脑保存），" +
-                               "需要重新填写后才能用于 802.1X 认证。");
+                               "需要重新填写后才能用于 Wi-Fi 认证。");
                 }
             }
 
@@ -393,6 +393,7 @@ public sealed class WifiNetworkVault
         Domain = source.Domain,
         Password = source.Password,
         PasswordProtected = source.PasswordProtected,
+        PasswordDecryptionFailed = source.PasswordDecryptionFailed,
         PasswordUpdatedUtc = source.PasswordUpdatedUtc,
         UseWinLogonCredentials = source.UseWinLogonCredentials,
         ServerNames = source.ServerNames.ToList(),

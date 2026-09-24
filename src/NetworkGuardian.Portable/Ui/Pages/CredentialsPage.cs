@@ -24,10 +24,10 @@ internal sealed class CredentialsPage : IPage
         WifiCredentialKind.Enterprise, WifiCredentialKind.Personal, WifiCredentialKind.Open,
     };
 
-    private static readonly string[] PersonalSecurityLabels = { "WPA2-Personal（推荐）", "WPA3-Personal", "WPA-Personal（兼容旧设备）" };
+    private static readonly string[] PersonalSecurityLabels = { "WPA2-Personal（推荐）", "WPA3-Personal", "WPA-Personal（兼容旧设备）", "WEP（旧式网络）" };
     private static readonly WifiSecurity[] PersonalSecurityValues =
     {
-        WifiSecurity.Wpa2Personal, WifiSecurity.Wpa3Personal, WifiSecurity.WpaPersonal,
+        WifiSecurity.Wpa2Personal, WifiSecurity.Wpa3Personal, WifiSecurity.WpaPersonal, WifiSecurity.Wep,
     };
 
     private static readonly string[] AuthLabels = { "WPA2-Enterprise（AES）", "WPA-Enterprise（TKIP）", "WPA3-Enterprise（占位，见自定义 XML）" };

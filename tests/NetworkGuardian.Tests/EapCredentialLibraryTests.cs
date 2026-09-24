@@ -50,6 +50,55 @@ public sealed class EapCredentialLibraryTests
         Assert.DoesNotContain("sharedKey", result.Xml);
     }
 
+    [Fact]
+    public void BuildEnhancedOpenProfile_UsesOweWithoutSharedKey()
+    {
+        var result = EnterpriseProfileBuilder.BuildProfileXml(new WifiNetworkCredential
+        {
+            Ssid = "EncryptedGuest",
+            Kind = WifiCredentialKind.Open,
+            Security = WifiSecurity.EnhancedOpen,
+        });
+
+        Assert.True(result.Success, result.Failure);
+        Assert.Contains("<authentication>OWE</authentication>", result.Xml);
+        Assert.Contains("<encryption>AES</encryption>", result.Xml);
+        Assert.DoesNotContain("sharedKey", result.Xml);
+    }
+
+    [Fact]
+    public void BuildWepProfile_UsesNetworkKeyAndKeyIndex()
+    {
+        var result = EnterpriseProfileBuilder.BuildProfileXml(new WifiNetworkCredential
+        {
+            Ssid = "Legacy",
+            Kind = WifiCredentialKind.Personal,
+            Security = WifiSecurity.Wep,
+            Password = "A1B2C3D4E5",
+        });
+
+        Assert.True(result.Success, result.Failure);
+        Assert.Contains("<authentication>open</authentication>", result.Xml);
+        Assert.Contains("<encryption>WEP</encryption>", result.Xml);
+        Assert.Contains("<keyType>networkKey</keyType>", result.Xml);
+        Assert.Contains("<keyIndex>0</keyIndex>", result.Xml);
+    }
+
+    [Fact]
+    public void BuildUnknownPersonalProfile_FailsInsteadOfSilentlyUsingWpa2()
+    {
+        var result = EnterpriseProfileBuilder.BuildProfileXml(new WifiNetworkCredential
+        {
+            Ssid = "Mystery",
+            Kind = WifiCredentialKind.Personal,
+            Security = WifiSecurity.Unknown,
+            Password = "password123",
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("暂不支持安全类型", result.Failure);
+    }
+
     private static WifiNetworkCredential Credential() => new()
     {
         Ssid = "HXXY-WiFi",

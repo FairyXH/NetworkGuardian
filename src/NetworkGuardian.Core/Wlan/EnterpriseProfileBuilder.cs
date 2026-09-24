@@ -185,14 +185,23 @@ public static class EnterpriseProfileBuilder
             problems.Add("个人网络必须填写 Wi-Fi 密码");
         }
 
-        var (authentication, encryption) = credential.Kind == WifiCredentialKind.Open
-            ? ("open", "none")
+        var (authentication, encryption, keyType) = credential.Kind == WifiCredentialKind.Open
+            ? credential.Security == WifiSecurity.EnhancedOpen
+                ? ("OWE", "AES", (string?)null)
+                : ("open", "none", null)
             : credential.Security switch
             {
-                WifiSecurity.WpaPersonal => ("WPAPSK", "TKIP"),
-                WifiSecurity.Wpa3Personal => ("WPA3SAE", "AES"),
-                _ => ("WPA2PSK", "AES"),
+                WifiSecurity.Wep => ("open", "WEP", "networkKey"),
+                WifiSecurity.WpaPersonal => ("WPAPSK", "TKIP", "passPhrase"),
+                WifiSecurity.Wpa2Personal => ("WPA2PSK", "AES", "passPhrase"),
+                WifiSecurity.Wpa3Personal => ("WPA3SAE", "AES", "passPhrase"),
+                _ => (string.Empty, string.Empty, null),
             };
+
+        if (string.IsNullOrEmpty(authentication))
+        {
+            problems.Add($"暂不支持安全类型 {credential.Security}，请确认扫描结果或使用完整的自定义配置 XML");
+        }
 
         if (problems.Count > 0)
         {
@@ -215,8 +224,12 @@ public static class EnterpriseProfileBuilder
         xml.Append("</authEncryption>");
         if (credential.Kind == WifiCredentialKind.Personal)
         {
-            xml.Append("<sharedKey><keyType>passPhrase</keyType><protected>false</protected>");
+            xml.Append($"<sharedKey><keyType>{keyType}</keyType><protected>false</protected>");
             xml.Append($"<keyMaterial>{Escape(credential.Password!)}</keyMaterial></sharedKey>");
+            if (credential.Security == WifiSecurity.Wep)
+            {
+                xml.Append("<keyIndex>0</keyIndex>");
+            }
         }
         xml.Append("</security></MSM>\n</WLANProfile>");
         return new EnterpriseProfileBuildResult(true, xml.ToString(), problems);
