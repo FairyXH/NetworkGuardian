@@ -131,6 +131,7 @@ public sealed class ConnectivityProbeTests
                     Kind = ProbeKind.Http,
                     Target = $"http://127.0.0.1:{port}/",
                     TimeoutMs = 1500,
+                    BodyMarker = "OK",
                 },
                 new ProbeEndpointSettings
                 {
@@ -151,6 +152,7 @@ public sealed class ConnectivityProbeTests
         await server;
 
         Assert.True(report.IsOnline);
+        Assert.Equal(InternetReachability.InternetVerified, report.Reachability);
         Assert.Equal(1, report.SuccessCount);
     }
 

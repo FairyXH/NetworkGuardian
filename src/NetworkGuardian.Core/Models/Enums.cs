@@ -97,6 +97,26 @@ public enum ProbeOutcome
     UnknownFailure,
 }
 
+/// <summary>Strength and meaning of a single connectivity observation.</summary>
+public enum ProbeEvidence
+{
+    None = 0,
+    LocalNetwork,
+    InternetTransport,
+    InternetVerified,
+    CaptivePortal,
+}
+
+/// <summary>Layered Internet reachability verdict used for scheduling and UI.</summary>
+public enum InternetReachability
+{
+    Unknown = 0,
+    LocalOnly,
+    CaptivePortal,
+    InternetLikely,
+    InternetVerified,
+}
+
 public enum ProbeKind
 {
     Tcp = 0,

@@ -14,6 +14,8 @@ public sealed record ProbeAttemptResult
 
     public required ProbeOutcome Outcome { get; init; }
 
+    public ProbeEvidence Evidence { get; init; }
+
     public int? HttpStatusCode { get; init; }
 
     public string? RedirectLocation { get; init; }
@@ -44,6 +46,8 @@ public sealed record ConnectivityProbeReport
 
     public bool CaptivePortalSuspected { get; init; }
 
+    public InternetReachability Reachability { get; init; }
+
     public string? CaptivePortalInterceptedBy { get; init; }
 
     public int SuccessCount { get; init; }
@@ -69,7 +73,7 @@ public sealed record ConnectivityProbeReport
     };
 
     public string Summary =>
-        $"{(IsOnline ? "online" : "offline")} {SuccessCount}/{AttemptCount}" +
+        $"{Reachability} {(IsOnline ? "online" : "offline")} {SuccessCount}/{AttemptCount}" +
         (CaptivePortalSuspected ? $" captive-portal via {CaptivePortalInterceptedBy}" : string.Empty);
 }
 

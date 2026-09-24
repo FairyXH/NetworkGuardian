@@ -127,6 +127,38 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             }
         }).ToList();
 
+        // Consume completions as a race. Once enough strong Internet evidence or a definitive
+        // captive-portal interception is observed, cancel slower probes instead of waiting for the
+        // round timeout. The remaining tasks still unwind before local resources are disposed.
+        var pending = tasks.ToList();
+        while (pending.Count > 0 && !roundCts.IsCancellationRequested)
+        {
+            var completed = await Task.WhenAny(pending).ConfigureAwait(false);
+            pending.Remove(completed);
+            try
+            {
+                await completed.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Individual failures are already captured as attempts.
+            }
+
+            var current = attempts.ToArray();
+            var verified = current.Count(a => a.Evidence == ProbeEvidence.InternetVerified);
+            var definitivePortal = current.Any(a =>
+                a.Evidence == ProbeEvidence.CaptivePortal &&
+                endpoints.Any(endpoint => endpoint.Name == a.EndpointName &&
+                    (!string.IsNullOrEmpty(endpoint.BodyMarker) ||
+                     endpoint.ExpectedStatusMin == 204 && endpoint.ExpectedStatusMax == 204)));
+            if (verified >= Math.Max(1, request.Settings.RequiredSuccessCount) ||
+                definitivePortal && verified == 0)
+            {
+                await roundCts.CancelAsync().ConfigureAwait(false);
+                break;
+            }
+        }
+
         try
         {
             await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -141,17 +173,22 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             .OrderBy(a => a.EndpointName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var successCount = attemptList.Count(a =>
-            a.IsSuccess && a.Kind is ProbeKind.Http or ProbeKind.Https);
+        var successCount = attemptList.Count(a => a.Evidence == ProbeEvidence.InternetVerified);
         var required = Math.Max(1, request.Settings.RequiredSuccessCount);
         var captiveAttempt = attemptList.FirstOrDefault(a => a.Outcome == ProbeOutcome.CaptivePortalRedirect);
         var captiveSuspected = captiveAttempt is not null;
-
+        var hasTransport = attemptList.Any(a => a.Evidence == ProbeEvidence.InternetTransport);
+        var hasLocal = attemptList.Any(a => a.Evidence == ProbeEvidence.LocalNetwork);
         var isOnline = successCount >= required;
-        if (captiveSuspected && request.Settings.TreatCaptivePortalAsOffline && successCount < required)
-        {
-            isOnline = false;
-        }
+        var reachability = isOnline
+            ? InternetReachability.InternetVerified
+            : captiveSuspected && request.Settings.TreatCaptivePortalAsOffline
+                ? InternetReachability.CaptivePortal
+                : hasTransport
+                    ? InternetReachability.InternetLikely
+                    : hasLocal
+                        ? InternetReachability.LocalOnly
+                        : InternetReachability.Unknown;
 
         var report = new ConnectivityProbeReport
         {
@@ -159,6 +196,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             SourceAddress = request.SourceAddress,
             SourceInterfaceId = request.InterfaceId,
             IsOnline = isOnline,
+            Reachability = reachability,
             CaptivePortalSuspected = captiveSuspected,
             CaptivePortalInterceptedBy = captiveAttempt is null
                 ? null
@@ -622,7 +660,32 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         RedirectLocation = redirect,
         Detail = detail,
         Duration = stopwatch.Elapsed,
+        Evidence = ClassifyEvidence(endpoint, outcome),
     };
+
+    private static ProbeEvidence ClassifyEvidence(ProbeEndpointSettings endpoint, ProbeOutcome outcome)
+    {
+        if (outcome == ProbeOutcome.CaptivePortalRedirect)
+        {
+            return ProbeEvidence.CaptivePortal;
+        }
+
+        if (outcome != ProbeOutcome.Success)
+        {
+            return ProbeEvidence.None;
+        }
+
+        return endpoint.Kind switch
+        {
+            ProbeKind.Https => ProbeEvidence.InternetVerified,
+            ProbeKind.Http when !string.IsNullOrEmpty(endpoint.BodyMarker) => ProbeEvidence.InternetVerified,
+            ProbeKind.Http when endpoint.ExpectedStatusMin == 204 && endpoint.ExpectedStatusMax == 204 =>
+                ProbeEvidence.InternetVerified,
+            ProbeKind.Http or ProbeKind.Tcp => ProbeEvidence.InternetTransport,
+            ProbeKind.Dns or ProbeKind.Icmp => ProbeEvidence.LocalNetwork,
+            _ => ProbeEvidence.None,
+        };
+    }
 
     public void Dispose()
     {
