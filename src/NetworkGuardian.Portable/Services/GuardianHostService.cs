@@ -344,7 +344,8 @@ public sealed class GuardianHostService : IAsyncDisposable
                 var interfaces = BuildInterfaceStates();
                 var desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
                 var drifted = interfaces.Any(i =>
-                    desired.TryGetValue(i.Id, out var metric) && i.InterfaceMetric != metric);
+                    desired.TryGetValue(i.Id, out var metric) &&
+                    (i.InterfaceMetric != metric || i.IsDefaultRoute && i.RouteMetric != 1));
 
                 if (drifted && !IsPaused && _config.General.AutomaticRecovery)
                 {
