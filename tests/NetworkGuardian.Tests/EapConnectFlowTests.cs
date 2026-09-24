@@ -72,6 +72,32 @@ public sealed class EapConnectFlowTests
     }
 
     [Fact]
+    public void PersonalNetworkInLibrary_IsCandidateWithoutAWindowsProfile()
+    {
+        var config = TestData.Config(c => c.Wifi.DisconnectGraceSeconds = 0);
+        var engine = new GuardianDecisionEngine(config);
+        var scan = TestData.Scan(TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "NewAdapterHome", 80,
+                hasProfile: false, security: WifiSecurity.Wpa2Personal));
+        var adapter = TestData.DisconnectedAdapter(TestData.AdapterA, Array.Empty<string>(), scan);
+        var catalog = new WifiEapCatalog
+        {
+            SsidsWithCredentials = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "NewAdapterHome" },
+            ProfileNamesBySsid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["NewAdapterHome"] = "NewAdapterHome",
+            },
+        };
+
+        var decision = engine.Evaluate(Input(config, TestData.Now, new[] { adapter }, catalog));
+
+        var connect = Assert.Single(decision.Actions.OfType<ConnectWifiAction>());
+        Assert.Equal("NewAdapterHome", connect.ProfileName);
+        Assert.False(connect.RequiresEap);
+        Assert.True(connect.UsesLibraryCredential);
+    }
+
+    [Fact]
     public void LibraryProfileWinsWhenSeveralProfilesShareTheSameSsid()
     {
         var config = TestData.Config(c => c.Wifi.DisconnectGraceSeconds = 0);

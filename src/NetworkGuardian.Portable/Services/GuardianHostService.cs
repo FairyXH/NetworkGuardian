@@ -1307,7 +1307,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         if (entry is null)
         {
             return WifiProfileApplyResult.Fail(
-                $"自维护无线网络库中没有「{action.Ssid}」的账号，无法进行 802.1X 认证");
+                $"自维护无线网络库中没有「{action.Ssid}」的可用凭据");
         }
 
         if (!entry.Enabled)
@@ -1324,7 +1324,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         if (!_config.Wifi.ApplyEapProfileOnConnect)
         {
             // The user disabled automatic writing on purpose: use whatever profile the adapter already has.
-            _logger.LogDebug("已关闭自动写入 802.1X 配置，直接使用网卡上的现有配置连接 {Ssid}", action.Ssid);
+            _logger.LogDebug("已关闭自动写入无线配置，直接使用网卡上的现有配置连接 {Ssid}", action.Ssid);
             return new WifiProfileApplyResult { Success = true };
         }
 
@@ -1340,10 +1340,10 @@ public sealed class GuardianHostService : IAsyncDisposable
         if (result.Changed)
         {
             _logger.LogInformation(
-                "已按自维护无线网络库写入 802.1X 配置：{Ssid}（账号 {Identity}，配置 {Profile}，凭证 {Credentials}）",
-                entry.Ssid, entry.Identity, result.ProfileWritten ? "已写入" : "无需更新",
+                "已按自维护无线网络库写入配置：{Ssid}（类型 {Kind}，配置 {Profile}，凭证 {Credentials}）",
+                entry.Ssid, entry.Kind, result.ProfileWritten ? "已写入" : "无需更新",
                 result.UserDataWritten ? "已写入" : "无需更新");
-            Notification?.Invoke(this, $"{entry.Ssid}：已写入 802.1X 配置与账号");
+            Notification?.Invoke(this, $"{entry.Ssid}：已写入无线配置与凭据");
         }
 
         // Remember that the entry is applied, so the next cycle does not rewrite the profile.
@@ -1485,8 +1485,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     public IReadOnlyList<EapRetryStatus> EapRetryStatus => _engine.EapRetries.Snapshot();
 
     /// <summary>
-    /// Returns visible enterprise networks as credential-library choices. Security is taken from the
-    /// scan; when a saved profile exists its outer EAP type is inspected as well.
+    /// Returns every visible network as a credential-library choice. Security is taken from the scan;
+    /// when an enterprise profile exists its outer EAP type is inspected as well.
     /// </summary>
     public IReadOnlyList<WifiCredentialSuggestion> GetWifiCredentialSuggestions()
     {
@@ -1496,8 +1496,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         {
             foreach (var network in adapter.LastScan?.Networks ?? Array.Empty<ScannedNetwork>())
             {
-                if (string.IsNullOrWhiteSpace(network.Ssid) ||
-                    !Core.Wlan.WifiProfileInspector.IsEnterpriseSecurity(network.Security))
+                if (string.IsNullOrWhiteSpace(network.Ssid))
                 {
                     continue;
                 }
@@ -1681,6 +1680,8 @@ public sealed class GuardianHostService : IAsyncDisposable
             Id = source.Id,
             Ssid = source.Ssid,
             ProfileName = source.ProfileName,
+            Kind = source.Kind,
+            Security = source.Security,
             Auth = source.Auth,
             Eap = source.Eap,
             Identity = source.Identity,

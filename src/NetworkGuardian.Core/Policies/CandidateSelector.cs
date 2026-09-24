@@ -91,6 +91,12 @@ public sealed class CandidateSelector
             }
 
             var profileName = network.ProfileName;
+            var libraryHasNetwork = catalog.HasCredential(network.Ssid);
+            if (string.IsNullOrWhiteSpace(profileName) && libraryHasNetwork)
+            {
+                profileName = catalog.ProfileNameFor(network.Ssid) ?? network.Ssid;
+            }
+
             if (string.IsNullOrWhiteSpace(profileName) && profiles.Contains(network.Ssid))
             {
                 profileName = network.Ssid;
@@ -108,7 +114,7 @@ public sealed class CandidateSelector
                 continue;
             }
 
-            if (!profiles.Contains(profileName) && settings.OnlySavedProfiles)
+            if (!profiles.Contains(profileName) && !libraryHasNetwork && settings.OnlySavedProfiles)
             {
                 rejections.Add($"{network.Ssid}: profile '{profileName}' is not present for this adapter");
                 continue;
@@ -142,7 +148,7 @@ public sealed class CandidateSelector
             // blacklist on purpose: "given up for this run" is the final reason and should be the one the
             // user (and the log) sees, not a ban that expires a few minutes later.
             var requiresEap = WifiProfileInspector.IsEnterpriseSecurity(network.Security);
-            var usesLibraryCredential = false;
+            var usesLibraryCredential = libraryHasNetwork;
 
             if (requiresEap && settings.UseCredentialLibraryForEap)
             {
@@ -168,7 +174,7 @@ public sealed class CandidateSelector
                 }
             }
 
-            if (!profiles.Contains(profileName) && settings.OnlySavedProfiles)
+            if (!profiles.Contains(profileName) && !usesLibraryCredential && settings.OnlySavedProfiles)
             {
                 rejections.Add($"{network.Ssid}: credential-library profile '{profileName}' is not present for this adapter");
                 continue;

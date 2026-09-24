@@ -1,7 +1,7 @@
 namespace NetworkGuardian.Core.Models;
 
 /// <summary>
-/// The set of networks the built-in library can authenticate for. The decision engine is pure, so it
+/// The set of networks the built-in library can configure and authenticate. The decision engine is pure, so it
 /// receives this summary instead of the library itself (which holds passwords).
 /// </summary>
 public sealed record WifiEapCatalog
@@ -29,5 +29,5 @@ public sealed record WifiEapCatalog
 
     public string Describe() => Count == 0
         ? "自维护无线网络库为空"
-        : $"自维护无线网络库包含 {Count} 个 802.1X 网络";
+        : $"自维护无线网络库包含 {Count} 个网络";
 }
