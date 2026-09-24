@@ -65,6 +65,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private Task? _radioWatchdog;
+    private Task? _routeWatchdog;
     private GuardianConfig _config;
     private GuardianSnapshot _snapshot;
     private DateTimeOffset _lastEnumerationUtc = DateTimeOffset.MinValue;
@@ -297,6 +298,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _loop = Task.Run(() => MonitorLoopAsync(_cts.Token), CancellationToken.None);
         _radioWatchdog = Task.Run(() => RadioWatchdogLoopAsync(_cts.Token), CancellationToken.None);
+        _routeWatchdog = Task.Run(() => RouteWatchdogLoopAsync(_cts.Token), CancellationToken.None);
 
         _logger.LogInformation("Guardian host started (config {Path})", _configStore.ConfigPath);
     }
@@ -314,6 +316,95 @@ public sealed class GuardianHostService : IAsyncDisposable
         {
             // One pending wake-up is enough; the flags above preserve all requested work.
         }
+    }
+
+    private void SignalMonitorCycle(bool forceProbe)
+    {
+        _forceProbe |= forceProbe;
+        try
+        {
+            _cycleSignal.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // One pending wake-up is sufficient.
+        }
+    }
+
+    /// <summary>Locks metrics and publishes the actual default outlet once per second.</summary>
+    private async Task RouteWatchdogLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+
+        do
+        {
+            try
+            {
+                var adapters = BuildAdapterStates();
+                var interfaces = BuildInterfaceStates();
+                var desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
+                var drifted = interfaces.Any(i =>
+                    desired.TryGetValue(i.Id, out var metric) && i.InterfaceMetric != metric);
+
+                if (drifted && !IsPaused && _config.General.AutomaticRecovery)
+                {
+                    var notes = await _interfaces.ApplyInterfaceMetricsAsync(desired, cancellationToken)
+                        .ConfigureAwait(false);
+                    foreach (var note in notes)
+                    {
+                        _logger.LogInformation("跃点锁定: {Note}", note);
+                    }
+
+                    interfaces = BuildInterfaceStates();
+                }
+
+                PublishLiveRouteSnapshot(interfaces, adapters, desired);
+
+                // Probes run outside this watchdog so network timeouts never delay the one-second
+                // metric check. Three seconds is the freshness target for outlet health.
+                if (DateTimeOffset.UtcNow >= _resumeQuietUntilUtc &&
+                    DateTimeOffset.UtcNow - _lastProbeUtc >= TimeSpan.FromSeconds(3))
+                {
+                    SignalMonitorCycle(forceProbe: true);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "实时出口/跃点监视器执行失败");
+            }
+        }
+        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+
+        _logger.LogInformation("实时出口/跃点监视器已停止");
+    }
+
+    private void PublishLiveRouteSnapshot(
+        IReadOnlyList<InterfaceRuntimeState> interfaces,
+        IReadOnlyList<WifiAdapterRuntimeState> adapters,
+        IReadOnlyDictionary<string, int> desiredMetrics)
+    {
+        var expectedId = InterfaceMetricPlanner.ExpectedOutletId(interfaces, desiredMetrics);
+        var actualRoute = _defaultRoutes.FirstOrDefault();
+        var actualId = actualRoute?.InterfaceLuid is { } luid ? $"luid:{luid}" : null;
+        var now = DateTimeOffset.UtcNow;
+
+        _snapshot = _snapshot with
+        {
+            TimestampUtc = now,
+            Interfaces = interfaces,
+            WifiAdapters = adapters,
+            DefaultRoutes = _defaultRoutes,
+            ExpectedOutletInterfaceId = expectedId,
+            OutletMatchesPolicy = expectedId is null
+                ? actualRoute is null
+                : string.Equals(expectedId, actualId, StringComparison.OrdinalIgnoreCase),
+            RouteObservedAtUtc = now,
+        };
+        SnapshotUpdated?.Invoke(this, _snapshot);
     }
 
     public void SetPaused(bool paused)
@@ -740,7 +831,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     private IReadOnlyList<InterfaceRuntimeState> BuildInterfaceStates()
     {
         var interfaces = _interfaces.GetInterfaces();
-        var routes = _interfaces.GetDefaultRoutes();
+        var routes = _interfaces.GetDefaultRoutes()
+            .OrderBy(route => route.EffectiveMetric ?? int.MaxValue)
+            .ToList();
         _defaultRoutes = routes;
         var result = new List<InterfaceRuntimeState>(interfaces.Count);
 
@@ -796,6 +889,11 @@ public sealed class GuardianHostService : IAsyncDisposable
             // Reuse the enumeration performed while the interface states were built: the route table
             // does not change between those two steps inside a single cycle.
             DefaultRoutes = _defaultRoutes,
+            ExpectedOutletInterfaceId = InterfaceMetricPlanner.ExpectedOutletId(
+                input.Interfaces,
+                InterfaceMetricPlanner.Plan(input.Interfaces, input.WifiAdapters)),
+            OutletMatchesPolicy = null,
+            RouteObservedAtUtc = input.Now,
             PendingActions = decision.Actions,
             Notes = decision.Notes,
             LastRecoveryAction = _engine.LastRecoveryAction,
@@ -1617,6 +1715,11 @@ public sealed class GuardianHostService : IAsyncDisposable
             if (_radioWatchdog is not null)
             {
                 await Task.WhenAny(_radioWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+            }
+
+            if (_routeWatchdog is not null)
+            {
+                await Task.WhenAny(_routeWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
             }
         }
         catch (Exception ex)

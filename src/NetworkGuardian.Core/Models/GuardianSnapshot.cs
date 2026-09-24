@@ -44,6 +44,12 @@ public sealed record GuardianSnapshot
 
     public required IReadOnlyList<DefaultRouteInfo> DefaultRoutes { get; init; }
 
+    public string? ExpectedOutletInterfaceId { get; init; }
+
+    public bool? OutletMatchesPolicy { get; init; }
+
+    public DateTimeOffset? RouteObservedAtUtc { get; init; }
+
     public required IReadOnlyList<GuardianAction> PendingActions { get; init; }
 
     public required IReadOnlyList<string> Notes { get; init; }

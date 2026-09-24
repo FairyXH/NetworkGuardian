@@ -84,10 +84,23 @@ internal sealed class DashboardPage : IPage
               $"{route.InterfaceMetric?.ToString() ?? "?"} + 路由度量 {route.RouteMetric?.ToString() ?? "?"}）";
         var outlet = FindOutletInterface(snapshot, route);
         var outletName = outlet?.Name ?? route?.InterfaceAlias ?? "未确定";
+        var outletOnline = outlet?.Probe?.IsOnline ?? snapshot.GlobalProbe.IsOnline;
+        var expectedOutlet = snapshot.Interfaces.FirstOrDefault(iface =>
+            string.Equals(iface.Id, snapshot.ExpectedOutletInterfaceId, StringComparison.OrdinalIgnoreCase));
+        var policyState = snapshot.OutletMatchesPolicy switch
+        {
+            true => "出口符合策略",
+            false => $"出口偏离策略，正在纠正（预期 {expectedOutlet?.Name ?? "未知接口"}）",
+            _ => "正在核对出口策略",
+        };
+        var routeAge = snapshot.RouteObservedAtUtc is { } observed
+            ? $"｜路由刷新 {observed.ToLocalTime():HH:mm:ss}"
+            : string.Empty;
         var outletDetail = outlet is null
-            ? routeText
+            ? $"{routeText}｜{policyState}{routeAge}"
             : $"{outlet.Description}｜{FormatInterfaceKind(outlet.Kind)}｜IPv4 {outlet.PrimaryIpv4Address ?? "无"}｜" +
-              $"下一跳 {Format.NextHop(route?.NextHop)}｜有效跃点 {route?.EffectiveMetric?.ToString() ?? "?"}";
+              $"下一跳 {Format.NextHop(route?.NextHop)}｜有效跃点 {route?.EffectiveMetric?.ToString() ?? "?"}｜" +
+              $"{policyState}{routeAge}";
 
         var wifiSummary = snapshot.WifiAdapters.Count == 0
             ? "未发现物理无线网卡"
@@ -98,8 +111,8 @@ internal sealed class DashboardPage : IPage
         {
             ("Internet 状态", internetState, internetDetail, snapshot.GlobalProbe.IsOnline ? Palette.Good : Palette.Bad),
             ("以太网", ethernetState, ethernetDetail, ethernetUp > 0 ? Palette.Good : Palette.TextSecondary),
-            ("当前外网出口", snapshot.GlobalProbe.IsOnline ? outletName : $"{outletName}（外网不可用）", outletDetail,
-                snapshot.GlobalProbe.IsOnline ? Palette.Good : Palette.Bad),
+            ("当前外网出口", outletOnline ? outletName : $"{outletName}（外网不可用）", outletDetail,
+                snapshot.OutletMatchesPolicy == false ? Palette.Warn : outletOnline ? Palette.Good : Palette.Bad),
             ("Wi-Fi 无线电", Format.RadioState(snapshot.Radio.State), snapshot.Radio.FailureReason ?? snapshot.Radio.Name ?? "—",
                 snapshot.Radio.State == RadioState.On ? Palette.Good : Palette.Warn),
             ("物理无线网卡", snapshot.WifiAdapters.Count.ToString(), wifiSummary, null),
