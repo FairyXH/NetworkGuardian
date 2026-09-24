@@ -304,21 +304,43 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
             }
 
             var header = Marshal.PtrToStructure<NpcapProbeVerifier.NpcapApi.PcapHeader>(headerPointer);
-            if (header.CapturedLength < 34)
-            {
-                continue;
-            }
-
             var packet = new byte[Math.Min(header.CapturedLength, 96)];
             Marshal.Copy(dataPointer, packet, 0, packet.Length);
-            if (packet[12] != 0x08 || packet[13] != 0x00)
-            {
-                continue;
-            }
-
-            _sawOutbound |= packet.AsSpan(26, 4).SequenceEqual(_source);
-            _sawInbound |= packet.AsSpan(30, 4).SequenceEqual(_source);
+            var direction = ClassifyIpv4Direction(packet, _source);
+            _sawOutbound |= direction.HasFlag(CapturedPacketDirection.Outbound);
+            _sawInbound |= direction.HasFlag(CapturedPacketDirection.Inbound);
         }
+    }
+
+    internal static CapturedPacketDirection ClassifyIpv4Direction(
+        ReadOnlySpan<byte> packet,
+        ReadOnlySpan<byte> source)
+    {
+        const int ethernetHeaderLength = 14;
+        if (source.Length != 4 || packet.Length < ethernetHeaderLength + 20 ||
+            packet[12] != 0x08 || packet[13] != 0x00)
+        {
+            return CapturedPacketDirection.None;
+        }
+
+        var ipHeaderLength = (packet[ethernetHeaderLength] & 0x0f) * 4;
+        if (ipHeaderLength < 20 || packet.Length < ethernetHeaderLength + ipHeaderLength)
+        {
+            return CapturedPacketDirection.None;
+        }
+
+        var direction = CapturedPacketDirection.None;
+        if (packet.Slice(ethernetHeaderLength + 12, 4).SequenceEqual(source))
+        {
+            direction |= CapturedPacketDirection.Outbound;
+        }
+
+        if (packet.Slice(ethernetHeaderLength + 16, 4).SequenceEqual(source))
+        {
+            direction |= CapturedPacketDirection.Inbound;
+        }
+
+        return direction;
     }
 
     public async ValueTask DisposeAsync()
@@ -333,4 +355,12 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
         _close(_handle);
         _cts.Dispose();
     }
+}
+
+[Flags]
+internal enum CapturedPacketDirection
+{
+    None = 0,
+    Outbound = 1,
+    Inbound = 2,
 }

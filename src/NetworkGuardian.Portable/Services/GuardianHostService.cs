@@ -112,6 +112,12 @@ public sealed class GuardianHostService : IAsyncDisposable
             loggerFactory.CreateLogger<WifiRadioController>(),
             access: new NativeRadioAccess(loggerFactory.CreateLogger<NativeRadioAccess>()));
         _npcap = new NpcapProbeVerifier(loggerFactory.CreateLogger<NpcapProbeVerifier>());
+        _logger.Log(
+            _npcap.Status.IsAvailable ? LogLevel.Information : LogLevel.Warning,
+            "Npcap status: {Available}; {Detail}; version={Version}",
+            _npcap.Status.IsAvailable,
+            _npcap.Status.Detail,
+            _npcap.Status.Version ?? "unknown");
         _probe = new ConnectivityProbe(loggerFactory.CreateLogger<ConnectivityProbe>(), _npcap);
         _commands = new ExternalCommandRunner(loggerFactory.CreateLogger<ExternalCommandRunner>());
         _location = new LocationPermissionService(
