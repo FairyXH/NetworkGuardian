@@ -812,8 +812,8 @@ internal sealed class MainWindow
 
         var (statusText, statusColor) = (_host.IsPaused
             ? "已暂停"
-            : snapshot.GlobalProbe.IsOnline ? "外网正常" : "外网中断",
-            _host.IsPaused ? Palette.Warn : snapshot.GlobalProbe.IsOnline ? Palette.Good : Palette.Bad);
+            : snapshot.GlobalProbe.IsStableOnline ? "外网正常" : "外网中断",
+            _host.IsPaused ? Palette.Warn : snapshot.GlobalProbe.IsStableOnline ? Palette.Good : Palette.Bad);
 
         canvas.Text(
             statusText,

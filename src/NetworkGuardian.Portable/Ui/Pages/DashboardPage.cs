@@ -67,7 +67,7 @@ internal sealed class DashboardPage : IPage
         var columnWidth = (area.Width - (gap * (columns - 1))) / columns;
         var height = y - area.Top;
 
-        var internetState = snapshot.GlobalProbe.IsOnline ? "在线" : "离线";
+        var internetState = snapshot.GlobalProbe.IsStableOnline ? "在线" : "离线";
         var internetDetail = Format.ProbeReport(snapshot.GlobalProbe);
 
         var ethernet = snapshot.Interfaces.Where(i => i.Kind == InterfaceKind.Ethernet).ToList();
@@ -109,7 +109,7 @@ internal sealed class DashboardPage : IPage
 
         var cards = new (string Title, string Value, string Detail, Rgb? Color)[]
         {
-            ("Internet 状态", internetState, internetDetail, snapshot.GlobalProbe.IsOnline ? Palette.Good : Palette.Bad),
+            ("Internet 状态", internetState, internetDetail, snapshot.GlobalProbe.IsStableOnline ? Palette.Good : Palette.Bad),
             ("以太网", ethernetState, ethernetDetail, ethernetUp > 0 ? Palette.Good : Palette.TextSecondary),
             ("当前外网出口", outletOnline ? outletName : $"{outletName}（外网不可用）", outletDetail,
                 snapshot.OutletMatchesPolicy == false ? Palette.Warn : outletOnline ? Palette.Good : Palette.Bad),
@@ -194,7 +194,7 @@ internal sealed class DashboardPage : IPage
                 for (var column = 0; column < rowItems.Count; column++)
                 {
                     var iface = rowItems[column];
-                    var online = iface.Probe?.IsOnline == true;
+                    var online = iface.Probe?.IsStableOnline == true;
                     DrawStatCard(ctx,
                         new Rectangle(area.Left + (column * (columnWidth + gap)), y, columnWidth, rowHeight),
                         iface.Name,

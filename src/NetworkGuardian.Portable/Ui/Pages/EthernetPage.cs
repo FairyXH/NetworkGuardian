@@ -26,7 +26,7 @@ internal sealed class EthernetPage : IPage
             .Where(i => i.Kind == InterfaceKind.Ethernet && i.IsPhysicalDevice != false)
             .ToList();
         var up = ethernet.Count(i => i.IsUp);
-        var online = ethernet.Count(i => i.Probe?.IsOnline == true);
+        var online = ethernet.Count(i => i.Probe?.IsStableOnline == true);
 
         var summary = $"{ethernet.Count} 个物理以太网，{up} 个链路已连接，{online} 个可访问外网";
         var summaryHeight = canvas.MeasureWrappedHeight(summary, area.Width, TextStyle.Body);

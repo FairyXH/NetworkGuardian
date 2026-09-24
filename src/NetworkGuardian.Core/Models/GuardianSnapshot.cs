@@ -73,7 +73,7 @@ public sealed record GuardianSnapshot
             return GuardianHealth.Paused;
         }
 
-        if (GlobalProbe.IsOnline)
+        if (GlobalProbe.IsStableOnline)
         {
             return State == RecoveryState.Healthy ? GuardianHealth.Healthy : GuardianHealth.Recovering;
         }

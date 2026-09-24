@@ -103,7 +103,7 @@ internal sealed class PortableApp
         _host.SnapshotUpdated += (_, snapshot) =>
         {
             _tray?.SetTooltip(
-                $"NetworkGuardian - {(snapshot.GlobalProbe.IsOnline ? "外网正常" : "外网中断")}，" +
+                $"NetworkGuardian - {(snapshot.GlobalProbe.IsStableOnline ? "外网正常" : "外网中断")}，" +
                 $"无线网卡 {snapshot.WifiAdapters.Count} 个");
             _window?.RequestRefresh();
         };
