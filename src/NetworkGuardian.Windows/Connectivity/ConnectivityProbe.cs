@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -287,7 +288,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 detail: $"target '{endpoint.Target}' is not host:port");
         }
 
-        var addresses = await ResolveAsync(host, timeout, cancellationToken).ConfigureAwait(false);
+        var addresses = await ResolveAsync(host, request, timeout, cancellationToken).ConfigureAwait(false);
         if (addresses.Count == 0)
         {
             return Attempt(endpoint, request, ProbeOutcome.DnsFailure, stopwatch,
@@ -339,7 +340,11 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 detail: $"target '{endpoint.Target}' is not an absolute URI");
         }
 
-        var client = GetClient(request.SourceAddress, request.InterfaceIndex, request.Settings);
+        var client = GetClient(
+            request.SourceAddress,
+            request.InterfaceIndex,
+            request.DnsServerAddresses,
+            request.Settings);
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(timeout);
 
@@ -452,7 +457,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             return Attempt(endpoint, request, ProbeOutcome.NotAttempted, stopwatch, detail: "no host to resolve");
         }
 
-        var addresses = await ResolveAsync(host, timeout, cancellationToken).ConfigureAwait(false);
+        var addresses = await ResolveAsync(host, request, timeout, cancellationToken).ConfigureAwait(false);
         stopwatch.Stop();
 
         return addresses.Count == 0
@@ -468,6 +473,12 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         Stopwatch stopwatch,
         CancellationToken cancellationToken)
     {
+        if (!string.IsNullOrWhiteSpace(request.SourceAddress))
+        {
+            return Attempt(endpoint, request, ProbeOutcome.NotAttempted, stopwatch,
+                detail: "ICMP skipped: the managed Ping API cannot guarantee the selected interface");
+        }
+
         var target = string.IsNullOrWhiteSpace(endpoint.Target) ? request.GatewayAddress : endpoint.Target;
         if (string.IsNullOrWhiteSpace(target))
         {
@@ -496,11 +507,27 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         }
     }
 
-    private static async Task<List<IPAddress>> ResolveAsync(string host, TimeSpan timeout, CancellationToken cancellationToken)
+    private static async Task<List<IPAddress>> ResolveAsync(
+        string host,
+        ProbeRequest request,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
     {
         if (IPAddress.TryParse(host, out var literal))
         {
             return new List<IPAddress> { literal };
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SourceAddress))
+        {
+            return await ResolveBoundDnsAsync(
+                    host,
+                    request.SourceAddress,
+                    request.InterfaceIndex,
+                    request.DnsServerAddresses,
+                    timeout,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -554,9 +581,14 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         return socket;
     }
 
-    private HttpClient GetClient(string? sourceAddress, uint? interfaceIndex, ProbeSettings settings)
+    private HttpClient GetClient(
+        string? sourceAddress,
+        uint? interfaceIndex,
+        IReadOnlyList<string> dnsServerAddresses,
+        ProbeSettings settings)
     {
-        var key = $"{sourceAddress ?? "any"}|{interfaceIndex?.ToString() ?? "any"}|{settings.DetectCaptivePortalRedirects}|{settings.UserAgent}";
+        var dnsKey = string.Join(",", dnsServerAddresses);
+        var key = $"{sourceAddress ?? "any"}|{interfaceIndex?.ToString() ?? "any"}|{dnsKey}|{settings.DetectCaptivePortalRedirects}|{settings.UserAgent}";
 
         return _httpClients.GetOrAdd(key, _ =>
         {
@@ -577,19 +609,38 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             {
                 handler.ConnectCallback = async (context, token) =>
                 {
-                    var socket = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-                    try
+                    var addresses = await ResolveBoundDnsAsync(
+                            context.DnsEndPoint.Host,
+                            sourceAddress,
+                            interfaceIndex,
+                            dnsServerAddresses,
+                            TimeSpan.FromMilliseconds(Math.Max(500, settings.TimeoutMs)),
+                            token)
+                        .ConfigureAwait(false);
+                    Exception? lastError = null;
+
+                    foreach (var address in addresses.Where(address => address.AddressFamily == source.AddressFamily))
                     {
-                        PinSocketToInterface(socket, source, interfaceIndex);
-                        socket.Bind(new IPEndPoint(source, 0));
-                        await socket.ConnectAsync(context.DnsEndPoint, token).ConfigureAwait(false);
-                        return new NetworkStream(socket, ownsSocket: true);
+                        var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+                        try
+                        {
+                            PinSocketToInterface(socket, source, interfaceIndex);
+                            socket.Bind(new IPEndPoint(source, 0));
+                            await socket.ConnectAsync(
+                                    new IPEndPoint(address, context.DnsEndPoint.Port), token)
+                                .ConfigureAwait(false);
+                            return new NetworkStream(socket, ownsSocket: true);
+                        }
+                        catch (Exception ex)
+                        {
+                            lastError = ex;
+                            socket.Dispose();
+                        }
                     }
-                    catch
-                    {
-                        socket.Dispose();
-                        throw;
-                    }
+
+                    throw new HttpRequestException(
+                        $"No address for {context.DnsEndPoint.Host} was reachable on interface {interfaceIndex}",
+                        lastError);
                 };
             }
 
@@ -598,6 +649,160 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 Timeout = Timeout.InfiniteTimeSpan, // cancellation is handled per request
             };
         });
+    }
+
+    private static async Task<List<IPAddress>> ResolveBoundDnsAsync(
+        string host,
+        string sourceAddress,
+        uint? interfaceIndex,
+        IReadOnlyList<string> dnsServerAddresses,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        if (IPAddress.TryParse(host, out var literal))
+        {
+            return new List<IPAddress> { literal };
+        }
+
+        if (!IPAddress.TryParse(sourceAddress, out var source) || source.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return new List<IPAddress>();
+        }
+
+        var queryId = (ushort)RandomNumberGenerator.GetInt32(1, ushort.MaxValue + 1);
+        var query = BuildDnsQuery(host, queryId);
+
+        foreach (var serverText in dnsServerAddresses)
+        {
+            if (!IPAddress.TryParse(serverText, out var server) || server.AddressFamily != source.AddressFamily)
+            {
+                continue;
+            }
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(timeout);
+            using var udp = new UdpClient(source.AddressFamily);
+            try
+            {
+                PinSocketToInterface(udp.Client, source, interfaceIndex);
+                udp.Client.Bind(new IPEndPoint(source, 0));
+                udp.Connect(server, 53);
+                await udp.SendAsync(query, timeoutCts.Token).ConfigureAwait(false);
+                var response = await udp.ReceiveAsync(timeoutCts.Token).ConfigureAwait(false);
+                var addresses = ParseDnsAddresses(response.Buffer, queryId);
+                if (addresses.Count > 0)
+                {
+                    return addresses;
+                }
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Try the next DNS server assigned to this same interface.
+            }
+        }
+
+        return new List<IPAddress>();
+    }
+
+    private static byte[] BuildDnsQuery(string host, ushort queryId)
+    {
+        using var stream = new MemoryStream();
+        WriteUInt16(stream, queryId);
+        WriteUInt16(stream, 0x0100); // recursion desired
+        WriteUInt16(stream, 1);
+        WriteUInt16(stream, 0);
+        WriteUInt16(stream, 0);
+        WriteUInt16(stream, 0);
+        foreach (var label in host.TrimEnd('.').Split('.'))
+        {
+            var bytes = Encoding.ASCII.GetBytes(label);
+            stream.WriteByte((byte)bytes.Length);
+            stream.Write(bytes);
+        }
+
+        stream.WriteByte(0);
+        WriteUInt16(stream, 1); // A
+        WriteUInt16(stream, 1); // IN
+        return stream.ToArray();
+    }
+
+    private static List<IPAddress> ParseDnsAddresses(byte[] response, ushort queryId)
+    {
+        var result = new List<IPAddress>();
+        if (response.Length < 12 || ReadUInt16(response, 0) != queryId ||
+            (ReadUInt16(response, 2) & 0x800F) != 0x8000)
+        {
+            return result;
+        }
+
+        var questionCount = ReadUInt16(response, 4);
+        var answerCount = ReadUInt16(response, 6);
+        var offset = 12;
+        for (var index = 0; index < questionCount; index++)
+        {
+            offset = SkipDnsName(response, offset);
+            offset += 4;
+            if (offset > response.Length)
+            {
+                return result;
+            }
+        }
+
+        for (var index = 0; index < answerCount && offset < response.Length; index++)
+        {
+            offset = SkipDnsName(response, offset);
+            if (offset + 10 > response.Length)
+            {
+                break;
+            }
+
+            var type = ReadUInt16(response, offset);
+            var dataLength = ReadUInt16(response, offset + 8);
+            offset += 10;
+            if (offset + dataLength > response.Length)
+            {
+                break;
+            }
+
+            if (type == 1 && dataLength == 4)
+            {
+                result.Add(new IPAddress(response.AsSpan(offset, 4)));
+            }
+
+            offset += dataLength;
+        }
+
+        return result;
+    }
+
+    private static int SkipDnsName(byte[] message, int offset)
+    {
+        while (offset < message.Length)
+        {
+            var length = message[offset++];
+            if (length == 0)
+            {
+                return offset;
+            }
+
+            if ((length & 0xC0) == 0xC0)
+            {
+                return offset + 1;
+            }
+
+            offset += length;
+        }
+
+        return message.Length + 1;
+    }
+
+    private static ushort ReadUInt16(byte[] value, int offset) =>
+        (ushort)((value[offset] << 8) | value[offset + 1]);
+
+    private static void WriteUInt16(Stream stream, ushort value)
+    {
+        stream.WriteByte((byte)(value >> 8));
+        stream.WriteByte((byte)value);
     }
 
     private static void PinSocketToInterface(Socket socket, IPAddress source, uint? interfaceIndex)

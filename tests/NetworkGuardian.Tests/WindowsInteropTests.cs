@@ -188,6 +188,30 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
+    public async Task InterfaceBoundProbe_NeverUsesUnboundManagedPing()
+    {
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = Array.Empty<ProbeEndpointSettings>(),
+            Settings = new ProbeSettings
+            {
+                AllowIcmp = true,
+                PingTargets = new List<string> { "127.0.0.1" },
+                RoundTimeoutMs = 1500,
+            },
+            SourceAddress = "127.0.0.1",
+            InterfaceIndex = 1,
+            InterfaceId = "luid:1",
+        }, CancellationToken.None);
+
+        var attempt = Assert.Single(report.Attempts);
+        Assert.Equal(ProbeOutcome.NotAttempted, attempt.Outcome);
+        Assert.Equal(ProbeEvidence.None, attempt.Evidence);
+        Assert.False(report.IsOnline);
+    }
+
+    [Fact]
     public async Task TcpSuccessAlone_DoesNotDeclareUsableInternet()
     {
         // A deliberately unreachable endpoint plus a working loopback TCP listener: the verdict must

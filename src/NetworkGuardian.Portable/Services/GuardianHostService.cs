@@ -722,6 +722,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                     SourceAddress = candidate.PrimaryIpv4Address,
                     InterfaceIndex = candidate.InterfaceIndex,
                     InterfaceId = candidate.Id,
+                    DnsServerAddresses = candidate.DnsServers,
                     GatewayAddress = candidate.PrimaryGateway,
                     MaxConcurrencyOverride = 2,
                 };

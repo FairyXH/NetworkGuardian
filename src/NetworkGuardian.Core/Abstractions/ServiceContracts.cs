@@ -123,6 +123,9 @@ public sealed record ProbeRequest
 
     public string? InterfaceId { get; init; }
 
+    /// <summary>DNS servers assigned to the selected interface, used for interface-bound queries.</summary>
+    public IReadOnlyList<string> DnsServerAddresses { get; init; } = Array.Empty<string>();
+
     /// <summary>Optional per-request cap used to keep multi-interface checks lightweight.</summary>
     public int? MaxConcurrencyOverride { get; init; }
 
