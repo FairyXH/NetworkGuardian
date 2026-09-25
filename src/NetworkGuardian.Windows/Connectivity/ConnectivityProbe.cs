@@ -72,6 +72,19 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 }));
         }
 
+        ProbeAttemptResult? rawFallbackAttempt = null;
+        var canRunRaw = _npcap?.Status.IsAvailable == true && request.InterfaceId is not null;
+        if (request.Settings.PreferNpcapRawProbe && canRunRaw)
+        {
+            var raw = await RunRawNpcapProbeAsync(request, cancellationToken).ConfigureAwait(false);
+            if (raw.Result.Verdict is NpcapRawProbeVerdict.Online or NpcapRawProbeVerdict.Offline)
+            {
+                stopwatch.Stop();
+                return BuildAuthoritativeRawReport(request, started, stopwatch.Elapsed, raw.Result, raw.Attempt);
+            }
+            rawFallbackAttempt = raw.Attempt;
+        }
+
         if (endpoints.Count == 0)
         {
             return new ConnectivityProbeReport
@@ -95,6 +108,10 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         using var throttle = new SemaphoreSlim(Math.Max(1,
             request.MaxConcurrencyOverride ?? request.Settings.MaxConcurrency));
         var attempts = new ConcurrentBag<ProbeAttemptResult>();
+        if (rawFallbackAttempt is not null)
+        {
+            attempts.Add(rawFallbackAttempt);
+        }
 
         var tasks = endpoints.Select(async endpoint =>
         {
@@ -134,9 +151,9 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             }
         }).ToList();
 
-        if (_npcap?.Status.IsAvailable == true && request.InterfaceId is not null)
+        if (canRunRaw && rawFallbackAttempt is null)
         {
-            tasks.Add(RunRawNpcapProbeAsync(request, attempts, roundCts.Token));
+            tasks.Add(AddRawNpcapAttemptAsync(request, attempts, roundCts.Token));
         }
 
         // Consume completions as a race. Once enough strong Internet evidence or a definitive
@@ -160,7 +177,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             // A raw Npcap reply is a proxy-independent fallback. Do not let it cancel HTTPS probes:
             // those still provide the stronger application/captive-portal observation when usable.
             var verified = current.Count(a =>
-                a.Evidence == ProbeEvidence.InternetVerified && a.EndpointName != "NpcapRawIcmp");
+                a.Evidence == ProbeEvidence.InternetVerified && a.EndpointName != "NpcapRaw");
             if (verified >= Math.Max(1, request.Settings.RequiredSuccessCount))
             {
                 await roundCts.CancelAsync().ConfigureAwait(false);
@@ -184,7 +201,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 
         var successCount = attemptList.Count(a => a.Evidence == ProbeEvidence.InternetVerified);
         var rawNpcapVerified = attemptList.Any(a =>
-            a.EndpointName == "NpcapRawIcmp" && a.Evidence == ProbeEvidence.InternetVerified);
+            a.EndpointName == "NpcapRaw" && a.Evidence == ProbeEvidence.InternetVerified);
         var required = Math.Max(1, request.Settings.RequiredSuccessCount);
         var captiveAttempt = attemptList.FirstOrDefault(a => a.Outcome == ProbeOutcome.CaptivePortalRedirect);
         var captiveSuspected = captiveAttempt is not null;
@@ -214,7 +231,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         if (rawNpcapVerified)
         {
             captureVerification = PacketCaptureVerification.VerifiedOnTargetInterface;
-            captureDetail = "Npcap 在目标接口直接发送并收到原始公网 ICMP 帧";
+            captureDetail = "Npcap 在目标接口直接发送并收到原始公网 TCP/ICMP 帧";
         }
         else if (isOnline && request.InterfaceId is not null && _npcap?.Status.IsAvailable == true && capture is null)
         {
@@ -285,35 +302,50 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         return report;
     }
 
-    private async Task RunRawNpcapProbeAsync(
+    private async Task AddRawNpcapAttemptAsync(
         ProbeRequest request,
         ConcurrentBag<ProbeAttemptResult> attempts,
+        CancellationToken cancellationToken)
+    {
+        var raw = await RunRawNpcapProbeAsync(request, cancellationToken).ConfigureAwait(false);
+        attempts.Add(raw.Attempt);
+    }
+
+    private async Task<(NpcapRawProbeResult Result, ProbeAttemptResult Attempt)> RunRawNpcapProbeAsync(
+        ProbeRequest request,
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var targets = request.Settings.PingTargets
+            var icmpTargets = request.Settings.PingTargets
                 .Where(target => IPAddress.TryParse(target, out _))
                 .ToList();
-            var result = await _npcap!.ProbeRawIcmpAsync(
+            var result = await _npcap!.ProbeRawAsync(
                     request.AdapterGuid,
                     request.SourceAddress,
                     request.SourceMacAddress,
                     request.GatewayAddress,
-                    targets,
-                    TimeSpan.FromMilliseconds(Math.Max(700, request.Settings.PingTimeoutMs)),
+                    request.Settings.NpcapRawTcpTargets,
+                    icmpTargets,
+                    TimeSpan.FromMilliseconds(Math.Max(1000, request.Settings.PingTimeoutMs)),
                     cancellationToken)
                 .ConfigureAwait(false);
             stopwatch.Stop();
-            attempts.Add(new ProbeAttemptResult
+            return (result, new ProbeAttemptResult
             {
-                EndpointName = "NpcapRawIcmp",
-                Kind = ProbeKind.Icmp,
-                Target = targets.Count > 0 ? string.Join(",", targets) : "223.5.5.5,119.29.29.29",
+                EndpointName = "NpcapRaw",
+                Kind = ProbeKind.Tcp,
+                Target = string.Join(",", request.Settings.NpcapRawTcpTargets),
                 SourceAddress = request.SourceAddress,
-                Outcome = result.Success ? ProbeOutcome.Success : ProbeOutcome.Timeout,
-                Evidence = result.Success ? ProbeEvidence.InternetVerified : ProbeEvidence.None,
+                Outcome = result.Verdict == NpcapRawProbeVerdict.Online
+                    ? ProbeOutcome.Success
+                    : result.Verdict == NpcapRawProbeVerdict.Offline
+                        ? ProbeOutcome.Timeout
+                        : ProbeOutcome.NotAttempted,
+                Evidence = result.Verdict == NpcapRawProbeVerdict.Online
+                    ? ProbeEvidence.InternetVerified
+                    : ProbeEvidence.None,
                 Detail = result.Detail,
                 Duration = stopwatch.Elapsed,
             });
@@ -321,31 +353,61 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         catch (OperationCanceledException)
         {
             stopwatch.Stop();
-            attempts.Add(new ProbeAttemptResult
+            var result = new NpcapRawProbeResult(
+                NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 原始探针被取消");
+            return (result, new ProbeAttemptResult
             {
-                EndpointName = "NpcapRawIcmp",
-                Kind = ProbeKind.Icmp,
+                EndpointName = "NpcapRaw",
+                Kind = ProbeKind.Tcp,
                 Target = "raw-public-ip",
                 SourceAddress = request.SourceAddress,
                 Outcome = ProbeOutcome.Timeout,
-                Detail = "Npcap 原始探针被取消",
+                Detail = result.Detail,
                 Duration = stopwatch.Elapsed,
             });
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            attempts.Add(new ProbeAttemptResult
+            var result = new NpcapRawProbeResult(
+                NpcapRawProbeVerdict.Unavailable, 0, 0, $"Npcap 原始探针失败：{ex.Message}");
+            return (result, new ProbeAttemptResult
             {
-                EndpointName = "NpcapRawIcmp",
-                Kind = ProbeKind.Icmp,
+                EndpointName = "NpcapRaw",
+                Kind = ProbeKind.Tcp,
                 Target = "raw-public-ip",
                 SourceAddress = request.SourceAddress,
                 Outcome = ProbeOutcome.UnknownFailure,
-                Detail = $"Npcap 原始探针失败：{ex.Message}",
+                Detail = result.Detail,
                 Duration = stopwatch.Elapsed,
             });
         }
+    }
+
+    private static ConnectivityProbeReport BuildAuthoritativeRawReport(
+        ProbeRequest request,
+        DateTimeOffset started,
+        TimeSpan duration,
+        NpcapRawProbeResult raw,
+        ProbeAttemptResult attempt)
+    {
+        var online = raw.Verdict == NpcapRawProbeVerdict.Online;
+        return new ConnectivityProbeReport
+        {
+            TimestampUtc = started,
+            SourceAddress = request.SourceAddress,
+            SourceInterfaceId = request.InterfaceId,
+            IsOnline = online,
+            IsAuthoritative = true,
+            Reachability = online ? InternetReachability.InternetVerified : InternetReachability.LocalOnly,
+            CaptureVerification = PacketCaptureVerification.VerifiedOnTargetInterface,
+            CaptureVerificationDetail = raw.Detail,
+            SuccessCount = online ? 1 : 0,
+            AttemptCount = 1,
+            RequiredSuccessCount = 1,
+            Duration = duration,
+            Attempts = new[] { attempt },
+        };
     }
 
     private async Task<ProbeAttemptResult> RunAttemptAsync(

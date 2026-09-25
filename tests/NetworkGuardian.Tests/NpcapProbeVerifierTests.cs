@@ -25,16 +25,22 @@ public sealed class NpcapProbeVerifierTests
 
         using var verifier = new NpcapProbeVerifier(NullLogger<NpcapProbeVerifier>.Instance);
         Assert.True(verifier.Status.IsAvailable, verifier.Status.Detail);
-        var result = await verifier.ProbeRawIcmpAsync(
+        var result = await verifier.ProbeRawAsync(
             candidate.AdapterGuid,
             candidate.PrimaryIpv4Address,
             candidate.MacAddress,
             candidate.PrimaryGateway,
+            new[]
+            {
+                "223.5.5.5:53", "223.6.6.6:53", "119.29.29.29:53", "180.76.76.76:53",
+                "114.114.114.114:53", "1.1.1.1:53", "8.8.8.8:53", "9.9.9.9:53",
+            },
             new[] { "223.5.5.5", "119.29.29.29" },
             TimeSpan.FromSeconds(2),
             CancellationToken.None);
 
-        Assert.True(result.Success, result.Detail);
+        Assert.Equal(NpcapRawProbeVerdict.Online, result.Verdict);
+        Assert.True(result.TcpReplyCount >= 2, result.Detail);
     }
 
     [Fact]

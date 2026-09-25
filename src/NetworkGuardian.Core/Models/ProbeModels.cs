@@ -44,6 +44,9 @@ public sealed record ConnectivityProbeReport
 
     public bool IsOnline { get; init; }
 
+    /// <summary>True when a preferred low-level probe produced a decisive verdict without fallback.</summary>
+    public bool IsAuthoritative { get; init; }
+
     /// <summary>
     /// Debounced routing verdict. Null means no host-level stability state was applied.
     /// </summary>

@@ -8,7 +8,18 @@ namespace NetworkGuardian.Windows.Connectivity;
 
 public sealed record NpcapRuntimeStatus(bool IsAvailable, string Detail, string? Version = null);
 
-public sealed record NpcapRawProbeResult(bool Success, int ReplyCount, string Detail);
+public enum NpcapRawProbeVerdict
+{
+    Unavailable,
+    Online,
+    Offline,
+}
+
+public sealed record NpcapRawProbeResult(
+    NpcapRawProbeVerdict Verdict,
+    int TcpReplyCount,
+    int IcmpReplyCount,
+    string Detail);
 
 /// <summary>Optional packet-level proof that a probe actually traversed its selected adapter.</summary>
 public sealed class NpcapProbeVerifier : IDisposable
@@ -88,12 +99,13 @@ public sealed class NpcapProbeVerifier : IDisposable
         }
     }
 
-    public Task<NpcapRawProbeResult> ProbeRawIcmpAsync(
+    public Task<NpcapRawProbeResult> ProbeRawAsync(
         Guid? adapterGuid,
         string? sourceAddress,
         string? sourceMacAddress,
         string? gatewayAddress,
-        IReadOnlyList<string> targets,
+        IReadOnlyList<string> tcpTargets,
+        IReadOnlyList<string> icmpTargets,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
@@ -102,12 +114,13 @@ public sealed class NpcapProbeVerifier : IDisposable
             string.IsNullOrWhiteSpace(gatewayAddress) ||
             !Volatile.Read(ref _devices).TryGetValue(guid, out var device))
         {
-            return Task.FromResult(new NpcapRawProbeResult(false, 0, "缺少 Npcap 接口或二层地址"));
+            return Task.FromResult(new NpcapRawProbeResult(
+                NpcapRawProbeVerdict.Unavailable, 0, 0, "缺少 Npcap 接口或二层地址"));
         }
 
         return Task.Run(
-            () => _api.ProbeRawIcmp(device, sourceAddress, sourceMacAddress, gatewayAddress,
-                targets, timeout, cancellationToken),
+            () => _api.ProbeRaw(device, sourceAddress, sourceMacAddress, gatewayAddress,
+                tcpTargets, icmpTargets, timeout, cancellationToken),
             cancellationToken);
     }
 
@@ -256,12 +269,13 @@ public sealed class NpcapProbeVerifier : IDisposable
             }
         }
 
-        public NpcapRawProbeResult ProbeRawIcmp(
+        public NpcapRawProbeResult ProbeRaw(
             string device,
             string sourceAddress,
             string sourceMacAddress,
             string gatewayAddress,
-            IReadOnlyList<string> targetTexts,
+            IReadOnlyList<string> tcpTargetTexts,
+            IReadOnlyList<string> icmpTargetTexts,
             TimeSpan timeout,
             CancellationToken cancellationToken)
         {
@@ -271,20 +285,34 @@ public sealed class NpcapProbeVerifier : IDisposable
                 sourceIp.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
                 gatewayIp.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
             {
-                return new NpcapRawProbeResult(false, 0, "源 IPv4、网关或 MAC 地址无效");
+                return new NpcapRawProbeResult(
+                    NpcapRawProbeVerdict.Unavailable, 0, 0, "源 IPv4、网关或 MAC 地址无效");
             }
 
-            var targets = targetTexts
+            var icmpTargets = icmpTargetTexts
                 .Select(text => IPAddress.TryParse(text, out var address) ? address : null)
                 .Where(address => address?.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                 .Cast<IPAddress>()
                 .Distinct()
                 .Take(4)
                 .ToList();
-            if (targets.Count == 0)
+            if (icmpTargets.Count == 0)
             {
-                targets.Add(IPAddress.Parse("223.5.5.5"));
-                targets.Add(IPAddress.Parse("119.29.29.29"));
+                icmpTargets.Add(IPAddress.Parse("223.5.5.5"));
+                icmpTargets.Add(IPAddress.Parse("119.29.29.29"));
+            }
+
+            var tcpTargets = tcpTargetTexts
+                .Select(TryParseTcpTarget)
+                .Where(target => target is not null)
+                .Cast<RawTcpTarget>()
+                .Distinct()
+                .Take(8)
+                .ToList();
+            if (tcpTargets.Count < 2)
+            {
+                return new NpcapRawProbeResult(
+                    NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 原始 TCP 目标少于两个");
             }
 
             var error = Marshal.AllocHGlobal(ErrorBufferSize);
@@ -295,25 +323,25 @@ public sealed class NpcapProbeVerifier : IDisposable
                 handle = _openLive(device, 128, 0, 40, error);
                 if (handle == IntPtr.Zero)
                 {
-                    return new NpcapRawProbeResult(false, 0,
+                    return new NpcapRawProbeResult(NpcapRawProbeVerdict.Unavailable, 0, 0,
                         Marshal.PtrToStringAnsi(error) ?? "pcap_open_live failed");
                 }
 
                 if (_datalink(handle) != 1)
                 {
-                    return new NpcapRawProbeResult(false, 0, "Npcap 接口不是 Ethernet 帧格式");
+                    return new NpcapRawProbeResult(NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 接口不是 Ethernet 帧格式");
                 }
 
-                if (_compile(handle, out var program, "arp or icmp", 1, 0xffffffff) != 0)
+                if (_compile(handle, out var program, "arp or icmp or tcp", 1, 0xffffffff) != 0)
                 {
-                    return new NpcapRawProbeResult(false, 0, "Npcap 原始探针过滤器编译失败");
+                    return new NpcapRawProbeResult(NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 原始探针过滤器编译失败");
                 }
 
                 try
                 {
                     if (_setFilter(handle, ref program) != 0)
                     {
-                        return new NpcapRawProbeResult(false, 0, "Npcap 原始探针过滤器启用失败");
+                        return new NpcapRawProbeResult(NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 原始探针过滤器启用失败");
                     }
                 }
                 finally
@@ -325,14 +353,24 @@ public sealed class NpcapProbeVerifier : IDisposable
                 var gatewayBytes = gatewayIp.GetAddressBytes();
                 if (_sendPacket(handle, BuildArpRequest(sourceMac, sourceBytes, gatewayBytes), 42) != 0)
                 {
-                    return new NpcapRawProbeResult(false, 0, "Npcap ARP 请求发送失败");
+                    return new NpcapRawProbeResult(NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap ARP 请求发送失败");
                 }
 
                 var watch = Stopwatch.StartNew();
                 byte[]? gatewayMac = null;
                 var arpBudget = TimeSpan.FromMilliseconds(Math.Min(500, timeout.TotalMilliseconds / 2));
+                var arpRetransmitted = false;
                 while (watch.Elapsed < arpBudget && !cancellationToken.IsCancellationRequested)
                 {
+                    if (!arpRetransmitted && watch.Elapsed >= TimeSpan.FromTicks(arpBudget.Ticks / 2))
+                    {
+                        arpRetransmitted = true;
+                        if (_sendPacket(handle, BuildArpRequest(sourceMac, sourceBytes, gatewayBytes), 42) != 0)
+                        {
+                            return new NpcapRawProbeResult(
+                                NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap ARP 请求重传失败");
+                        }
+                    }
                     if (TryReadPacket(handle, out var packet) &&
                         TryReadArpReply(packet, gatewayBytes, sourceBytes, out gatewayMac))
                     {
@@ -340,22 +378,68 @@ public sealed class NpcapProbeVerifier : IDisposable
                     }
                 }
 
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return new NpcapRawProbeResult(
+                        NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 原始探针被取消");
+                }
+
                 if (gatewayMac is null)
                 {
-                    return new NpcapRawProbeResult(false, 0, "网关未响应 Npcap 原始 ARP 请求");
+                    // An ARP timeout can also mean the adapter/driver does not expose injected
+                    // frames correctly. Link state already handles a genuinely detached cable, so
+                    // degrade instead of turning this ambiguous condition into a false WAN outage.
+                    return new NpcapRawProbeResult(
+                        NpcapRawProbeVerdict.Unavailable, 0, 0, "物理接口网关未响应原始 ARP；降级到常规探测");
                 }
 
                 var identifier = (ushort)RandomNumberGenerator.GetInt32(1, ushort.MaxValue + 1);
-                for (var index = 0; index < targets.Count; index++)
+                var firstSourcePort = RandomNumberGenerator.GetInt32(49152, 65536 - tcpTargets.Count);
+                var tcpProbes = tcpTargets.Select((target, index) => new RawTcpProbe(
+                    target,
+                    (ushort)(firstSourcePort + index),
+                    (uint)RandomNumberGenerator.GetInt32(int.MaxValue),
+                    index)).ToList();
+
+                bool SendPublicProbes()
                 {
-                    var frame = BuildIcmpEcho(sourceMac, gatewayMac, sourceBytes,
-                        targets[index].GetAddressBytes(), identifier, (ushort)(index + 1));
-                    _sendPacket(handle, frame, frame.Length);
+                    for (var index = 0; index < icmpTargets.Count; index++)
+                    {
+                        var frame = BuildIcmpEcho(sourceMac, gatewayMac, sourceBytes,
+                            icmpTargets[index].GetAddressBytes(), identifier, (ushort)(index + 1));
+                        if (_sendPacket(handle, frame, frame.Length) != 0) return false;
+                    }
+                    foreach (var probe in tcpProbes)
+                    {
+                        var frame = BuildTcpSyn(sourceMac, gatewayMac, sourceBytes,
+                            probe.Target.Address.GetAddressBytes(), probe.SourcePort,
+                            probe.Target.Port, probe.Sequence);
+                        if (_sendPacket(handle, frame, frame.Length) != 0) return false;
+                    }
+                    return true;
                 }
 
-                var replies = new HashSet<string>(StringComparer.Ordinal);
+                if (!SendPublicProbes())
+                {
+                    return new NpcapRawProbeResult(
+                        NpcapRawProbeVerdict.Unavailable, 0, 0, "Npcap 原始公网探针发送失败");
+                }
+
+                var icmpReplies = new HashSet<string>(StringComparer.Ordinal);
+                var tcpReplies = new HashSet<int>();
+                var retransmitted = false;
                 while (watch.Elapsed < timeout && !cancellationToken.IsCancellationRequested)
                 {
+                    if (!retransmitted && watch.Elapsed >= TimeSpan.FromTicks(timeout.Ticks * 2 / 3))
+                    {
+                        retransmitted = true;
+                        if (!SendPublicProbes())
+                        {
+                            return new NpcapRawProbeResult(
+                                NpcapRawProbeVerdict.Unavailable, tcpReplies.Count, icmpReplies.Count,
+                                "Npcap 原始公网探针重传失败");
+                        }
+                    }
                     if (!TryReadPacket(handle, out var packet))
                     {
                         continue;
@@ -363,20 +447,35 @@ public sealed class NpcapProbeVerifier : IDisposable
 
                     if (TryReadEchoReply(packet, sourceBytes, identifier, out var remote))
                     {
-                        replies.Add(remote);
-                        if (replies.Count >= Math.Min(2, targets.Count))
-                        {
-                            break;
-                        }
+                        icmpReplies.Add(remote);
+                    }
+                    if (TryReadTcpReply(packet, sourceBytes, tcpProbes, out var probeIndex))
+                    {
+                        tcpReplies.Add(probeIndex);
+                    }
+                    if (tcpReplies.Count >= 2 || tcpReplies.Count >= 1 && icmpReplies.Count >= 2)
+                    {
+                        break;
                     }
                 }
 
-                var requiredReplies = Math.Min(2, targets.Count);
-                return replies.Count >= requiredReplies
-                    ? new NpcapRawProbeResult(true, replies.Count,
-                        $"Npcap 原始 ICMP 收到 {replies.Count}/{targets.Count} 个公网目标回包")
-                    : new NpcapRawProbeResult(false, 0,
-                        $"Npcap 原始 ICMP 回包不足（{replies.Count}/{requiredReplies}，目标 {targets.Count} 个）");
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return new NpcapRawProbeResult(
+                        NpcapRawProbeVerdict.Unavailable, tcpReplies.Count, icmpReplies.Count,
+                        "Npcap 原始探针被取消");
+                }
+
+                var online = tcpReplies.Count >= 2 || tcpReplies.Count >= 1 && icmpReplies.Count >= 2;
+                var tcpResponders = string.Join(",", tcpReplies.Order()
+                    .Select(index => $"{tcpProbes[index].Target.Address}:{tcpProbes[index].Target.Port}"));
+                return new NpcapRawProbeResult(
+                    online ? NpcapRawProbeVerdict.Online : NpcapRawProbeVerdict.Offline,
+                    tcpReplies.Count,
+                    icmpReplies.Count,
+                    online
+                        ? $"Npcap 原始公网证据：TCP={tcpReplies.Count}/{tcpTargets.Count} [{tcpResponders}]，ICMP={icmpReplies.Count}/{icmpTargets.Count}"
+                        : $"Npcap 原始公网证据不足：TCP={tcpReplies.Count}/2 [{tcpResponders}]，ICMP={icmpReplies.Count}/2");
             }
             finally
             {
@@ -442,6 +541,32 @@ public sealed class NpcapProbeVerifier : IDisposable
             return frame;
         }
 
+        internal static byte[] BuildTcpSyn(byte[] sourceMac, byte[] gatewayMac, byte[] sourceIp,
+            byte[] targetIp, ushort sourcePort, ushort targetPort, uint sequence)
+        {
+            var frame = new byte[54];
+            gatewayMac.CopyTo(frame, 0);
+            sourceMac.CopyTo(frame, 6);
+            WriteUInt16(frame, 12, 0x0800);
+            frame[14] = 0x45;
+            WriteUInt16(frame, 16, 40);
+            WriteUInt16(frame, 18, (ushort)RandomNumberGenerator.GetInt32(ushort.MaxValue + 1));
+            WriteUInt16(frame, 20, 0x4000);
+            frame[22] = 64;
+            frame[23] = 6;
+            sourceIp.CopyTo(frame, 26);
+            targetIp.CopyTo(frame, 30);
+            WriteUInt16(frame, 24, Checksum(frame.AsSpan(14, 20)));
+            WriteUInt16(frame, 34, sourcePort);
+            WriteUInt16(frame, 36, targetPort);
+            WriteUInt32(frame, 38, sequence);
+            frame[46] = 0x50;
+            frame[47] = 0x02;
+            WriteUInt16(frame, 48, 64240);
+            WriteUInt16(frame, 50, TcpChecksum(sourceIp, targetIp, frame.AsSpan(34, 20)));
+            return frame;
+        }
+
         private static bool TryReadArpReply(ReadOnlySpan<byte> packet, ReadOnlySpan<byte> gatewayIp,
             ReadOnlySpan<byte> sourceIp, out byte[]? gatewayMac)
         {
@@ -477,6 +602,51 @@ public sealed class NpcapProbeVerifier : IDisposable
             return true;
         }
 
+        private static bool TryReadTcpReply(ReadOnlySpan<byte> packet, ReadOnlySpan<byte> sourceIp,
+            IReadOnlyList<RawTcpProbe> probes, out int probeIndex)
+        {
+            probeIndex = -1;
+            if (packet.Length < 54 || ReadUInt16(packet, 12) != 0x0800)
+            {
+                return false;
+            }
+            const int ipOffset = 14;
+            var ipLength = (packet[ipOffset] & 0x0f) * 4;
+            var tcpOffset = ipOffset + ipLength;
+            if (ipLength < 20 || packet.Length < tcpOffset + 20 || packet[ipOffset + 9] != 6 ||
+                !packet.Slice(ipOffset + 16, 4).SequenceEqual(sourceIp))
+            {
+                return false;
+            }
+            var flags = packet[tcpOffset + 13];
+            if ((flags & 0x04) == 0 && (flags & 0x12) != 0x12)
+            {
+                return false;
+            }
+            var remoteAddress = new IPAddress(packet.Slice(ipOffset + 12, 4));
+            var remotePort = ReadUInt16(packet, tcpOffset);
+            var localPort = ReadUInt16(packet, tcpOffset + 2);
+            var match = probes.FirstOrDefault(probe =>
+                probe.SourcePort == localPort && probe.Target.Port == remotePort &&
+                probe.Target.Address.Equals(remoteAddress));
+            if (match is null)
+            {
+                return false;
+            }
+            probeIndex = match.Index;
+            return true;
+        }
+
+        private static RawTcpTarget? TryParseTcpTarget(string value)
+        {
+            var split = value.LastIndexOf(':');
+            return split > 0 && IPAddress.TryParse(value[..split], out var address) &&
+                   address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
+                   ushort.TryParse(value[(split + 1)..], out var port) && port > 0
+                ? new RawTcpTarget(address, port)
+                : null;
+        }
+
         private static bool TryParseMac(string value, out byte[] bytes)
         {
             var parts = value.Split(':', '-');
@@ -506,6 +676,18 @@ public sealed class NpcapProbeVerifier : IDisposable
             return (ushort)~sum;
         }
 
+        internal static ushort TcpChecksum(ReadOnlySpan<byte> sourceIp, ReadOnlySpan<byte> targetIp,
+            ReadOnlySpan<byte> tcpSegment)
+        {
+            var pseudo = new byte[12 + tcpSegment.Length];
+            sourceIp.CopyTo(pseudo);
+            targetIp.CopyTo(pseudo.AsSpan(4));
+            pseudo[9] = 6;
+            WriteUInt16(pseudo, 10, (ushort)tcpSegment.Length);
+            tcpSegment.CopyTo(pseudo.AsSpan(12));
+            return Checksum(pseudo);
+        }
+
         private static ushort ReadUInt16(ReadOnlySpan<byte> data, int offset) =>
             (ushort)(data[offset] << 8 | data[offset + 1]);
 
@@ -514,6 +696,18 @@ public sealed class NpcapProbeVerifier : IDisposable
             data[offset] = (byte)(value >> 8);
             data[offset + 1] = (byte)value;
         }
+
+        private static void WriteUInt32(Span<byte> data, int offset, uint value)
+        {
+            data[offset] = (byte)(value >> 24);
+            data[offset + 1] = (byte)(value >> 16);
+            data[offset + 2] = (byte)(value >> 8);
+            data[offset + 3] = (byte)value;
+        }
+
+        private sealed record RawTcpTarget(IPAddress Address, ushort Port);
+
+        private sealed record RawTcpProbe(RawTcpTarget Target, ushort SourcePort, uint Sequence, int Index);
 
         private T Load<T>(string name) where T : Delegate =>
             Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(_library, name));

@@ -783,7 +783,9 @@ public sealed class GuardianHostService : IAsyncDisposable
                     InterfaceIndex = candidate.InterfaceIndex,
                     InterfaceId = candidate.Id,
                     AdapterGuid = candidate.AdapterGuid,
-                    SourceMacAddress = candidate.MacAddress,
+                    // Raw Npcap injection is intentionally limited to positively identified
+                    // physical adapters. TUN/TAP interfaces continue through normal probes only.
+                    SourceMacAddress = candidate.IsPhysicalDevice == true ? candidate.MacAddress : null,
                     DnsServerAddresses = candidate.DnsServers,
                     GatewayAddress = candidate.PrimaryGateway,
                     MaxConcurrencyOverride = 2,
@@ -839,9 +841,11 @@ public sealed class GuardianHostService : IAsyncDisposable
         _probeStability[interfaceId] = state;
         return state.Apply(
             report,
-            failureThreshold: failImmediately ? 1 : 2,
-            recoveryThreshold: _config.Recovery.InternetRecoveryThreshold,
-            recoveryHold: TimeSpan.FromSeconds(_config.Recovery.InterfaceRecoveryHoldSeconds),
+            failureThreshold: report.IsAuthoritative || failImmediately ? 1 : 2,
+            recoveryThreshold: report.IsAuthoritative ? 1 : _config.Recovery.InternetRecoveryThreshold,
+            recoveryHold: report.IsAuthoritative
+                ? TimeSpan.Zero
+                : TimeSpan.FromSeconds(_config.Recovery.InterfaceRecoveryHoldSeconds),
             now: DateTimeOffset.UtcNow);
     }
 

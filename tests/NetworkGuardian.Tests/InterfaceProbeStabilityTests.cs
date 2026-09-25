@@ -29,6 +29,24 @@ public sealed class InterfaceProbeStabilityTests
     }
 
     [Fact]
+    public void AuthoritativeVerdictsCanSwitchImmediatelyWithoutDebounce()
+    {
+        var tracker = new InterfaceProbeStability();
+        var now = DateTimeOffset.UtcNow;
+        tracker.Apply(TestData.OnlineProbe(), 2, 2, TimeSpan.FromSeconds(6), now);
+
+        var offline = tracker.Apply(
+            TestData.OfflineProbe() with { IsAuthoritative = true },
+            1, 1, TimeSpan.Zero, now.AddSeconds(1));
+        var online = tracker.Apply(
+            TestData.OnlineProbe() with { IsAuthoritative = true },
+            1, 1, TimeSpan.Zero, now.AddSeconds(2));
+
+        Assert.False(offline.IsStableOnline);
+        Assert.True(online.IsStableOnline);
+    }
+
+    [Fact]
     public void RouteOrderFailsOverQuicklyAndFailsBackOnlyAfterObservation()
     {
         var tracker = new InterfaceProbeStability();

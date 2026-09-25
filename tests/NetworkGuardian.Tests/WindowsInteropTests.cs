@@ -629,6 +629,23 @@ public sealed class NpcapRawPacketTests
     }
 
     [Fact]
+    public void RawTcpSynFrame_HasValidIpv4AndTcpChecksums()
+    {
+        var localMac = new byte[] { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 };
+        var gatewayMac = new byte[] { 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff };
+        var localIp = System.Net.IPAddress.Parse("192.0.2.10").GetAddressBytes();
+        var targetIp = System.Net.IPAddress.Parse("1.1.1.1").GetAddressBytes();
+        var frame = NpcapProbeVerifier.NpcapApi.BuildTcpSyn(
+            localMac, gatewayMac, localIp, targetIp, 55000, 443, 0x12345678);
+
+        Assert.Equal(0x0800, frame[12] << 8 | frame[13]);
+        Assert.Equal(6, frame[23]);
+        Assert.Equal(0x02, frame[47]);
+        Assert.Equal(0, NpcapProbeVerifier.NpcapApi.Checksum(frame.AsSpan(14, 20)));
+        Assert.Equal(0, NpcapProbeVerifier.NpcapApi.TcpChecksum(localIp, targetIp, frame.AsSpan(34, 20)));
+    }
+
+    [Fact]
     public void RawArpFrame_TargetsGatewayWithoutUsingTheIpStack()
     {
         var localMac = new byte[] { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 };
