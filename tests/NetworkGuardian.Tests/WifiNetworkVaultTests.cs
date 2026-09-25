@@ -187,6 +187,41 @@ public sealed class WifiNetworkVaultTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_RegeneratesDuplicateEntryIds()
+    {
+        var vault = new WifiNetworkVault(FilePath, new FakeProtector());
+        var first = Entry();
+        var second = Entry();
+        first.Id = "duplicate";
+        second.Id = "duplicate";
+        second.Ssid = "Campus-Backup";
+
+        await vault.SaveAsync(new[] { first, second }, CancellationToken.None);
+
+        Assert.Equal(2, vault.Entries.Select(entry => entry.Id).Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
+    public async Task Load_RegeneratesDuplicateEntryIdsAndReportsIt()
+    {
+        var first = Entry();
+        var second = Entry();
+        first.Password = null;
+        second.Password = null;
+        first.Id = "duplicate";
+        second.Id = "duplicate";
+        second.Ssid = "Campus-Backup";
+        var document = new WifiCredentialLibrary { Networks = new List<WifiNetworkCredential> { first, second } };
+        await File.WriteAllTextAsync(FilePath, NetworkGuardianJson.Serialize(document));
+
+        var vault = new WifiNetworkVault(FilePath, new FakeProtector());
+        await vault.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(2, vault.Entries.Select(entry => entry.Id).Distinct(StringComparer.Ordinal).Count());
+        Assert.Contains(vault.LastLoadIssues, issue => issue.Contains("ID", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Load_WithACorruptFile_StartsEmptyAndQuarantinesTheFile()
     {
         await File.WriteAllTextAsync(FilePath, "{ this is not json", Encoding.UTF8);

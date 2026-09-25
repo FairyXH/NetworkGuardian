@@ -28,6 +28,7 @@ public sealed class WifiNetworkVault
     private readonly ILogger<WifiNetworkVault> _logger;
     private readonly ISecretProtector? _protector;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _stateGate = new();
     private WifiCredentialLibrary _library = new();
 
     public WifiNetworkVault(
@@ -59,21 +60,45 @@ public sealed class WifiNetworkVault
     /// mutate the live entries would make "this entry changed" undetectable, and the applied marker
     /// would survive a password change.
     /// </summary>
-    public IReadOnlyList<WifiNetworkCredential> Entries => _library.Networks.Select(Clone).ToList();
+    public IReadOnlyList<WifiNetworkCredential> Entries
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _library.Networks.Select(Clone).ToList();
+            }
+        }
+    }
 
     public WifiNetworkCredential? Find(string? ssid)
     {
-        var match = _library.Find(ssid);
-        return match is null ? null : Clone(match);
+        lock (_stateGate)
+        {
+            var match = _library.Find(ssid);
+            return match is null ? null : Clone(match);
+        }
     }
 
     public WifiNetworkCredential? FindByProfile(string? profileName)
     {
-        var match = _library.FindByProfile(profileName);
-        return match is null ? null : Clone(match);
+        lock (_stateGate)
+        {
+            var match = _library.FindByProfile(profileName);
+            return match is null ? null : Clone(match);
+        }
     }
 
-    public int Count => _library.Networks.Count;
+    public int Count
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _library.Networks.Count;
+            }
+        }
+    }
 
     public async Task<WifiCredentialLibrary> LoadAsync(CancellationToken cancellationToken)
     {
@@ -121,11 +146,14 @@ public sealed class WifiNetworkVault
                 ? WifiCredentialLibrary.CurrentVersion
                 : library.Version;
 
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var entry in library.Networks)
             {
-                if (string.IsNullOrWhiteSpace(entry.Id))
+                if (string.IsNullOrWhiteSpace(entry.Id) || !seenIds.Add(entry.Id))
                 {
                     entry.Id = Guid.NewGuid().ToString("N");
+                    seenIds.Add(entry.Id);
+                    issues.Add($"「{entry.Ssid}」的条目 ID 缺失或重复，已重新生成。");
                 }
 
                 if (!TryUnprotect(entry))
@@ -135,7 +163,7 @@ public sealed class WifiNetworkVault
                 }
             }
 
-            lock (_library)
+            lock (_stateGate)
             {
                 _library = library;
             }
@@ -171,8 +199,15 @@ public sealed class WifiNetworkVault
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var previous = _library.Networks.ToDictionary(e => e.Id, e => Signature(e), StringComparer.Ordinal);
+            Dictionary<string, string> previous;
+            lock (_stateGate)
+            {
+                previous = _library.Networks
+                    .GroupBy(e => e.Id, StringComparer.Ordinal)
+                    .ToDictionary(group => group.Key, group => Signature(group.Last()), StringComparer.Ordinal);
+            }
             var library = new WifiCredentialLibrary { Version = WifiCredentialLibrary.CurrentVersion };
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var source in entries)
             {
@@ -180,6 +215,11 @@ public sealed class WifiNetworkVault
 
                 var entry = Clone(source);
                 entry.Id = string.IsNullOrWhiteSpace(entry.Id) ? Guid.NewGuid().ToString("N") : entry.Id;
+                if (!seenIds.Add(entry.Id))
+                {
+                    entry.Id = Guid.NewGuid().ToString("N");
+                    seenIds.Add(entry.Id);
+                }
 
                 if (entry.Password is not null)
                 {
@@ -212,7 +252,7 @@ public sealed class WifiNetworkVault
 
             await WriteAtomicAsync(library, cancellationToken).ConfigureAwait(false);
 
-            lock (_library)
+            lock (_stateGate)
             {
                 _library = library;
             }
@@ -232,16 +272,38 @@ public sealed class WifiNetworkVault
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        var entries = Entries;
-        var entry = entries.FirstOrDefault(e => string.Equals(e.Id, entryId, StringComparison.Ordinal));
-        if (entry is null)
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            return;
-        }
+            WifiCredentialLibrary updated;
+            lock (_stateGate)
+            {
+                updated = new WifiCredentialLibrary
+                {
+                    Version = _library.Version,
+                    Networks = _library.Networks.Select(Clone).ToList(),
+                };
+            }
 
-        entry.AppliedFingerprint = fingerprint;
-        entry.LastAppliedUtc = now;
-        await SaveAsync(entries, cancellationToken).ConfigureAwait(false);
+            var entry = updated.Networks.FirstOrDefault(e => string.Equals(e.Id, entryId, StringComparison.Ordinal));
+            if (entry is null)
+            {
+                return;
+            }
+
+            entry.AppliedFingerprint = fingerprint;
+            entry.LastAppliedUtc = now;
+            await WriteAtomicAsync(updated, cancellationToken).ConfigureAwait(false);
+
+            lock (_stateGate)
+            {
+                _library = updated;
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>Fills <see cref="WifiNetworkCredential.Password"/> from the stored blob.</summary>
@@ -287,11 +349,16 @@ public sealed class WifiNetworkVault
     /// <summary>The catalogue the decision engine sees: which SSIDs the library can authenticate.</summary>
     public WifiEapCatalog BuildCatalog()
     {
-        var usableEntries = _library.Networks
-            .Where(e => e.Enabled && !e.PasswordDecryptionFailed)
-            .Where(e => !e.RequiresPassword || !string.IsNullOrEmpty(e.Password))
-            .Where(e => !string.IsNullOrWhiteSpace(e.Ssid))
-            .ToList();
+        List<WifiNetworkCredential> usableEntries;
+        lock (_stateGate)
+        {
+            usableEntries = _library.Networks
+                .Where(e => e.Enabled && !e.PasswordDecryptionFailed)
+                .Where(e => !e.RequiresPassword || !string.IsNullOrEmpty(e.Password))
+                .Where(e => !string.IsNullOrWhiteSpace(e.Ssid))
+                .Select(Clone)
+                .ToList();
+        }
         var usable = usableEntries.Select(e => e.Ssid).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var profiles = usableEntries
             .GroupBy(e => e.Ssid, StringComparer.OrdinalIgnoreCase)
