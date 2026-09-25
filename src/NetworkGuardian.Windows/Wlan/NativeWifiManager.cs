@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkGuardian.Core.Abstractions;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Wlan;
 using NetworkGuardian.Windows.Native;
 using static NetworkGuardian.Windows.Native.WlanApiNative;
 
@@ -867,28 +868,94 @@ public sealed class NativeWifiManager : INativeWifiService
             return WlanOperationResult.Fail("WLAN client handle is not open");
         }
 
+        var parameters = new WLAN_CONNECTION_PARAMETERS
+        {
+            wlanConnectionMode = WlanConnectionModeProfile,
+            strProfile = profileName,
+            // Let Windows resolve every SSID encoded by the saved profile. Supplying an SSID
+            // copied from a scan cache makes our request stricter than Explorer's manual connect
+            // and is vulnerable to stale scan/profile mappings.
+            pDot11Ssid = IntPtr.Zero,
+            pDesiredBssidList = IntPtr.Zero,
+            dot11BssType = Dot11BssTypeInfrastructure,
+            dwFlags = 0,
+        };
+
+        return await ConnectCoreAsync(
+                interfaceGuid, parameters, profileName, expectedProfileName: profileName,
+                expectedSsid: null, bssid, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<WlanOperationResult> ConnectTemporaryAsync(
+        Guid interfaceGuid,
+        WifiNetworkCredential credential,
+        string? bssid,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+
+        if (credential.IsEnterprise)
+        {
+            return WlanOperationResult.Fail(
+                "enterprise networks require a persisted EAP profile and cannot use the password-only temporary connection path");
+        }
+
+        var profile = EnterpriseProfileBuilder.BuildProfileXml(credential);
+        if (!profile.Success || string.IsNullOrWhiteSpace(profile.Xml))
+        {
+            return WlanOperationResult.Fail(profile.Failure ?? "temporary WLAN profile could not be generated");
+        }
+
+        var handle = CurrentHandle();
+        if (handle == IntPtr.Zero)
+        {
+            return WlanOperationResult.Fail("WLAN client handle is not open");
+        }
+
+        var parameters = new WLAN_CONNECTION_PARAMETERS
+        {
+            wlanConnectionMode = WlanConnectionModeTemporaryProfile,
+            // Microsoft documents strProfile as the XML representation when temporary mode is used.
+            // No WlanSetProfile/WlanSaveTemporaryProfile call is made, so this does not alter the store.
+            strProfile = profile.Xml,
+            pDot11Ssid = IntPtr.Zero,
+            pDesiredBssidList = IntPtr.Zero,
+            dot11BssType = Dot11BssTypeInfrastructure,
+            dwFlags = 0,
+        };
+
+        return await ConnectCoreAsync(
+                interfaceGuid, parameters, credential.Ssid, expectedProfileName: null,
+                expectedSsid: credential.Ssid, bssid, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<WlanOperationResult> ConnectCoreAsync(
+        Guid interfaceGuid,
+        WLAN_CONNECTION_PARAMETERS parameters,
+        string target,
+        string? expectedProfileName,
+        string? expectedSsid,
+        string? bssid,
+        CancellationToken cancellationToken)
+    {
+        var handle = CurrentHandle();
+        if (handle == IntPtr.Zero)
+        {
+            return WlanOperationResult.Fail("WLAN client handle is not open");
+        }
+
         try
         {
-            var parameters = new WLAN_CONNECTION_PARAMETERS
-            {
-                wlanConnectionMode = WlanConnectionModeProfile,
-                strProfile = profileName,
-                // Let Windows resolve every SSID encoded by the saved profile. Supplying an SSID
-                // copied from a scan cache makes our request stricter than Explorer's manual connect
-                // and is vulnerable to stale scan/profile mappings.
-                pDot11Ssid = IntPtr.Zero,
-                pDesiredBssidList = IntPtr.Zero,
-                dot11BssType = Dot11BssTypeInfrastructure,
-                dwFlags = 0,
-            };
 
             string? lastFailure = null;
             for (var attempt = 1; attempt <= 2; attempt++)
             {
                 _lastAttemptFailure = null;
                 _logger.LogInformation(
-                    "WlanConnect: adapter={Adapter} profile={Profile} bssid={Bssid} attempt={Attempt}/2",
-                    interfaceGuid, profileName, bssid ?? "any", attempt);
+                    "WlanConnect: adapter={Adapter} mode={Mode} target={Target} bssid={Bssid} attempt={Attempt}/2",
+                    interfaceGuid, parameters.wlanConnectionMode, target, bssid ?? "any", attempt);
 
                 var connectResult = WlanConnect(handle, interfaceGuid, in parameters, IntPtr.Zero);
                 if (connectResult != ERROR_SUCCESS)
@@ -901,7 +968,7 @@ public sealed class NativeWifiManager : INativeWifiService
                     }
 
                     return WlanOperationResult.Fail(
-                        Win32Error.Build("WlanConnect", code, $"adapter {interfaceGuid:N} profile {profileName}"),
+                        Win32Error.Build("WlanConnect", code, $"adapter {interfaceGuid:N} target {target}"),
                         code,
                         accessDenied,
                         accessDenied);
@@ -909,7 +976,9 @@ public sealed class NativeWifiManager : INativeWifiService
 
                 var outcome = await WaitForStableConnectionAsync(
                     interfaceGuid,
-                    profileName,
+                    expectedProfileName,
+                    expectedSsid,
+                    target,
                     DefaultConnectTimeout,
                     cancellationToken).ConfigureAwait(false);
 
@@ -923,7 +992,7 @@ public sealed class NativeWifiManager : INativeWifiService
                 {
                     _logger.LogWarning(
                         "WlanConnect did not produce a stable connection on {Adapter} using {Profile}: {Failure}; retrying once",
-                        interfaceGuid, profileName, lastFailure);
+                        interfaceGuid, target, lastFailure);
                     await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -944,7 +1013,9 @@ public sealed class NativeWifiManager : INativeWifiService
 
     private async Task<(bool Success, string? Failure)> WaitForStableConnectionAsync(
         Guid interfaceGuid,
-        string profileName,
+        string? profileName,
+        string? ssid,
+        string target,
         TimeSpan timeout,
         CancellationToken cancellationToken)
     {
@@ -958,10 +1029,10 @@ public sealed class NativeWifiManager : INativeWifiService
             cancellationToken.ThrowIfCancellationRequested();
 
             var connection = GetConnection(interfaceGuid);
-            var targetIsConnected = connection is
-            {
-                State: WifiConnectionState.Connected,
-            } && string.Equals(connection.ProfileName, profileName, StringComparison.OrdinalIgnoreCase);
+            var targetIsConnected = connection is { State: WifiConnectionState.Connected } &&
+                                    (profileName is not null
+                                        ? string.Equals(connection.ProfileName, profileName, StringComparison.OrdinalIgnoreCase)
+                                        : string.Equals(connection.Ssid, ssid, StringComparison.OrdinalIgnoreCase));
 
             if (targetIsConnected)
             {
@@ -975,7 +1046,7 @@ public sealed class NativeWifiManager : INativeWifiService
             {
                 if (connectedSince is not null)
                 {
-                    return (false, $"profile '{profileName}' connected briefly, then disconnected before the " +
+                    return (false, $"target '{target}' connected briefly, then disconnected before the " +
                                    $"{stabilityWindow.TotalSeconds:F0}s stability check completed");
                 }
 
@@ -1003,7 +1074,7 @@ public sealed class NativeWifiManager : INativeWifiService
         }
 
         return (false, lastFailure ??
-            $"timed out after {timeout.TotalSeconds:F0}s waiting for stable connection to '{profileName}'");
+            $"timed out after {timeout.TotalSeconds:F0}s waiting for stable connection to '{target}'");
     }
 
     public async Task<WlanOperationResult> DisconnectAsync(Guid interfaceGuid, CancellationToken cancellationToken)

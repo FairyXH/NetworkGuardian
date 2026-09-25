@@ -102,6 +102,17 @@ public interface INativeWifiService : IDisposable
 
     Task<WlanOperationResult> ConnectAsync(Guid interfaceGuid, string profileName, string? bssid, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Connects with a one-shot password/open-network credential through
+    /// <c>WLAN_CONNECTION_MODE_TEMPORARY_PROFILE</c>. The profile XML is handed directly to
+    /// <c>WlanConnect</c>; it is not written to the Windows profile store.
+    /// </summary>
+    Task<WlanOperationResult> ConnectTemporaryAsync(
+        Guid interfaceGuid,
+        WifiNetworkCredential credential,
+        string? bssid,
+        CancellationToken cancellationToken);
+
     Task<WlanOperationResult> DisconnectAsync(Guid interfaceGuid, CancellationToken cancellationToken);
 
     event EventHandler<WlanNotificationEvent>? NotificationReceived;
