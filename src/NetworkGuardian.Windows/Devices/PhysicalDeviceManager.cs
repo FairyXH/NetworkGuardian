@@ -143,7 +143,10 @@ public sealed class PhysicalDeviceManager : IDeviceManager
     /// failed to start (problem code 10, 43, ...). Enabling such a device directly does nothing, so
     /// this is used for faulted devices instead of <see cref="EnableAsync"/>.
     /// </summary>
-    public async Task<DeviceOperationResult> RestartAsync(string deviceInstanceId, CancellationToken cancellationToken)
+    public async Task<DeviceOperationResult> RestartAsync(
+        string deviceInstanceId,
+        CancellationToken cancellationToken,
+        bool forceRunningDevice = false)
     {
         var verification = Verify(deviceInstanceId, out var record);
         if (verification is not null)
@@ -151,7 +154,7 @@ public sealed class PhysicalDeviceManager : IDeviceManager
             return verification;
         }
 
-        if (record!.IsStarted && record.ProblemCode == 0)
+        if (record!.IsStarted && record.ProblemCode == 0 && !forceRunningDevice)
         {
             return new DeviceOperationResult
             {
@@ -167,7 +170,8 @@ public sealed class PhysicalDeviceManager : IDeviceManager
 
         if (HelperClient.IsProcessElevated())
         {
-            _logger.LogInformation("Process is elevated; restarting {Device} directly", deviceInstanceId);
+            _logger.LogInformation("Process is elevated; restarting {Device} directly (force={Force})",
+                deviceInstanceId, forceRunningDevice);
             return DeviceNodeOperations.Restart(deviceInstanceId, requirePhysical: true, _classifier, _inventory, _logger);
         }
 

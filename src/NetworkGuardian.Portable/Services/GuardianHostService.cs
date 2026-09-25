@@ -93,6 +93,10 @@ public sealed class GuardianHostService : IAsyncDisposable
     private Dictionary<string, ConnectivityProbeReport> _probeByInterfaceId = new();
     private string? _observedOutletInterfaceId;
     private IReadOnlyList<string> _observedOutletAddresses = Array.Empty<string>();
+    private string? _observedOutletDeviceInstanceId;
+    private string? _observedOutletName;
+    private bool _observedOutletWasPhysical;
+    private DateTimeOffset _lastOldAdapterRestartUtc = DateTimeOffset.MinValue;
     private readonly Dictionary<string, InterfaceProbeStability> _probeStability = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<Guid, (DateTimeOffset AtUtc, string Profile)> _lastConnectAttempt = new();
     private WifiEapCatalog _eapCatalog = WifiEapCatalog.Empty;
@@ -428,12 +432,51 @@ public sealed class GuardianHostService : IAsyncDisposable
                     .ToArray()
                 : _observedOutletAddresses;
             var previousId = _observedOutletInterfaceId;
+            var previousDeviceInstanceId = _observedOutletDeviceInstanceId;
+            var previousName = _observedOutletName;
+            var previousWasPhysical = _observedOutletWasPhysical;
             _observedOutletInterfaceId = actualId;
             _observedOutletAddresses = string.IsNullOrWhiteSpace(actualInterface?.PrimaryIpv4Address)
                 ? Array.Empty<string>()
                 : new[] { actualInterface.PrimaryIpv4Address! };
+            _observedOutletDeviceInstanceId = actualInterface?.DeviceInstanceId;
+            _observedOutletName = actualInterface?.Name;
+            _observedOutletWasPhysical = actualInterface?.IsPhysicalDevice == true;
 
-            if (_config.ConnectionMigration.Mode != ConnectionCutMode.Disabled && oldAddresses.Count > 0)
+            if (_config.ConnectionMigration.RestartOldAdapterOnSwitch)
+            {
+                var sameDevice = !string.IsNullOrWhiteSpace(previousDeviceInstanceId) &&
+                                 string.Equals(previousDeviceInstanceId, actualInterface?.DeviceInstanceId,
+                                     StringComparison.OrdinalIgnoreCase);
+                var cooldown = now - _lastOldAdapterRestartUtc < TimeSpan.FromSeconds(60);
+                if (previousId is not null && previousWasPhysical &&
+                    !string.IsNullOrWhiteSpace(previousDeviceInstanceId) && !sameDevice && !cooldown)
+                {
+                    // Record before elevation so a cancelled UAC prompt or failed driver restart
+                    // cannot create a prompt storm while routes are still settling.
+                    _lastOldAdapterRestartUtc = now;
+                    var result = await _devices.RestartAsync(
+                            previousDeviceInstanceId, cancellationToken, forceRunningDevice: true)
+                        .ConfigureAwait(false);
+                    _logger.Log(
+                        result.Success ? LogLevel.Information : LogLevel.Warning,
+                        "出口连接迁移: {Previous} -> {Current}; 重启旧物理网卡 {Device}: {Outcome} {Detail}",
+                        previousId, actualId, previousName ?? previousDeviceInstanceId,
+                        result.Outcome, result.Detail);
+                    Notification?.Invoke(this, result.Success
+                        ? $"已重启旧出口网卡“{previousName ?? previousId}”，其 TCP / UDP 连接已断开"
+                        : $"旧出口网卡“{previousName ?? previousId}”重启失败：{result.Detail ?? result.Outcome.ToString()}");
+                    _forceEnumeration = true;
+                    _forceProbe = true;
+                }
+                else if (previousId is not null)
+                {
+                    _logger.LogDebug(
+                        "未重启旧出口 {Previous}: physical={Physical}, device={Device}, sameDevice={Same}, cooldown={Cooldown}",
+                        previousId, previousWasPhysical, previousDeviceInstanceId ?? "-", sameDevice, cooldown);
+                }
+            }
+            else if (_config.ConnectionMigration.Mode != ConnectionCutMode.Disabled && oldAddresses.Count > 0)
             {
                 var closed = await _tcpConnections.CloseAsync(
                         oldAddresses, _config.ConnectionMigration, cancellationToken)
@@ -446,6 +489,9 @@ public sealed class GuardianHostService : IAsyncDisposable
         else if (actualId is not null && !string.IsNullOrWhiteSpace(actualInterface?.PrimaryIpv4Address))
         {
             _observedOutletAddresses = new[] { actualInterface.PrimaryIpv4Address! };
+            _observedOutletDeviceInstanceId = actualInterface.DeviceInstanceId;
+            _observedOutletName = actualInterface.Name;
+            _observedOutletWasPhysical = actualInterface.IsPhysicalDevice == true;
         }
 
         _snapshot = _snapshot with
