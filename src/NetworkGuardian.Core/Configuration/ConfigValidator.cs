@@ -23,6 +23,7 @@ public sealed class ConfigValidator
         config.Version = config.Version <= 0 ? GuardianConfig.CurrentVersion : config.Version;
 
         config.General ??= new GeneralSettings();
+        config.ConnectionMigration ??= new ConnectionMigrationSettings();
         config.Recovery ??= new RecoverySettings();
         config.Probe ??= new ProbeSettings();
         config.Wifi ??= new WifiSettings();
@@ -32,6 +33,12 @@ public sealed class ConfigValidator
         config.Logging ??= new LoggingSettings();
         config.OfflineCommands ??= new List<CommandDefinition>();
         config.InterfaceDenyList ??= new List<string>();
+        config.ConnectionMigration.ProcessPatterns ??= new List<string>();
+        config.ConnectionMigration.ProcessPatterns = config.ConnectionMigration.ProcessPatterns
+            .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
+            .Select(pattern => pattern.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         config.Wifi.SsidDenyList ??= new List<string>();
         config.Wifi.SsidAllowList ??= new List<string>();
         config.Wifi.CampusNetworkSsids ??= new List<string>();

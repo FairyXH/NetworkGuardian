@@ -222,6 +222,14 @@ public sealed class ConfigMigrator
             applied.Add("v12: diversify standby Wi-Fi from a healthy Ethernet upstream.");
         }
 
+        if (version < 13)
+        {
+            config.ConnectionMigration = new ConnectionMigrationSettings();
+            config.Version = 13;
+            version = 13;
+            applied.Add("v13: configurable stale TCP connection cleanup after outlet changes.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

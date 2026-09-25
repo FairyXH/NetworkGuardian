@@ -15,9 +15,11 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 12;
+    public const int CurrentVersion = 13;
 
     public GeneralSettings General { get; set; } = new();
+
+    public ConnectionMigrationSettings ConnectionMigration { get; set; } = new();
 
     public RecoverySettings Recovery { get; set; } = new();
 
@@ -45,6 +47,26 @@ public sealed class GuardianConfig
         ProbeEndpoints = ProbeEndpointSettings.CreateDefaults(),
         OfflineCommands = new List<CommandDefinition>(),
     };
+}
+
+public enum ConnectionCutMode
+{
+    Disabled,
+    All,
+    AllowList,
+    DenyList,
+}
+
+public sealed class ConnectionMigrationSettings
+{
+    /// <summary>Controls which stale TCP connections are closed after the default outlet changes.</summary>
+    public ConnectionCutMode Mode { get; set; } = ConnectionCutMode.Disabled;
+
+    /// <summary>
+    /// Executable file-name or full-path wildcard patterns. Allow-list mode closes matching
+    /// processes; deny-list mode closes every process except matches.
+    /// </summary>
+    public List<string> ProcessPatterns { get; set; } = new();
 }
 
 public sealed class GeneralSettings

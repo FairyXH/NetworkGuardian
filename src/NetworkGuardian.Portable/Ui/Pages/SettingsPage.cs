@@ -12,6 +12,7 @@ internal sealed class SettingsPage : IPage
     private static readonly string[] ProbeKindLabels = { "TCP", "HTTP", "HTTPS", "DNS", "ICMP" };
     private static readonly string[] CommandKindLabels = { "程序（可执行文件 + 参数）", "命令行（通过 cmd /c 执行整行命令）" };
     private static readonly string[] LogLevelLabels = { "trace", "debug", "information", "warning", "error" };
+    private static readonly string[] ConnectionCutModeLabels = { "关闭", "全部", "白名单模式", "黑名单模式" };
     private static readonly GuardianLogLevel[] LogLevelValues =
     {
         GuardianLogLevel.Trace, GuardianLogLevel.Debug, GuardianLogLevel.Information,
@@ -118,6 +119,22 @@ internal sealed class SettingsPage : IPage
         general.Number("连接后等待 DHCP（秒）", config.General.DhcpWaitSeconds, 3, 300, v => config.General.DhcpWaitSeconds = v);
         general.Note("接口跃点数由程序自动管理：有线外网正常时有线优先；有线失效时立即提升 Wi-Fi，恢复后自动切回。");
         y = DrawCard(ctx, area, y, "常规", general);
+
+        // ---------- 出口切换连接迁移 ----------
+        var migration = new Form(ctx, this);
+        migration.Dropdown(
+            "切换出口时切断原网卡的已有 TCP 连接",
+            ConnectionCutModeLabels,
+            (int)config.ConnectionMigration.Mode,
+            v => config.ConnectionMigration.Mode = (ConnectionCutMode)v);
+        migration.Text(
+            "进程匹配列表（每行一个，支持 * 和 ?）",
+            Join(config.ConnectionMigration.ProcessPatterns),
+            v => config.ConnectionMigration.ProcessPatterns = Split(v),
+            multiline: true);
+        migration.Note("匹配进程文件名或完整路径，例如 yysls.exe、baidu\\*.exe。白名单模式仅切断匹配项；" +
+                       "黑名单模式保留匹配项并切断其他进程。UDP 无连接状态，不在此处强制关闭。");
+        y = DrawCard(ctx, area, y, "出口切换连接迁移", migration);
 
         // ---------- Internet 探测 ----------
         var probe = new Form(ctx, this);
