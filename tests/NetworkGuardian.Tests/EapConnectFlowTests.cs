@@ -93,8 +93,11 @@ public sealed class EapConnectFlowTests
 
         var connect = Assert.Single(decision.Actions.OfType<ConnectWifiAction>());
         Assert.Equal("NewAdapterHome", connect.ProfileName);
+        Assert.Equal(WifiSecurity.Wpa2Personal, connect.Security);
         Assert.False(connect.RequiresEap);
         Assert.True(connect.UsesLibraryCredential);
+        Assert.Contains("网络密码", connect.Reason);
+        Assert.DoesNotContain("802.1X", connect.Reason);
     }
 
     [Fact]

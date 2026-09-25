@@ -78,12 +78,16 @@ public sealed record ConnectWifiAction : GuardianAction
 
     public string? Bssid { get; init; }
 
+    /// <summary>Security reported by the scan that produced this connection action.</summary>
+    public WifiSecurity Security { get; init; }
+
     /// <summary>True when the network requires 802.1X/EAP authentication.</summary>
     public bool RequiresEap { get; init; }
 
     /// <summary>
-    /// True when the account comes from the built-in wireless network library, i.e. the host has to write
-    /// the profile and the credentials to the adapter before connecting.
+    /// True when the connection secret comes from the built-in wireless network library. Enterprise
+    /// networks require their persistent EAP profile; personal/open networks use a temporary WLAN API
+    /// connection and do not overwrite the Windows profile store.
     /// </summary>
     public bool UsesLibraryCredential { get; init; }
 

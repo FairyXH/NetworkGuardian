@@ -1064,11 +1064,14 @@ public sealed class GuardianDecisionEngine
                     ProfileName = assignment.Candidate.ProfileName,
                     Ssid = assignment.Candidate.Ssid,
                     Bssid = assignment.Candidate.PreferredBssid,
+                    Security = assignment.Candidate.Security,
                     RequiresEap = assignment.Candidate.RequiresEap,
                     UsesLibraryCredential = assignment.Candidate.UsesLibraryCredential,
                     Reason = $"best candidate: {assignment.Candidate.ScoreReason}" +
                              (assignment.Candidate.UsesLibraryCredential
-                                 ? "；使用自维护无线网络库的 802.1X 账号"
+                                 ? assignment.Candidate.RequiresEap
+                                     ? "；使用自维护无线网络库的 802.1X 账号"
+                                     : "；使用自维护无线网络库的网络密码"
                                  : string.Empty),
                 });
 
