@@ -88,8 +88,14 @@ public sealed class HelperClient
 
         try
         {
-            await File.WriteAllTextAsync(requestPath, HelperProtocol.SerializeRequest(request), Encoding.UTF8, cancellationToken)
-                .ConfigureAwait(false);
+            await using (var requestStream = new FileStream(
+                             requestPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read,
+                             bufferSize: 4096, useAsync: true))
+            await using (var writer = new StreamWriter(requestStream, new UTF8Encoding(false)))
+            {
+                await writer.WriteAsync(HelperProtocol.SerializeRequest(request).AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+            }
 
             var arguments = string.IsNullOrEmpty(helper.Prefix)
                 ? $"--request \"{requestPath}\" --response \"{responsePath}\""
@@ -141,6 +147,14 @@ public sealed class HelperClient
                 return Failure(request, "The helper response could not be parsed.", null);
             }
 
+            if (response.ProtocolVersion != HelperProtocol.Version ||
+                !string.Equals(response.CorrelationId, request.CorrelationId, StringComparison.Ordinal) ||
+                !string.Equals(response.Operation, request.Operation, StringComparison.Ordinal) ||
+                !string.Equals(response.DeviceInstanceId, request.DeviceInstanceId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Failure(request, "The helper response did not match the request.", null);
+            }
+
             _logger.LogInformation("Helper response: {Summary}", response.Summary);
             return response;
         }
@@ -169,6 +183,7 @@ public sealed class HelperClient
         Success = false,
         Operation = request.Operation,
         DeviceInstanceId = request.DeviceInstanceId,
+        CorrelationId = request.CorrelationId,
         Outcome = exitCode == 1223
             ? nameof(DeviceOperationOutcome.AccessDenied)
             : nameof(DeviceOperationOutcome.Failed),

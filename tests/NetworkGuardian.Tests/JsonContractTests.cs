@@ -103,12 +103,14 @@ public sealed class JsonContractTests
         Assert.Equal(HelperOperations.Enable, restoredRequest!.Operation);
         Assert.Equal(request.DeviceInstanceId, restoredRequest.DeviceInstanceId);
         Assert.Equal(request.ProtocolVersion, restoredRequest.ProtocolVersion);
+        Assert.Equal(request.CorrelationId, restoredRequest.CorrelationId);
 
         var response = new HelperResponse
         {
             Success = true,
             Operation = HelperOperations.Enable,
             DeviceInstanceId = request.DeviceInstanceId,
+            CorrelationId = request.CorrelationId,
             Outcome = nameof(DeviceOperationOutcome.Succeeded),
             HelperElevated = true,
         };
@@ -119,6 +121,7 @@ public sealed class JsonContractTests
         Assert.NotNull(restoredResponse);
         Assert.True(restoredResponse!.Success);
         Assert.True(restoredResponse.HelperElevated);
+        Assert.Equal(request.CorrelationId, restoredResponse.CorrelationId);
         Assert.Contains("Succeeded", restoredResponse.Summary);
     }
 

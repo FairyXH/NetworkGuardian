@@ -3,6 +3,7 @@ using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Models;
 using NetworkGuardian.Windows.Connectivity;
 using NetworkGuardian.Windows.Devices;
+using NetworkGuardian.Windows.Helper;
 using NetworkGuardian.Windows.Location;
 using NetworkGuardian.Windows.Native;
 using NetworkGuardian.Windows.Network;
@@ -10,6 +11,22 @@ using NetworkGuardian.Windows.Wlan;
 using Xunit;
 
 namespace NetworkGuardian.Tests;
+
+public sealed class HelperEntrySecurityTests
+{
+    [Fact]
+    public void ExchangePaths_MustStayInHelperDirectoryAndUseGeneratedNames()
+    {
+        var validRequest = GuardianPaths.CreateHelperRequestPath();
+        var validResponse = GuardianPaths.CreateHelperResponsePath();
+
+        Assert.True(HelperEntry.IsExchangePath(validRequest, "request-"));
+        Assert.True(HelperEntry.IsExchangePath(validResponse, "response-"));
+        Assert.False(HelperEntry.IsExchangePath(Path.Combine(GuardianPaths.Root, "request-" + Guid.NewGuid().ToString("N") + ".json"), "request-"));
+        Assert.False(HelperEntry.IsExchangePath(Path.Combine(GuardianPaths.HelperDirectory, "request-fixed.json"), "request-"));
+        Assert.False(HelperEntry.IsExchangePath(validResponse, "request-"));
+    }
+}
 
 public sealed class NetworkHotPlugInteropTests
 {

@@ -42,6 +42,14 @@ public static class HelperEntry
             return 2;
         }
 
+        if (!IsExchangePath(requestPath, "request-") ||
+            !IsExchangePath(responsePath, "response-") ||
+            string.Equals(Path.GetFullPath(requestPath), Path.GetFullPath(responsePath), StringComparison.OrdinalIgnoreCase))
+        {
+            Log("request or response path is outside the helper exchange directory");
+            return 2;
+        }
+
         HelperRequest? request = null;
         try
         {
@@ -90,6 +98,7 @@ public static class HelperEntry
                 Success = false,
                 Operation = request.Operation,
                 DeviceInstanceId = request.DeviceInstanceId,
+                CorrelationId = request.CorrelationId,
                 Outcome = nameof(DeviceOperationOutcome.NotSupported),
                 Message = $"Protocol version {request.ProtocolVersion} is not supported by this helper " +
                           $"(expected {HelperProtocol.Version}).",
@@ -116,6 +125,7 @@ public static class HelperEntry
                 Success = false,
                 Operation = request.Operation,
                 DeviceInstanceId = request.DeviceInstanceId,
+                CorrelationId = request.CorrelationId,
                 Outcome = nameof(DeviceOperationOutcome.AccessDenied),
                 HelperElevated = false,
                 Message = "The helper is not running elevated; the operation was refused.",
@@ -129,19 +139,19 @@ public static class HelperEntry
         {
             case HelperOperations.QueryStatus:
                 result = DeviceNodeOperations.Verify(
-                    request.DeviceInstanceId, request.RequirePhysicalDevice, classifier, inventory);
+                    request.DeviceInstanceId, requirePhysical: true, classifier, inventory);
                 break;
             case HelperOperations.Enable:
                 result = DeviceNodeOperations.Enable(
-                    request.DeviceInstanceId, request.RequirePhysicalDevice, classifier, inventory);
+                    request.DeviceInstanceId, requirePhysical: true, classifier, inventory);
                 break;
             case HelperOperations.Disable:
                 result = DeviceNodeOperations.Disable(
-                    request.DeviceInstanceId, request.RequirePhysicalDevice, classifier, inventory);
+                    request.DeviceInstanceId, requirePhysical: true, classifier, inventory);
                 break;
             case HelperOperations.Restart:
                 result = DeviceNodeOperations.Restart(
-                    request.DeviceInstanceId, request.RequirePhysicalDevice, classifier, inventory);
+                    request.DeviceInstanceId, requirePhysical: true, classifier, inventory);
                 break;
             default:
                 return new HelperResponse
@@ -149,6 +159,7 @@ public static class HelperEntry
                     Success = false,
                     Operation = request.Operation,
                     DeviceInstanceId = request.DeviceInstanceId,
+                    CorrelationId = request.CorrelationId,
                     Outcome = nameof(DeviceOperationOutcome.NotSupported),
                     HelperElevated = elevated,
                     Message = $"Unsupported operation '{request.Operation}'.",
@@ -161,6 +172,7 @@ public static class HelperEntry
             Success = result.Success,
             Operation = result.Operation,
             DeviceInstanceId = result.DeviceInstanceId,
+            CorrelationId = request.CorrelationId,
             Outcome = result.Outcome.ToString(),
             StartedAfter = result.StartedAfter ?? false,
             ProblemCodeAfter = result.ProblemCodeAfter ?? 0,
@@ -177,17 +189,37 @@ public static class HelperEntry
     {
         try
         {
-            var directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            File.WriteAllText(path, HelperProtocol.SerializeResponse(response), new UTF8Encoding(false));
+            using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false));
+            writer.Write(HelperProtocol.SerializeResponse(response));
         }
         catch (Exception ex)
         {
             Log($"failed to write the response: {ex}");
+        }
+    }
+
+    internal static bool IsExchangePath(string path, string prefix)
+    {
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            var expectedDirectory = Path.GetFullPath(GuardianPaths.HelperDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var actualDirectory = Path.GetDirectoryName(fullPath)?.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fileName = Path.GetFileNameWithoutExtension(fullPath);
+            var suffix = fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? fileName[prefix.Length..]
+                : string.Empty;
+
+            return string.Equals(actualDirectory, expectedDirectory, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(Path.GetExtension(fullPath), ".json", StringComparison.OrdinalIgnoreCase) &&
+                   Guid.TryParseExact(suffix, "N", out _);
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 

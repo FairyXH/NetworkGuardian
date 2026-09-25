@@ -17,6 +17,9 @@ public sealed record HelperRequest
 
     public string DeviceInstanceId { get; init; } = string.Empty;
 
+    /// <summary>Unpredictable value echoed by the helper to bind a response to this request.</summary>
+    public string CorrelationId { get; init; } = Guid.NewGuid().ToString("N");
+
     /// <summary>When true the helper refuses to act unless the device is classified as physical.</summary>
     public bool RequirePhysicalDevice { get; init; } = true;
 
@@ -35,6 +38,8 @@ public sealed record HelperResponse
     public string Operation { get; init; } = string.Empty;
 
     public string DeviceInstanceId { get; init; } = string.Empty;
+
+    public string CorrelationId { get; init; } = string.Empty;
 
     public string Outcome { get; init; } = string.Empty;
 
@@ -71,7 +76,7 @@ public static class HelperOperations
 
 public static class HelperProtocol
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>Same source generated policy as the configuration document.</summary>
     public static JsonSerializerOptions Json => NetworkGuardianJson.Options;
