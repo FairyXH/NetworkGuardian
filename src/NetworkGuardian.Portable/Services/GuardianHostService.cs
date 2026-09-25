@@ -1197,6 +1197,11 @@ public sealed class GuardianHostService : IAsyncDisposable
                     var result = await _commands.RunAsync(definition, run.Reason, cancellationToken)
                         .ConfigureAwait(false);
 
+                    if (result.Started)
+                    {
+                        _engine.NotifyCommandStarted(run, DateTimeOffset.UtcNow);
+                    }
+
                     if (result.Success)
                     {
                         _logger.LogInformation("Command {Name} completed ({Result})", definition.Name, result);
@@ -1207,9 +1212,13 @@ public sealed class GuardianHostService : IAsyncDisposable
                             definition.Name, result, result.Failure);
                     }
 
-                    Notification?.Invoke(this, run.IsCampusAuth
-                        ? $"已执行校园网认证：{definition.Name}"
-                        : $"已执行命令：{definition.Name}");
+                    Notification?.Invoke(this, result.Success
+                        ? run.IsCampusAuth
+                            ? $"已执行校园网认证：{definition.Name}"
+                            : $"已执行命令：{definition.Name}"
+                        : run.IsCampusAuth
+                            ? $"校园网认证失败：{definition.Name}（{result.Failure ?? result.ToString()}）"
+                            : $"命令执行失败：{definition.Name}（{result.Failure ?? result.ToString()}）");
 
                     if (definition.WaitAfterRunSeconds > 0)
                     {

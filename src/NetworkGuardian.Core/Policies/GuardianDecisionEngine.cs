@@ -560,8 +560,6 @@ public sealed class GuardianDecisionEngine
 
             if (limiter.TryAcquire(now, out var retry, out var reason))
             {
-                limiter.RecordRun(now);
-                _lastCampusAuthUtc = now;
                 actions.Add(new RunExternalCommandAction
                 {
                     CommandId = "campus-auth",
@@ -575,13 +573,7 @@ public sealed class GuardianDecisionEngine
                 });
 
                 _stateMachine.Transition(RecoveryState.Authenticating, now, "starting campus authenticator");
-                actions.Add(new WaitAction
-                {
-                    Delay = TimeSpan.FromSeconds(Math.Max(1, config.CampusAuth.WaitAfterRunSeconds)),
-                    Reason = "waiting for the campus authenticator before re-probing",
-                });
                 _stateMachine.Transition(RecoveryState.WaitingForAuthentication, now, "campus authenticator launched");
-                RecordRecoveryAction($"Campus auth ({command.Name}) launched");
                 return BuildDecision(now, actions, notes, connectivity);
             }
 
@@ -607,7 +599,6 @@ public sealed class GuardianDecisionEngine
                     continue;
                 }
 
-                limiter.RecordRun(now);
                 actions.Add(new RunExternalCommandAction
                 {
                     CommandId = command.Id,
@@ -618,14 +609,6 @@ public sealed class GuardianDecisionEngine
                     Reason = $"Internet is down ({internetFailures} consecutive failures)",
                 });
 
-                if (command.WaitAfterRunSeconds > 0)
-                {
-                    actions.Add(new WaitAction
-                    {
-                        Delay = TimeSpan.FromSeconds(command.WaitAfterRunSeconds),
-                        Reason = $"waiting for offline command '{command.Name}' to take effect",
-                    });
-                }
             }
         }
 
@@ -1344,6 +1327,25 @@ public sealed class GuardianDecisionEngine
                     kv => kv.Key.ToString("N"),
                     kv => kv.Value.Connectivity.ToString()),
             };
+        }
+    }
+
+    /// <summary>Consumes command rate-limit budget only after the process was actually started.</summary>
+    public void NotifyCommandStarted(RunExternalCommandAction action, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            var key = action.IsCampusAuth ? "campus-auth" : action.CommandId;
+            if (_commandLimiters.TryGetValue(key, out var limiter))
+            {
+                limiter.RecordRun(now);
+            }
+
+            if (action.IsCampusAuth)
+            {
+                _lastCampusAuthUtc = now;
+                RecordRecoveryAction($"Campus auth ({action.CommandName}) launched");
+            }
         }
     }
 

@@ -544,6 +544,9 @@ public sealed class CampusAuthRateLimitTests
         });
 
         Assert.Contains(first.Actions, a => a is RunExternalCommandAction { CommandId: "cmd-1" });
+        engine.NotifyCommandStarted(
+            Assert.IsType<RunExternalCommandAction>(first.Actions.Single(a => a is RunExternalCommandAction { CommandId: "cmd-1" })),
+            TestData.Now);
 
         var second = engine.Evaluate(new GuardianInput
         {
@@ -726,5 +729,11 @@ public sealed class CampusAuthRateLimitTests
 
         var started = decision.Actions.Any(a => a is RunExternalCommandAction { IsCampusAuth: true });
         Assert.Equal(expectAuth, started);
+        if (expectAuth)
+        {
+            engine.NotifyCommandStarted(
+                Assert.IsType<RunExternalCommandAction>(decision.Actions.Single(a => a is RunExternalCommandAction { IsCampusAuth: true })),
+                now);
+        }
     }
 }
