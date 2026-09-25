@@ -1,5 +1,6 @@
 using System.Drawing;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Policies;
 using NetworkGuardian.Windows.Location;
 
 namespace NetworkGuardian.Portable.Ui.Pages;
@@ -323,31 +324,20 @@ internal sealed class DashboardPage : IPage
         GuardianSnapshot snapshot,
         DefaultRouteInfo? route)
     {
-        if (route is null)
+        var matched = DefaultRouteSelector.FindInterface(route, snapshot.Interfaces);
+        if (matched is not null)
         {
-            return null;
-        }
-
-        if (route.InterfaceLuid is { } luid)
-        {
-            var byLuid = snapshot.Interfaces.FirstOrDefault(iface =>
-                string.Equals(iface.Id, $"luid:{luid}", StringComparison.OrdinalIgnoreCase));
-            if (byLuid is not null)
-            {
-                return byLuid;
-            }
+            return matched;
         }
 
         return snapshot.Interfaces.FirstOrDefault(iface =>
-            string.Equals(iface.Name, route.InterfaceAlias, StringComparison.OrdinalIgnoreCase));
+            string.Equals(iface.Name, route?.InterfaceAlias, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string FormatSystemMetricLine(GuardianSnapshot snapshot, InterfaceRuntimeState iface)
     {
         var routes = snapshot.DefaultRoutes.Where(route =>
-                route.InterfaceIndex == iface.InterfaceIndex ||
-                route.InterfaceLuid is { } luid &&
-                string.Equals(iface.Id, $"luid:{luid}", StringComparison.OrdinalIgnoreCase))
+                DefaultRouteSelector.MatchesInterface(route, iface))
             .ToList();
         var routeText = routes.Count == 0
             ? "默认路由 —｜有效 —"

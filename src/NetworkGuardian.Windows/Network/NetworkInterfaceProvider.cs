@@ -474,14 +474,14 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
         }
 
         var interfaces = GetInterfaces();
-        return routes
+        var enriched = routes
             .Select(route => route with
             {
-                InterfaceAlias = interfaces.FirstOrDefault(i => i.Id == $"luid:{route.InterfaceLuid}")?.Name,
-                InterfaceMetric = interfaces.FirstOrDefault(i => i.Id == $"luid:{route.InterfaceLuid}")?.InterfaceMetric,
+                InterfaceAlias = DefaultRouteSelector.FindInterface(route, interfaces)?.Name,
+                InterfaceMetric = DefaultRouteSelector.FindInterface(route, interfaces)?.InterfaceMetric,
             })
-            .OrderBy(route => route.EffectiveMetric ?? int.MaxValue)
-            .FirstOrDefault();
+            .ToList();
+        return DefaultRouteSelector.Order(enriched).FirstOrDefault();
     }
 
     private static ulong? ParseLuid(string id)
