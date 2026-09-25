@@ -290,8 +290,10 @@ public sealed class ConnectivityProbeTests
 
     [Theory]
     [InlineData("https://www.bing.com/", "https://cn.bing.com/")]
-    [InlineData("https://www.bing.com/search?q=test", "https://cn.bing.com/search?q=test")]
-    public void BingChinaLocalization_IsAnExpectedInternetRedirect(string source, string target)
+    [InlineData("https://www.bing.com/search?q=test", "https://www.bing.com/?cc=us")]
+    [InlineData("https://www.bing.com/", "https://de.bing.com/")]
+    [InlineData("https://www.bing.com/", "https://bing.com/")]
+    public void BingRegionalLocalization_IsAnExpectedInternetRedirect(string source, string target)
     {
         Assert.True(ConnectivityProbe.IsExpectedInternetRedirect(new Uri(source), new Uri(target)));
     }
@@ -299,6 +301,8 @@ public sealed class ConnectivityProbeTests
     [Theory]
     [InlineData("http://www.bing.com/", "http://cn.bing.com/")]
     [InlineData("https://www.bing.com/", "https://login.example.com/")]
+    [InlineData("https://www.bing.com/", "https://notbing.com/")]
+    [InlineData("https://www.bing.com/", "https://bing.com.example.com/")]
     [InlineData("https://example.com/", "https://cn.bing.com/")]
     public void UnrelatedRedirect_RemainsCaptivePortalEvidence(string source, string target)
     {

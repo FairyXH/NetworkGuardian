@@ -497,15 +497,18 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 
     internal static bool IsExpectedInternetRedirect(Uri source, Uri target)
     {
-        // Bing localizes www.bing.com to the mainland China host. This is normal service behavior,
-        // not a captive portal interception; TLS plus this exact vendor-owned redirect is strong
-        // Internet evidence. Keep the exception deliberately narrow so arbitrary redirects remain
-        // portal evidence.
+        // Bing localizes www.bing.com to regional hosts. This is normal service behavior, not a
+        // captive portal interception. Keep both ends inside the HTTPS bing.com origin boundary so
+        // lookalike domains and redirects to unrelated identity/portal hosts remain portal evidence.
         return string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(target.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(source.Host, "www.bing.com", StringComparison.OrdinalIgnoreCase) &&
-               string.Equals(target.Host, "cn.bing.com", StringComparison.OrdinalIgnoreCase);
+               IsHostWithinDomain(target.Host, "bing.com");
     }
+
+    private static bool IsHostWithinDomain(string host, string domain) =>
+        string.Equals(host, domain, StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith($".{domain}", StringComparison.OrdinalIgnoreCase);
 
     private async Task<ProbeAttemptResult> DnsProbeAsync(
         ProbeEndpointSettings endpoint,
