@@ -783,6 +783,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                     InterfaceIndex = candidate.InterfaceIndex,
                     InterfaceId = candidate.Id,
                     AdapterGuid = candidate.AdapterGuid,
+                    SourceMacAddress = candidate.MacAddress,
                     DnsServerAddresses = candidate.DnsServers,
                     GatewayAddress = candidate.PrimaryGateway,
                     MaxConcurrencyOverride = 2,

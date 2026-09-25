@@ -136,6 +136,9 @@ public sealed record ProbeRequest
 
     public Guid? AdapterGuid { get; init; }
 
+    /// <summary>Physical source MAC used by optional Npcap raw-frame probes.</summary>
+    public string? SourceMacAddress { get; init; }
+
     /// <summary>DNS servers assigned to the selected interface, used for interface-bound queries.</summary>
     public IReadOnlyList<string> DnsServerAddresses { get; init; } = Array.Empty<string>();
 
