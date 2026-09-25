@@ -326,17 +326,6 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
             ? _outboundNextHopMac
             : null;
 
-    public async Task<bool> WaitForVerificationAsync(TimeSpan timeout)
-    {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        while (!IsVerified && DateTimeOffset.UtcNow < deadline && !_cts.IsCancellationRequested)
-        {
-            await Task.Delay(20).ConfigureAwait(false);
-        }
-
-        return IsVerified;
-    }
-
     private void ReadLoop()
     {
         while (!_cts.IsCancellationRequested)

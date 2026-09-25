@@ -208,7 +208,10 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         }
         else if (capture is not null && isOnline)
         {
-            await capture.WaitForVerificationAsync(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+            for (var retry = 0; retry < 25 && !capture.IsVerified; retry++)
+            {
+                await Task.Delay(20, CancellationToken.None).ConfigureAwait(false);
+            }
             if (capture.IsVerified)
             {
                 captureVerification = PacketCaptureVerification.VerifiedOnTargetInterface;
