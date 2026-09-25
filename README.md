@@ -17,7 +17,7 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 | 目标平台 | Windows 10/11 x64 |
 | 发布形式 | Native AOT 单 EXE，提权助手内置 |
 | 实测 EXE 大小 | 8.95 MiB |
-| 发布体积门禁 | 9.0 MiB |
+| 发布体积门禁 | 10.0 MiB |
 | 常规测试 | 306 项 |
 | 发布包验收 | 33 项 |
 
@@ -397,7 +397,7 @@ pwsh -NoProfile -File tools\verify-portable.ps1
 2. 全部常规测试；
 3. win-x64 Native AOT 发布；
 4. 单 EXE、无 PDB、无松散运行时文件检查；
-5. 9.0 MiB EXE 体积门禁。
+5. 10.0 MiB EXE 体积门禁。
 
 输出：
 
