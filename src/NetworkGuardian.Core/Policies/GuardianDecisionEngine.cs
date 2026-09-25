@@ -1138,7 +1138,7 @@ public sealed class GuardianDecisionEngine
         var metrics = InterfaceMetricPlanner.Plan(input.Interfaces, input.WifiAdapters);
         var metricsDiffer = input.Interfaces.Any(i =>
             metrics.TryGetValue(i.Id, out var desired) &&
-            (i.InterfaceMetric != desired || i.IsDefaultRoute && i.RouteMetric != 1));
+            (i.InterfaceMetric != desired || i.RouteMetric is not null && i.RouteMetric != 1));
         if (metricsDiffer)
         {
             actions.Add(new ApplyInterfaceMetricsAction

@@ -358,7 +358,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 var desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
                 var drifted = interfaces.Any(i =>
                     desired.TryGetValue(i.Id, out var metric) &&
-                    (i.InterfaceMetric != metric || i.IsDefaultRoute && i.RouteMetric != 1));
+                    (i.InterfaceMetric != metric || i.RouteMetric is not null && i.RouteMetric != 1));
 
                 if (drifted && !IsPaused && _config.General.AutomaticRecovery)
                 {
@@ -402,7 +402,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     {
         var expectedId = InterfaceMetricPlanner.ExpectedOutletId(interfaces, desiredMetrics);
         var actualRoute = _defaultRoutes.FirstOrDefault();
-        var actualId = actualRoute?.InterfaceLuid is { } luid ? $"luid:{luid}" : null;
+        var actualId = DefaultRouteSelector.FindInterface(actualRoute, interfaces)?.Id;
         var now = DateTimeOffset.UtcNow;
 
         _snapshot = _snapshot with
@@ -885,10 +885,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     private IReadOnlyList<InterfaceRuntimeState> BuildInterfaceStates()
     {
         var interfaces = _interfaces.GetInterfaces();
-        var routes = _interfaces.GetDefaultRoutes()
-            .OrderBy(route => route.EffectiveMetric ?? int.MaxValue)
-            .ToList();
+        var routes = DefaultRouteSelector.Order(_interfaces.GetDefaultRoutes());
         _defaultRoutes = routes;
+        var bestRoute = routes.FirstOrDefault();
         var result = new List<InterfaceRuntimeState>(interfaces.Count);
 
         foreach (var state in interfaces)
@@ -901,9 +900,8 @@ public sealed class GuardianHostService : IAsyncDisposable
                 _ => null,
             };
 
-            var isDefault = routes.Any(r => r.InterfaceLuid is { } luid &&
-                                            state.Id == $"luid:{luid}");
-            var route = routes.FirstOrDefault(r => r.InterfaceLuid is { } luid && state.Id == $"luid:{luid}");
+            var isDefault = bestRoute is not null && DefaultRouteSelector.MatchesInterface(bestRoute, state);
+            var route = routes.FirstOrDefault(r => DefaultRouteSelector.MatchesInterface(r, state));
 
             result.Add(state with
             {
