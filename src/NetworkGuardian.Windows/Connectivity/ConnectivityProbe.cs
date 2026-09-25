@@ -645,7 +645,12 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             {
                 AllowAutoRedirect = !settings.DetectCaptivePortalRedirects,
                 ConnectTimeout = TimeSpan.FromMilliseconds(Math.Max(500, settings.TimeoutMs)),
-                PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+                // A WAN outage can leave apparently-open TCP connections in the pool. Reusing
+                // them after the route recovers causes every bound probe to time out until the
+                // process is restarted. Connectivity checks must create a fresh, interface-bound
+                // connection so the result represents the current route, not an old socket.
+                PooledConnectionLifetime = TimeSpan.Zero,
+                PooledConnectionIdleTimeout = TimeSpan.Zero,
                 MaxConnectionsPerServer = 4,
                 AutomaticDecompression = DecompressionMethods.None,
                 // Connectivity probes must represent the selected adapter itself. A system proxy

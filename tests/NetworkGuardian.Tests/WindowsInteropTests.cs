@@ -187,6 +187,61 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
+    public async Task ConsecutiveBoundProbes_OpenFreshConnections()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var server = Task.Run(async () =>
+        {
+            using var first = await listener.AcceptTcpClientAsync();
+            await using var firstStream = first.GetStream();
+            _ = await firstStream.ReadAsync(new byte[2048]);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nOK");
+            await firstStream.WriteAsync(response);
+
+            using var second = await listener.AcceptTcpClientAsync()
+                .WaitAsync(TimeSpan.FromSeconds(2));
+            await using var secondStream = second.GetStream();
+            _ = await secondStream.ReadAsync(new byte[2048]);
+            await secondStream.WriteAsync(response);
+        });
+
+        using var probe = new ConnectivityProbe();
+        var request = new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "fresh-bound-http",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{port}/",
+                    TimeoutMs = 1500,
+                    BodyMarker = "OK",
+                },
+            },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 3000,
+                MaxConcurrency = 1,
+                PingTargets = new List<string>(),
+            },
+            SourceAddress = "127.0.0.1",
+            InterfaceIndex = 1,
+        };
+
+        var firstReport = await probe.ProbeAsync(request, CancellationToken.None);
+        var secondReport = await probe.ProbeAsync(request, CancellationToken.None);
+        await server;
+
+        Assert.True(firstReport.IsOnline);
+        Assert.True(secondReport.IsOnline);
+    }
+
+    [Fact]
     public async Task VerifiedEndpoint_CancelsSlowerAttemptsImmediately()
     {
         using var fastListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
