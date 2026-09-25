@@ -242,6 +242,52 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
+    public async Task BoundHttpProbe_UsesDnsOnlyForAddressDiscovery()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            _ = await stream.ReadAsync(new byte[2048]);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
+            await stream.WriteAsync(response);
+        });
+
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "hostname-over-bound-interface",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://localhost:{port}/",
+                    TimeoutMs = 1500,
+                    BodyMarker = "OK",
+                },
+            },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 3000,
+                MaxConcurrency = 1,
+                PingTargets = new List<string>(),
+            },
+            SourceAddress = "127.0.0.1",
+            InterfaceIndex = 1,
+            DnsServerAddresses = new[] { "192.0.2.53" },
+        }, CancellationToken.None);
+        await server;
+
+        Assert.True(report.IsOnline);
+    }
+
+    [Fact]
     public async Task VerifiedEndpoint_CancelsSlowerAttemptsImmediately()
     {
         using var fastListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);

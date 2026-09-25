@@ -663,17 +663,19 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             {
                 handler.ConnectCallback = async (context, token) =>
                 {
-                    var addresses = await ResolveBoundDnsAsync(
-                            context.DnsEndPoint.Host,
-                            sourceAddress,
-                            interfaceIndex,
-                            dnsServerAddresses,
-                            TimeSpan.FromMilliseconds(Math.Max(500, settings.TimeoutMs)),
-                            token)
-                        .ConfigureAwait(false);
+                    // DNS only supplies candidate IP addresses; it is not reachability evidence.
+                    // Binding DNS to a home router proved less reliable than the actual Internet
+                    // path and caused false offline results. The TCP socket below is still pinned
+                    // to the requested interface, and Npcap verifies its request and response.
+                    var addresses = IPAddress.TryParse(context.DnsEndPoint.Host, out var literal)
+                        ? new[] { literal }
+                        : await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token)
+                            .ConfigureAwait(false);
                     Exception? lastError = null;
 
-                    foreach (var address in addresses.Where(address => address.AddressFamily == source.AddressFamily))
+                    foreach (var address in addresses
+                                 .Where(address => address.AddressFamily == source.AddressFamily)
+                                 .OrderByDescending(address => address.AddressFamily == AddressFamily.InterNetwork))
                     {
                         var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
                         try
