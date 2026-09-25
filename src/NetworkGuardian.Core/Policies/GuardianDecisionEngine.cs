@@ -531,11 +531,15 @@ public sealed class GuardianDecisionEngine
         var ethernetEligible = ethernetInterfaces.Any(i => i.IsUp || i.HasUsableIpv4);
         var ethernetWithInternet = ethernetInterfaces.Any(i => i.Probe?.IsOnline == true);
 
-        var latestEthernetProbe = ethernetInterfaces
-            .Select(i => i.Probe)
-            .Where(report => report is not null)
-            .OrderByDescending(report => report!.TimestampUtc)
-            .FirstOrDefault();
+        ConnectivityProbeReport? latestEthernetProbe = null;
+        foreach (var ethernetInterface in ethernetInterfaces)
+        {
+            if (ethernetInterface.Probe is { } candidateProbe &&
+                (latestEthernetProbe is null || candidateProbe.TimestampUtc > latestEthernetProbe.TimestampUtc))
+            {
+                latestEthernetProbe = candidateProbe;
+            }
+        }
         if (latestEthernetProbe is not null && _lastEthernetProbeTimestampUtc != latestEthernetProbe.TimestampUtc)
         {
             _lastEthernetProbeTimestampUtc = latestEthernetProbe.TimestampUtc;

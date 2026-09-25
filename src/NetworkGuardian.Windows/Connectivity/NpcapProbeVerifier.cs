@@ -198,7 +198,7 @@ public sealed class NpcapProbeVerifier : IDisposable
                     throw new NotSupportedException("Npcap interface does not expose Ethernet frames");
                 }
 
-                var filter = $"ip host {sourceAddress} and (tcp port 80 or tcp port 443 or udp port 53)";
+                var filter = $"ip host {sourceAddress}";
                 if (_compile(handle, out var program, filter, 1, 0xffffffff) != 0)
                 {
                     _close(handle);
@@ -315,11 +315,15 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
 
     private string? _inboundNextHopMac;
 
+    private int _nonProbePackets;
+
     public bool SawOutbound => _sawOutbound;
 
     public bool SawInbound => _sawInbound;
 
     public bool IsVerified => SawOutbound && SawInbound;
+
+    public bool HasActiveTraffic => Volatile.Read(ref _nonProbePackets) > 0;
 
     public string? VerifiedNextHopMac => IsVerified &&
         string.Equals(_outboundNextHopMac, _inboundNextHopMac, StringComparison.OrdinalIgnoreCase)
@@ -340,13 +344,19 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
             var packet = new byte[Math.Min(header.CapturedLength, 96)];
             Marshal.Copy(dataPointer, packet, 0, packet.Length);
             var direction = ClassifyIpv4Direction(packet, _source);
-            if (direction.HasFlag(CapturedPacketDirection.Outbound))
+            var isProbeTransport = IsProbeTransport(packet);
+            if (direction != CapturedPacketDirection.None && !isProbeTransport)
+            {
+                Interlocked.Increment(ref _nonProbePackets);
+            }
+
+            if (isProbeTransport && direction.HasFlag(CapturedPacketDirection.Outbound))
             {
                 _outboundNextHopMac ??= FormatMac(packet.AsSpan(0, 6));
                 _sawOutbound = true;
             }
 
-            if (direction.HasFlag(CapturedPacketDirection.Inbound))
+            if (isProbeTransport && direction.HasFlag(CapturedPacketDirection.Inbound))
             {
                 _inboundNextHopMac ??= FormatMac(packet.AsSpan(6, 6));
                 _sawInbound = true;
@@ -357,30 +367,32 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
     private static string FormatMac(ReadOnlySpan<byte> value) =>
         string.Join(":", value.ToArray().Select(item => item.ToString("X2")));
 
+    internal static bool IsProbeTransport(ReadOnlySpan<byte> packet)
+    {
+        if (!TryGetIpv4Offset(packet, out var ipOffset))
+        {
+            return false;
+        }
+
+        var ipHeaderLength = (packet[ipOffset] & 0x0f) * 4;
+        var transportOffset = ipOffset + ipHeaderLength;
+        if (packet.Length < transportOffset + 4)
+        {
+            return false;
+        }
+
+        var protocol = packet[ipOffset + 9];
+        var sourcePort = (packet[transportOffset] << 8) | packet[transportOffset + 1];
+        var destinationPort = (packet[transportOffset + 2] << 8) | packet[transportOffset + 3];
+        return protocol == 6 && (sourcePort is 80 or 443 || destinationPort is 80 or 443) ||
+               protocol == 17 && (sourcePort == 53 || destinationPort == 53);
+    }
+
     internal static CapturedPacketDirection ClassifyIpv4Direction(
         ReadOnlySpan<byte> packet,
         ReadOnlySpan<byte> source)
     {
-        var ipOffset = 14;
-        if (source.Length != 4 || packet.Length < ipOffset + 20)
-        {
-            return CapturedPacketDirection.None;
-        }
-
-
-        var etherType = (packet[12] << 8) | packet[13];
-        if (etherType is 0x8100 or 0x88a8)
-        {
-            ipOffset += 4;
-            if (packet.Length < ipOffset + 20)
-            {
-                return CapturedPacketDirection.None;
-            }
-
-            etherType = (packet[16] << 8) | packet[17];
-        }
-
-        if (etherType != 0x0800)
+        if (source.Length != 4 || !TryGetIpv4Offset(packet, out var ipOffset))
         {
             return CapturedPacketDirection.None;
         }
@@ -403,6 +415,29 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
         }
 
         return direction;
+    }
+
+    private static bool TryGetIpv4Offset(ReadOnlySpan<byte> packet, out int ipOffset)
+    {
+        ipOffset = 14;
+        if (packet.Length < ipOffset + 20)
+        {
+            return false;
+        }
+
+        var etherType = (packet[12] << 8) | packet[13];
+        if (etherType is 0x8100 or 0x88a8)
+        {
+            ipOffset += 4;
+            if (packet.Length < ipOffset + 20)
+            {
+                return false;
+            }
+
+            etherType = (packet[16] << 8) | packet[17];
+        }
+
+        return etherType == 0x0800;
     }
 
     public async ValueTask DisposeAsync()

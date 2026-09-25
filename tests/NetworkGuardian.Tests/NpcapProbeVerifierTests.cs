@@ -51,11 +51,31 @@ public sealed class NpcapProbeVerifierTests
             NpcapCaptureSession.ClassifyIpv4Direction(ipv6.AsSpan(0, 20), Source));
     }
 
+    [Theory]
+    [InlineData(6, 52000, 443, true)]
+    [InlineData(17, 52000, 53, true)]
+    [InlineData(17, 52000, 50000, false)]
+    [InlineData(6, 52000, 27015, false)]
+    public void IsProbeTransportSeparatesProbeAndApplicationTraffic(
+        byte protocol,
+        int sourcePort,
+        int destinationPort,
+        bool expected)
+    {
+        var frame = CreateIpv4Frame(Source, Remote, protocol: protocol,
+            sourcePort: sourcePort, destinationPort: destinationPort);
+
+        Assert.Equal(expected, NpcapCaptureSession.IsProbeTransport(frame));
+    }
+
     private static byte[] CreateIpv4Frame(
         byte[] source,
         byte[] destination,
         int ipHeaderLength = 20,
-        bool vlanTagged = false)
+        bool vlanTagged = false,
+        byte protocol = 6,
+        int sourcePort = 52000,
+        int destinationPort = 443)
     {
         var ipOffset = vlanTagged ? 18 : 14;
         var frame = new byte[ipOffset + ipHeaderLength + 20];
@@ -73,8 +93,14 @@ public sealed class NpcapProbeVerifierTests
         }
 
         frame[ipOffset] = (byte)(0x40 | ipHeaderLength / 4);
+        frame[ipOffset + 9] = protocol;
         source.CopyTo(frame, ipOffset + 12);
         destination.CopyTo(frame, ipOffset + 16);
+        var transportOffset = ipOffset + ipHeaderLength;
+        frame[transportOffset] = (byte)(sourcePort >> 8);
+        frame[transportOffset + 1] = (byte)sourcePort;
+        frame[transportOffset + 2] = (byte)(destinationPort >> 8);
+        frame[transportOffset + 3] = (byte)destinationPort;
         return frame;
     }
 }

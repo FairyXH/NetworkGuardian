@@ -66,6 +66,9 @@ public sealed record ConnectivityProbeReport
     /// <summary>Layer-2 next-hop MAC observed in both directions by Npcap.</summary>
     public string? CaptureNextHopMac { get; init; }
 
+    /// <summary>Npcap observed non-probe IPv4 traffic on this interface during the probe window.</summary>
+    public bool InterfaceTrafficObserved { get; init; }
+
     public string? CaptivePortalInterceptedBy { get; init; }
 
     public int SuccessCount { get; init; }

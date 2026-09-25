@@ -751,13 +751,17 @@ public sealed class GuardianHostService : IAsyncDisposable
             }).ToArray();
 
             var interfaceReports = await Task.WhenAll(interfaceTasks).ConfigureAwait(false);
-            var hasOnlineAlternative = interfaceReports.Any(item => item.Report.IsOnline);
+            var hasOnlineAlternative = false;
+            foreach (var item in interfaceReports)
+            {
+                hasOnlineAlternative |= item.Report.IsOnline;
+            }
             foreach (var (candidate, report) in interfaceReports)
             {
                 var stabilized = ApplyProbeStability(
                     candidate.Id,
                     report,
-                    failImmediately: !report.IsOnline && hasOnlineAlternative);
+                    failImmediately: !report.IsOnline && hasOnlineAlternative && !report.InterfaceTrafficObserved);
                 if (candidate.WlanInterfaceGuid is { } guid)
                 {
                     byAdapter[guid] = stabilized;

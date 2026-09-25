@@ -200,6 +200,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                     : PacketCaptureVerification.NoTrafficOnTargetInterface;
         string? captureDetail = _npcap?.Status.Detail;
         string? captureNextHopMac = null;
+        var interfaceTrafficObserved = false;
         if (isOnline && request.InterfaceId is not null && _npcap?.Status.IsAvailable == true && capture is null)
         {
             isOnline = false;
@@ -218,6 +219,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 captureDetail = "Npcap 在目标接口捕获到探测请求和回包";
                 captureNextHopMac = capture.VerifiedNextHopMac;
             }
+
             else
             {
                 isOnline = false;
@@ -225,10 +227,12 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 captureDetail = $"应用层探测成功，但 Npcap 未在目标接口捕获到完整双向流量" +
                                 $"（出站={capture.SawOutbound}，入站={capture.SawInbound}）";
             }
+
         }
 
         if (capture is not null)
         {
+            interfaceTrafficObserved = capture.HasActiveTraffic;
             await capture.DisposeAsync().ConfigureAwait(false);
         }
 
@@ -242,6 +246,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             CaptureVerification = captureVerification,
             CaptureVerificationDetail = captureDetail,
             CaptureNextHopMac = captureNextHopMac,
+            InterfaceTrafficObserved = interfaceTrafficObserved,
             CaptivePortalSuspected = captiveSuspected,
             CaptivePortalInterceptedBy = captiveAttempt is null
                 ? null
