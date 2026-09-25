@@ -163,10 +163,9 @@ public sealed class JsonConfigStore : IConfigStore
 
     private async Task SaveInternalAsync(GuardianConfig config, CancellationToken cancellationToken)
     {
-        var json = ConfigJson.Serialize(config);
-
         // Validate before persisting so an invalid in-memory state never reaches disk unclamped.
         _validator.Normalize(config);
+        var json = ConfigJson.Serialize(config);
 
         var directory = Path.GetDirectoryName(ConfigPath);
         if (!string.IsNullOrEmpty(directory))

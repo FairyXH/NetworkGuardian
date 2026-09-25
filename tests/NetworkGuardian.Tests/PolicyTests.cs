@@ -560,7 +560,7 @@ public sealed class CampusAuthRateLimitTests
     }
 
     [Fact]
-    public void InterfaceMetrics_AreAlwaysReconciledForAutomaticFailover()
+    public void InterfaceMetrics_AreOnlyReconciledWhenManagementIsEnabled()
     {
         var mismatched = TestData.WifiInterface(TestData.AdapterA) with { InterfaceMetric = 1 };
         var enabled = TestData.Config(c => c.General.ManageInterfaceMetrics = true);
@@ -579,7 +579,7 @@ public sealed class CampusAuthRateLimitTests
 
         Assert.Contains(decision.Actions, action => action is ApplyInterfaceMetricsAction);
 
-        enabled.General.ManageInterfaceMetrics = false; // legacy setting no longer disables safety policy
+        enabled.General.ManageInterfaceMetrics = false;
         decision = engine.Evaluate(new GuardianInput
         {
             Now = TestData.Now.AddSeconds(20),
@@ -591,9 +591,7 @@ public sealed class CampusAuthRateLimitTests
             Radio = TestData.RadioOn,
         });
 
-        var metrics = Assert.IsType<ApplyInterfaceMetricsAction>(
-            Assert.Single(decision.Actions, action => action is ApplyInterfaceMetricsAction));
-        Assert.Equal(10, metrics.MetricsByInterfaceId[mismatched.Id]);
+        Assert.DoesNotContain(decision.Actions, action => action is ApplyInterfaceMetricsAction);
     }
 
     [Fact]

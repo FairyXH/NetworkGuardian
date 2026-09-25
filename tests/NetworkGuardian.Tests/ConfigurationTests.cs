@@ -82,6 +82,17 @@ public sealed class ConfigValidatorTests
 
         Assert.Equal(2, config.OfflineCommands.Select(c => c.Id).Distinct().Count());
     }
+
+    [Fact]
+    public void MetricManagementPreference_IsPreserved()
+    {
+        var config = GuardianConfig.CreateDefault();
+        config.General.ManageInterfaceMetrics = false;
+
+        new ConfigValidator().Normalize(config);
+
+        Assert.False(config.General.ManageInterfaceMetrics);
+    }
 }
 
 public sealed class ConfigMigratorTests
@@ -275,6 +286,22 @@ public sealed class JsonConfigStoreTests : IDisposable
         var reloaded = ConfigJson.Deserialize(await File.ReadAllTextAsync(ConfigPath));
         Assert.NotNull(reloaded);
         Assert.Single(reloaded!.OfflineCommands);
+    }
+
+    [Fact]
+    public async Task Save_PersistsNormalizedValues()
+    {
+        var store = new JsonConfigStore(ConfigPath);
+        var config = GuardianConfig.CreateDefault();
+        config.General.HealthSweepSeconds = -5;
+        config.General.ManageInterfaceMetrics = false;
+
+        await store.SaveAsync(config, CancellationToken.None);
+
+        var persisted = ConfigJson.Deserialize(await File.ReadAllTextAsync(ConfigPath));
+        Assert.NotNull(persisted);
+        Assert.Equal(5, persisted!.General.HealthSweepSeconds);
+        Assert.False(persisted.General.ManageInterfaceMetrics);
     }
 
     [Fact]

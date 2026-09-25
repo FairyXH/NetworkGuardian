@@ -1139,7 +1139,7 @@ public sealed class GuardianDecisionEngine
         var metricsDiffer = input.Interfaces.Any(i =>
             metrics.TryGetValue(i.Id, out var desired) &&
             (i.InterfaceMetric != desired || i.RouteMetric is not null && i.RouteMetric != 1));
-        if (metricsDiffer)
+        if (config.General.ManageInterfaceMetrics && metricsDiffer)
         {
             actions.Add(new ApplyInterfaceMetricsAction
             {

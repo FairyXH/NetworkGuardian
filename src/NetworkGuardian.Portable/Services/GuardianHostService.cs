@@ -360,7 +360,8 @@ public sealed class GuardianHostService : IAsyncDisposable
                     desired.TryGetValue(i.Id, out var metric) &&
                     (i.InterfaceMetric != metric || i.RouteMetric is not null && i.RouteMetric != 1));
 
-                if (drifted && !IsPaused && _config.General.AutomaticRecovery)
+                if (drifted && !IsPaused && _config.General.AutomaticRecovery &&
+                    _config.General.ManageInterfaceMetrics)
                 {
                     var notes = await _interfaces.ApplyInterfaceMetricsAsync(desired, cancellationToken)
                         .ConfigureAwait(false);
@@ -443,9 +444,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     public async Task ApplyConfigAsync(GuardianConfig config, CancellationToken cancellationToken)
     {
         config.InterfaceDenyList ??= new List<string>();
-        _config = config;
-
         await _configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
+        _config = config;
         ApplyConfigToComponents(config);
         RequestImmediateCycle();
         _logger.LogInformation("Configuration updated and saved to {Path}", _configStore.ConfigPath);

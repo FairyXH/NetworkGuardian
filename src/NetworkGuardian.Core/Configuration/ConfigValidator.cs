@@ -45,8 +45,6 @@ public sealed class ConfigValidator
             .Select(target => target.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        config.General.ManageInterfaceMetrics = true;
-
         if (config.ProbeEndpoints is null || config.ProbeEndpoints.Count == 0)
         {
             issues.Add("probeEndpoints was empty; default endpoints restored.");
