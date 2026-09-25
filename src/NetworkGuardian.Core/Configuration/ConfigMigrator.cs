@@ -230,6 +230,15 @@ public sealed class ConfigMigrator
             applied.Add("v13: configurable stale TCP connection cleanup after outlet changes.");
         }
 
+        if (version < 14)
+        {
+            config.Probe.PreferNpcapRawProbe = true;
+            config.Probe.NpcapRawTcpTargets = new ProbeSettings().NpcapRawTcpTargets;
+            config.Version = 14;
+            version = 14;
+            applied.Add("v14: authoritative Npcap raw probing for proxy and TUN independent reachability.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

@@ -139,6 +139,7 @@ internal sealed class SettingsPage : IPage
         // ---------- Internet 探测 ----------
         var probe = new Form(ctx, this);
         probe.Toggle("启用探测", config.Probe.Enabled, v => config.Probe.Enabled = v);
+        probe.Toggle("Npcap 原始探测优先（绕过 Proxifier / YogaDNS / TUN）", config.Probe.PreferNpcapRawProbe, v => config.Probe.PreferNpcapRawProbe = v);
         probe.Number("探测周期（秒）", config.Probe.IntervalSeconds, 3, 3600, v => config.Probe.IntervalSeconds = v);
         probe.Number("自动切换快速探测周期（秒）", config.Probe.FastRouteIntervalSeconds, 1, 10, v => config.Probe.FastRouteIntervalSeconds = v);
         probe.Number("故障重试周期（秒）", config.Probe.FailureIntervalSeconds, 1, 60, v => config.Probe.FailureIntervalSeconds = v);
@@ -149,7 +150,7 @@ internal sealed class SettingsPage : IPage
         probe.Toggle("按接口分别探测（判断某张网卡自身是否可用）", config.Probe.PerInterfaceProbing, v => config.Probe.PerInterfaceProbing = v);
         probe.Toggle("允许 ICMP 探测", config.Probe.AllowIcmp, v => config.Probe.AllowIcmp = v);
         probe.Toggle("被认证页拦截时视为离线", config.Probe.TreatCaptivePortalAsOffline, v => config.Probe.TreatCaptivePortalAsOffline = v);
-        probe.Note("程序并行访问多个轻量连通性页面和常见网站；任意一个返回有效响应即在线，全部失败才离线。Ping 只能用于诊断，不参与在线判定。");
+        probe.Note("Npcap 原始探测优先开启且可用时，以物理网卡的二层 TCP/ICMP 结果立即判定，不等待代理、DNS 或 TUN 路径；Npcap 不可用时自动降级。关闭后仍运行原始探测，但只作为原方案辅助。");
         probe.Subtitle("探测端点");
 
         var endpoints = config.ProbeEndpoints;

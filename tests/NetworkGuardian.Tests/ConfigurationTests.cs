@@ -108,6 +108,8 @@ public sealed class ConfigMigratorTests
         Assert.Equal(GuardianConfig.CurrentVersion, config.Version);
         Assert.NotEmpty(config.ProbeEndpoints);
         Assert.True(config.Wifi.StickyConnection);
+        Assert.True(config.Probe.PreferNpcapRawProbe);
+        Assert.True(config.Probe.NpcapRawTcpTargets.Count >= 2);
         Assert.NotEmpty(applied);
     }
 
@@ -144,6 +146,7 @@ public sealed class ConfigJsonTests
         config.CampusAuth.ExecutablePath = @"C:\campus\auth.exe";
         config.Probe.PingTimeoutMs = 1750;
         config.Probe.PingTargets = new List<string> { "www.baidu.com", "1.1.1.1" };
+        config.Probe.PreferNpcapRawProbe = false;
         config.OfflineCommands.Add(new CommandDefinition
         {
             Id = "c1",
@@ -161,6 +164,7 @@ public sealed class ConfigJsonTests
         Assert.Equal(@"C:\campus\auth.exe", restored.CampusAuth.ExecutablePath);
         Assert.Equal(1750, restored.Probe.PingTimeoutMs);
         Assert.Equal(new[] { "www.baidu.com", "1.1.1.1" }, restored.Probe.PingTargets);
+        Assert.False(restored.Probe.PreferNpcapRawProbe);
         var command = Assert.Single(restored.OfflineCommands);
         Assert.Equal(CommandKind.Shell, command.Kind);
         Assert.Equal(4, command.MaxRunsPerHour);

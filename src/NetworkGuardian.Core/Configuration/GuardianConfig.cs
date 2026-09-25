@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 13;
+    public const int CurrentVersion = 14;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -185,6 +185,22 @@ public sealed class RecoverySettings
 public sealed class ProbeSettings
 {
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// When Npcap and physical-interface addressing are available, use direct layer-2 ARP/TCP/ICMP
+    /// probes as the authoritative per-interface verdict. These probes bypass system DNS, Winsock,
+    /// WFP proxies and TUN route changes. If the raw path is unavailable, normal probes remain the
+    /// fallback; when disabled, raw observations are auxiliary only.
+    /// </summary>
+    public bool PreferNpcapRawProbe { get; set; } = true;
+
+    /// <summary>Independent public IPv4 TCP endpoints used by the raw Npcap quorum.</summary>
+    public List<string> NpcapRawTcpTargets { get; set; } = new()
+    {
+        "1.1.1.1:443",
+        "8.8.8.8:443",
+        "223.5.5.5:443",
+    };
 
     /// <summary>Interval of the periodic Internet check.</summary>
     public int IntervalSeconds { get; set; } = 15;

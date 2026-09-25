@@ -52,6 +52,18 @@ public sealed class ConfigValidator
             .Select(target => target.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        config.Probe.NpcapRawTcpTargets ??= new List<string>();
+        config.Probe.NpcapRawTcpTargets = config.Probe.NpcapRawTcpTargets
+            .Where(target => !string.IsNullOrWhiteSpace(target))
+            .Select(target => target.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(12)
+            .ToList();
+        if (config.Probe.NpcapRawTcpTargets.Count < 2)
+        {
+            issues.Add("probe.npcapRawTcpTargets had fewer than two targets; defaults restored.");
+            config.Probe.NpcapRawTcpTargets = new ProbeSettings().NpcapRawTcpTargets;
+        }
         if (config.ProbeEndpoints is null || config.ProbeEndpoints.Count == 0)
         {
             issues.Add("probeEndpoints was empty; default endpoints restored.");
