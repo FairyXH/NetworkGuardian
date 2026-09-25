@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 14;
+    public const int CurrentVersion = 15;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -61,6 +61,13 @@ public sealed class ConnectionMigrationSettings
 {
     /// <summary>Controls which stale TCP connections are closed after the default outlet changes.</summary>
     public ConnectionCutMode Mode { get; set; } = ConnectionCutMode.Disabled;
+
+    /// <summary>
+    /// After the default outlet has moved, restart the superseded physical adapter through the
+    /// elevated helper. This tears down every TCP and UDP socket on that adapter and overrides
+    /// <see cref="Mode"/> and <see cref="ProcessPatterns"/>.
+    /// </summary>
+    public bool RestartOldAdapterOnSwitch { get; set; }
 
     /// <summary>
     /// Executable file-name or full-path wildcard patterns. Allow-list mode closes matching

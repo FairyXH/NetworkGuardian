@@ -147,6 +147,7 @@ public sealed class ConfigJsonTests
         config.Probe.PingTimeoutMs = 1750;
         config.Probe.PingTargets = new List<string> { "www.baidu.com", "1.1.1.1" };
         config.Probe.PreferNpcapRawProbe = false;
+        config.ConnectionMigration.RestartOldAdapterOnSwitch = true;
         config.OfflineCommands.Add(new CommandDefinition
         {
             Id = "c1",
@@ -165,6 +166,7 @@ public sealed class ConfigJsonTests
         Assert.Equal(1750, restored.Probe.PingTimeoutMs);
         Assert.Equal(new[] { "www.baidu.com", "1.1.1.1" }, restored.Probe.PingTargets);
         Assert.False(restored.Probe.PreferNpcapRawProbe);
+        Assert.True(restored.ConnectionMigration.RestartOldAdapterOnSwitch);
         var command = Assert.Single(restored.OfflineCommands);
         Assert.Equal(CommandKind.Shell, command.Kind);
         Assert.Equal(4, command.MaxRunsPerHour);

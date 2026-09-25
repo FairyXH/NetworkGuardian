@@ -123,17 +123,22 @@ internal sealed class SettingsPage : IPage
         // ---------- 出口切换连接迁移 ----------
         var migration = new Form(ctx, this);
         migration.Choice(
-            "切换出口时切断原网卡的已有 TCP 连接",
+            "切换出口时切断原网卡的已有连接（仅 IPv4 TCP）",
             ConnectionCutModeLabels,
             (int)config.ConnectionMigration.Mode,
             v => config.ConnectionMigration.Mode = (ConnectionCutMode)v);
+        migration.Toggle(
+            "切换网络时重启原物理网卡，切断其全部 TCP / UDP 连接",
+            config.ConnectionMigration.RestartOldAdapterOnSwitch,
+            v => config.ConnectionMigration.RestartOldAdapterOnSwitch = v);
         migration.Text(
             "进程匹配列表（每行一个，支持 * 和 ?）",
             Join(config.ConnectionMigration.ProcessPatterns),
             v => config.ConnectionMigration.ProcessPatterns = Split(v),
             multiline: true);
-        migration.Note("匹配进程文件名或完整路径，例如 yysls.exe、baidu\\*.exe。白名单模式仅切断匹配项；" +
-                       "黑名单模式保留匹配项并切断其他进程。UDP 无连接状态，不在此处强制关闭。");
+        migration.Note("上方“全部 / 白名单 / 黑名单”只能切断 IPv4 TCP，不能切断 UDP。开启“重启原物理网卡”后，" +
+                       "上方模式和进程列表均无效；程序将在新出口生效后通过管理员助手重启旧网卡，从而切断该网卡上的全部 TCP / UDP。" +
+                       "匹配列表支持进程文件名、完整路径、* 和 ?，例如 yysls.exe、baidu\\*.exe。");
         y = DrawCard(ctx, area, y, "出口切换连接迁移", migration);
 
         // ---------- Internet 探测 ----------

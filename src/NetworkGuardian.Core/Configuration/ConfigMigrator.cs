@@ -239,6 +239,14 @@ public sealed class ConfigMigrator
             applied.Add("v14: authoritative Npcap raw probing for proxy and TUN independent reachability.");
         }
 
+        if (version < 15)
+        {
+            config.ConnectionMigration.RestartOldAdapterOnSwitch = false;
+            config.Version = 15;
+            version = 15;
+            applied.Add("v15: optional old-adapter restart after an outlet switch.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)
