@@ -9,10 +9,8 @@ namespace NetworkGuardian.Portable.Ui.Pages;
 internal sealed class DashboardPage : IPage
 {
     private const string ProxyCompatibilityGuidance =
-        "为保证每张网卡的外网探测只走该网卡，请按以下方式放行：\n" +
-        "• Proxifier：添加最高优先级规则，应用程序 NetworkGuardian.exe，目标/端口任意，动作选择 Direct；不要使用“Proxifier”右键方式启动本程序。\n" +
-        "• YogaDNS：将探测域名设为 Bypass，或让 DNS 规则绑定对应网络接口，并启用“接口断开时忽略规则”。\n" +
-        "• 其他代理、VPN、加速器或流量聚合软件：把 NetworkGuardian.exe 加入直连/绕过名单，禁止透明代理或强制接管。否则探测结果可能代表代理出口，而不是对应网卡。";
+        "Npcap 原始探测优先开启且 Npcap 可用时，程序直接在物理网卡发送 ARP、TCP SYN 和 ICMP，不经过 Proxifier、YogaDNS、系统 DNS 或 TUN 默认路由，无需为本程序添加代理直连规则。\n" +
+        "若 VPN/TUN 启用了禁止物理网卡直连的 kill switch，原始公网探测会按策略显示离线；请关闭该安全策略或关闭“Npcap 原始探测优先”。Npcap 不可用时程序自动降级到常规探测，此时仍建议把 NetworkGuardian.exe 和探测域名加入代理/DNS 绕过规则。";
 
     public string Tag => "dashboard";
 
@@ -39,7 +37,7 @@ internal sealed class DashboardPage : IPage
             proxyCard.Top + ctx.Scale(12),
             proxyTextWidth,
             ctx.Scale(24));
-        canvas.Text("重要：代理与 DNS 软件必须设置直连", proxyInner, Palette.Warn, TextStyle.Section);
+        canvas.Text("Proxifier / YogaDNS / TUN 兼容说明", proxyInner, Palette.Warn, TextStyle.Section);
         canvas.Text(
             ProxyCompatibilityGuidance,
             new Rectangle(proxyInner.Left, proxyInner.Bottom, proxyInner.Width, proxyTextHeight),

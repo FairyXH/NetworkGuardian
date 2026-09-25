@@ -154,8 +154,9 @@ internal static class Format
             PacketCaptureVerification.Unavailable => "｜Npcap 不可用",
             _ => string.Empty,
         };
+        var authority = report.IsAuthoritative ? "｜Npcap 原始权威判定" : string.Empty;
         var text = $"{reachability}｜强证据 {report.SuccessCount}/{report.AttemptCount}" +
-                   $"｜用时 {report.Duration.TotalMilliseconds:F0} ms{stability}{capture}";
+                   $"｜用时 {report.Duration.TotalMilliseconds:F0} ms{authority}{stability}{capture}";
         return report.FirstFailureDetail is { Length: > 0 } detail ? $"{text}｜{detail}" : text;
     }
 

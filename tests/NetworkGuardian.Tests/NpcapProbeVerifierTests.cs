@@ -1,6 +1,9 @@
 using NetworkGuardian.Windows.Connectivity;
 using NetworkGuardian.Windows.Network;
 using Microsoft.Extensions.Logging.Abstractions;
+using NetworkGuardian.Core.Abstractions;
+using NetworkGuardian.Core.Configuration;
+using NetworkGuardian.Core.Models;
 using Xunit;
 
 namespace NetworkGuardian.Tests;
@@ -11,7 +14,7 @@ public sealed class NpcapProbeVerifierTests
     private static readonly byte[] Remote = [198, 51, 100, 20];
 
     [Fact]
-    public async Task RawIcmpProbe_ReachesPublicTargetsOnARealAdapter_WhenOptedIn()
+    public async Task AuthoritativeRawProbe_ReachesPublicTargetsOnAPhysicalAdapter_WhenOptedIn()
     {
         if (Environment.GetEnvironmentVariable("NETWORKGUARDIAN_NPCAP_HARDWARE_TESTS") != "1")
         {
@@ -19,7 +22,8 @@ public sealed class NpcapProbeVerifierTests
         }
 
         var candidate = new NetworkInterfaceProvider().GetInterfaces().FirstOrDefault(item =>
-            item.IsUp && item.HasUsableIpv4 && item.AdapterGuid is not null &&
+            item.IsUp && item.HasUsableIpv4 && item.Kind is InterfaceKind.Wifi or InterfaceKind.Ethernet &&
+            item.AdapterGuid is not null &&
             item.PrimaryGateway is not null && item.MacAddress is not null);
         Assert.NotNull(candidate);
 
@@ -41,6 +45,23 @@ public sealed class NpcapProbeVerifierTests
 
         Assert.Equal(NpcapRawProbeVerdict.Online, result.Verdict);
         Assert.True(result.TcpReplyCount >= 2, result.Detail);
+
+        using var connectivity = new ConnectivityProbe(npcap: verifier);
+        var report = await connectivity.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = ProbeEndpointSettings.CreateDefaults(),
+            Settings = new ProbeSettings { PreferNpcapRawProbe = true },
+            SourceAddress = candidate.PrimaryIpv4Address,
+            SourceMacAddress = candidate.MacAddress,
+            GatewayAddress = candidate.PrimaryGateway,
+            InterfaceId = candidate.Id,
+            InterfaceIndex = candidate.InterfaceIndex,
+            AdapterGuid = candidate.AdapterGuid,
+        }, CancellationToken.None);
+
+        Assert.True(report.IsAuthoritative);
+        Assert.True(report.IsOnline, report.FirstFailureDetail);
+        Assert.Equal("NpcapRaw", Assert.Single(report.Attempts).EndpointName);
     }
 
     [Fact]

@@ -109,7 +109,7 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 
 外网结果分为：
 
-- `InternetVerified`：存在强应用层成功，并且需要时已由 Npcap 证明流量经过目标接口。
+- `InternetVerified`：存在强应用层成功并由 Npcap 证明出口，或权威 Npcap 原始探针取得多目标公网证据。
 - `InternetLikely`：套接字探测成功，但缺少严格抓包证明。
 - `CaptivePortal`：HTTP 被重定向或正文不符合预期。
 - `LocalOnly`：只有局域网、网关、DNS、TCP 或 ICMP 等弱证据。
@@ -127,6 +127,15 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 
 Npcap 可用时，程序动态加载系统 `Npcap\wpcap.dll`，把 Windows 网卡 GUID 映射到 Npcap 设备，并执行非混杂抓包。BPF 只保留目标源 IPv4 的 DNS、HTTP 和 HTTPS 探测流量；必须同时看到出站请求和入站回包，才能保留严格在线结论。双向以太网帧指向同一设备时，还会记录二层下一跳 MAC，用于判断有线和备用 Wi-Fi 是否实际经过同一路由器。
 
+默认开启「Npcap 原始探测优先」。程序只对已确认的物理 Ethernet/WLAN 执行以下流程，TUN/TAP/虚拟网卡不会成为原始探针出口：
+
+1. 向该物理接口网关发送两次原始 ARP；
+2. 直接构造 Ethernet + IPv4 + TCP SYN，探测多个独立公共递归服务的 TCP/53；
+3. 同时向多个固定公网 IPv4 发送原始 ICMP，作为辅助证据；
+4. TCP 与 ICMP 均会重传，至少两个独立 TCP 回包，或一个 TCP 加两个 ICMP 回包才判在线。
+
+这条路径不调用系统 DNS、Winsock，也不服从 TUN 默认路由，因而适配 Proxifier、YogaDNS 和普通 TUN。开关开启时，明确的原始在线/离线结果立即生效，不等待常规 HTTP/DNS 探测或迟滞窗口；原始发包条件不足时自动降级。关闭开关后，常规探测仍为主，Npcap 原始结果只作为辅助。VPN/TUN 的 kill switch 若明确禁止物理网卡直连，原始探针会按该安全策略显示离线。
+
 Npcap 缺失时程序仍可运行，但界面会明确标注未完成抓包验证；Npcap 已加载但目标接口无法打开、链路层不是 Ethernet，或没有捕获到完整双向流量时，不会伪造严格验证成功。
 
 ## 有线优先、故障切换和恢复回切
@@ -138,15 +147,17 @@ Npcap 缺失时程序仍可运行，但界面会明确标注未完成抓包验�
 Wi-Fi  InterfaceMetric = 35
 ```
 
-Metric 只决定 Windows 路由优先级，不代替外网探测。物理以太网保持 Link Up、IPv4 和默认网关，但外网连续失败 3 次时，程序会认定有线不可用；可用的手机热点或其他 Wi-Fi 随后成为实际出口。
+Metric 只决定 Windows 路由优先级，不代替外网探测。Npcap 原始探测优先且给出权威结果时，在线/离线立即生效；Npcap 不可用、被关闭或降级时，仍使用原有连续失败阈值。可用的手机热点或其他 Wi-Fi 随后成为实际出口。
 
-有线恢复后不会根据一次成功立即回切。默认需要：
+常规探测模式下，有线恢复后不会根据一次成功立即回切，默认需要：
 
 1. 连续成功 2 次；
 2. 高优先级接口稳定至少 6 秒；
 3. Npcap 启用时，探测流量确实经过恢复的有线接口。
 
 这样可以避免路由器 WAN 刚恢复时反复在有线和 Wi-Fi 之间抖动。
+
+Npcap 原始探测优先模式按用户设置使用即时权威判定，不应用上述迟滞。
 
 ### 真机测试：路由器 WAN → 手机热点 → 路由器 WAN
 
@@ -423,7 +434,7 @@ pwsh -NoProfile -File tools\qa-ui-click.ps1 -Page wireless -ScrollTo -1 -Clicks 
 
 ### 浏览器可用，但程序显示外网失败
 
-检查代理、VPN、DNS 软件和防火墙是否让探测请求换了出口。对 NetworkGuardian 设置直连/绕过规则；单位内网应把默认公共端点替换成稳定的内部 HTTPS/TCP/DNS 目标。
+先确认 Npcap 可用且「Npcap 原始探测优先」已开启。若 VPN/TUN 启用了禁止物理直连的 kill switch，请关闭该策略或关闭原始优先开关。Npcap 不可用时，对 NetworkGuardian 设置直连/绕过规则；单位内网可在配置文件中替换 `npcapRawTcpTargets`。
 
 ### 有线 WAN 已断，但没有切到手机热点
 
@@ -431,7 +442,7 @@ pwsh -NoProfile -File tools\qa-ui-click.ps1 -Page wireless -ScrollTo -1 -Clicks 
 
 ### 路由器 WAN 恢复后没有立即切回有线
 
-这是预期的迟滞行为。默认需要连续成功 2 次并稳定 6 秒。Npcap 可用时，还必须证明探测流量已经真正经过该有线接口。
+原始探测优先时应在本轮原始探针成功后立即恢复；若仍未恢复，检查该接口的 Npcap 原始 TCP/ICMP 详情。降级到常规探测时，默认仍需连续成功 2 次并稳定 6 秒。
 
 ### 不连接某个 Wi-Fi
 
