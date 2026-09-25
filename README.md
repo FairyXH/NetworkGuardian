@@ -13,7 +13,7 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 | 项目 | 当前值 |
 | --- | --- |
 | 应用版本 | `0.9.0` |
-| 配置 Schema | `v12` |
+| 配置 Schema | `v13` |
 | 目标平台 | Windows 10/11 x64 |
 | 发布形式 | Native AOT 单 EXE，提权助手内置 |
 | 实测 EXE 大小 | 8.95 MiB |
@@ -222,6 +222,10 @@ Schema v12 默认开启 `wifi.diversifyFromHealthyEthernet`。当物理以太网
 
 如果扫描中存在不同上游的已保存网络，例如手机热点，程序会释放同源备用 Wi-Fi，并在下一周期连接独立网络。如果没有可用的独立候选，同源网络仍可作为最后的故障兜底，不会为了“去同源”让网卡永久空闲。
 
+### 出口切换后的旧连接处理
+
+Schema v13 新增 `connectionMigration`。默认关闭；启用后，程序在确认默认出口变化时关闭仍绑定旧出口 IPv4 地址的 TCP 连接，使应用自行重连到新出口。支持全部、白名单和黑名单模式，进程列表同时匹配文件名与完整路径，并支持 `*`、`?` 通配符，例如 `yysls.exe` 或 `baidu\\*.exe`。UDP 没有可定向删除的连接状态，不在此策略内强制关闭。
+
 ## Wi-Fi 凭据库
 
 `wifi-networks.json` 独立于 Windows Profile，支持：
@@ -284,7 +288,7 @@ PnP 恢复只针对当前存在、分类为物理以太网或物理 Wi-Fi 的设
 
 ## 配置
 
-配置文件位于 `%LOCALAPPDATA%\NetworkGuardian\config.json`，当前 Schema 为 v12。旧配置会按版本逐步迁移；比程序更新的 Schema 不会被降级覆盖。
+配置文件位于 `%LOCALAPPDATA%\NetworkGuardian\config.json`，当前 Schema 为 v13。旧配置会按版本逐步迁移；比程序更新的 Schema 不会被降级覆盖。
 
 重要默认值：
 
@@ -292,6 +296,7 @@ PnP 恢复只针对当前存在、分类为物理以太网或物理 Wi-Fi 的设
 | --- | --- |
 | `general` | 自动恢复开；有线优先；无线电看门狗 3s；健康巡检 20s；完整枚举 90s |
 | `general` Metric | 自动管理开；以太网 10；Wi-Fi 35 |
+| `connectionMigration` | 默认关闭；可选择全部、白名单或黑名单；支持进程路径通配符 |
 | `recovery` | 失败 3 次；恢复成功 2 次；首选线路稳定 6s；冷却 45s |
 | `probe` | 正常 15s；切换/失败 2s；不确定 5s；单次 2000ms；整轮 3500ms |
 | `probe` 判定 | 每接口探测开；所需成功数 1；认证页视为离线；ICMP 默认关闭 |
@@ -305,7 +310,7 @@ PnP 恢复只针对当前存在、分类为物理以太网或物理 Wi-Fi 的设
 
 ```json
 {
-  "version": 12,
+  "version": 13,
   "general": {
     "automaticRecovery": true,
     "preferEthernet": true,
@@ -474,4 +479,4 @@ docs                                 设计说明、专题记录和界面截图
 - [Native AOT 实施记录](docs/session-log-2026-09-18.md)
 - [802.1X 真机记录](docs/session-log-2026-09-18-8021x.md)
 
-当前版本：`0.9.0`；配置 Schema：`v12`；目标：`win-x64`。
+当前版本：`0.9.0`；配置 Schema：`v13`；目标：`win-x64`。
