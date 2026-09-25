@@ -251,6 +251,73 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
+    public async Task PortalLikeResponse_DoesNotCancelPendingVerifiedEndpoint()
+    {
+        using var portalListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        using var verifiedListener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        portalListener.Start();
+        verifiedListener.Start();
+        var portalPort = ((System.Net.IPEndPoint)portalListener.LocalEndpoint).Port;
+        var verifiedPort = ((System.Net.IPEndPoint)verifiedListener.LocalEndpoint).Port;
+
+        var portalServer = Task.Run(async () =>
+        {
+            using var client = await portalListener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            _ = await stream.ReadAsync(new byte[2048]);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nLOGIN");
+            await stream.WriteAsync(response);
+        });
+        var verifiedServer = Task.Run(async () =>
+        {
+            using var client = await verifiedListener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            _ = await stream.ReadAsync(new byte[2048]);
+            await Task.Delay(150);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
+            await stream.WriteAsync(response);
+        });
+
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "portal-like",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{portalPort}/",
+                    TimeoutMs = 1500,
+                    BodyMarker = "OK",
+                },
+                new ProbeEndpointSettings
+                {
+                    Name = "verified",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{verifiedPort}/",
+                    TimeoutMs = 1500,
+                    BodyMarker = "OK",
+                },
+            },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 3000,
+                MaxConcurrency = 2,
+                PingTargets = new List<string>(),
+            },
+        }, CancellationToken.None);
+
+        await Task.WhenAll(portalServer, verifiedServer);
+        Assert.True(report.IsOnline);
+        Assert.True(report.CaptivePortalSuspected);
+        Assert.Equal(1, report.SuccessCount);
+    }
+
+    [Fact]
     public async Task PingSuccessAlone_DoesNotDeclareUsableInternet()
     {
         using var probe = new ConnectivityProbe();

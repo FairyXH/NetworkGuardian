@@ -153,13 +153,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
 
             var current = attempts.ToArray();
             var verified = current.Count(a => a.Evidence == ProbeEvidence.InternetVerified);
-            var definitivePortal = current.Any(a =>
-                a.Evidence == ProbeEvidence.CaptivePortal &&
-                endpoints.Any(endpoint => endpoint.Name == a.EndpointName &&
-                    (!string.IsNullOrEmpty(endpoint.BodyMarker) ||
-                     endpoint.ExpectedStatusMin == 204 && endpoint.ExpectedStatusMax == 204)));
-            if (verified >= Math.Max(1, request.Settings.RequiredSuccessCount) ||
-                definitivePortal && verified == 0)
+            if (verified >= Math.Max(1, request.Settings.RequiredSuccessCount))
             {
                 await roundCts.CancelAsync().ConfigureAwait(false);
                 break;

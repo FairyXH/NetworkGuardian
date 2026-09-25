@@ -123,7 +123,7 @@ public sealed class NpcapProbeVerifier : IDisposable
             var candidates = new[]
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "System32", "Npcap", "wpcap.dll"),
-                "wpcap.dll",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wpcap.dll"),
             };
 
             foreach (var candidate in candidates)
