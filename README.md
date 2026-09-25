@@ -35,7 +35,7 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 | 安全选网 | 默认只使用 Windows 已保存的 Profile 或用户明确加入凭据库的网络 |
 | 无线电恢复 | 启动时确保无线电开启，并每 3 秒检查每块 Wi-Fi 的软件无线电 |
 | PnP 恢复 | 启用被禁用的物理有线/Wi-Fi；对 Code 10/43 等驱动故障执行受限重启 |
-| Wi-Fi 凭据库 | DPAPI 加密个人网和 802.1X/EAP 凭据，按目标网卡生成 Windows Profile |
+| Wi-Fi 凭据库 | DPAPI 加密个人网和 802.1X/EAP 凭据；个人网临时连接，企业网按需生成 Profile |
 | 校园网认证 | 外网失败或认证页拦截时运行已配置的认证客户端/命令，带超时、限流和验证 |
 | 配置与日志 | JSON 原子写入、有效备份、损坏隔离、滚动日志和实时日志页 |
 
@@ -234,7 +234,9 @@ Schema v12 默认开启 `wifi.diversifyFromHealthyEthernet`。当物理以太网
 - EAP-TLS；
 - 自定义 EAP Profile XML 和用户数据 XML。
 
-个人网密码和企业网密钥由当前 Windows 用户的 DPAPI 加密；库文件不序列化明文 `password`。连接前，程序根据目标 Wi-Fi 网卡生成或更新 Windows Profile；802.1X 用户凭据通过 `WlanSetProfileEapXmlUserData` 单独写入。
+个人网密码和企业网密钥由当前 Windows 用户的 DPAPI 加密；库文件不序列化明文 `password`。个人网和开放网通过 `WlanConnect` 的 `WLAN_CONNECTION_MODE_TEMPORARY_PROFILE` 发起一次性连接，不调用 `WlanSetProfile`，也不覆盖系统已有 Profile。只有 802.1X/EAP 网络会按目标网卡生成或更新持久 Profile，并通过 `WlanSetProfileEapXmlUserData` 单独写入用户凭据。
+
+候选安全类型以当前扫描结果为准。旧凭据库如果把 WPA/WPA2/WPA3-Personal 热点误标为 Enterprise，运行时会按扫描到的个人网类型走临时连接，不会再要求不存在的 EAP 身份，也不会覆盖同名 Windows Profile。
 
 每个“接口 + SSID”默认最多允许 5 次 EAP 连接失败。达到上限后，本次运行不再尝试；修改对应凭据库条目会立即清除该条目的失败计数。
 
