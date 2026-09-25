@@ -37,8 +37,8 @@ public sealed class TcpConnectionMigrator
         }
 
         var oldAddresses = oldLocalAddresses
-            .Select(value => IPAddress.TryParse(value, out var address) ? address : null)
-            .Where(address => address?.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            .Select(value => IsEligibleOldAddress(value, out var address) ? address : null)
+            .Where(address => address is not null)
             .Select(address => BitConverter.ToUInt32(address!.GetAddressBytes()))
             .ToHashSet();
         if (oldAddresses.Count == 0)
@@ -85,6 +85,19 @@ public sealed class TcpConnectionMigrator
         }
 
         return closed;
+    }
+
+    internal static bool IsEligibleOldAddress(string value, out IPAddress? address)
+    {
+        if (!IPAddress.TryParse(value, out address) ||
+            address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork ||
+            IPAddress.IsLoopback(address) || address.Equals(IPAddress.Any))
+        {
+            address = null;
+            return false;
+        }
+
+        return true;
     }
 
     internal static bool ShouldClose(

@@ -418,9 +418,12 @@ public sealed class GuardianHostService : IAsyncDisposable
         {
             var oldAddresses = _observedOutletInterfaceId is null
                 ? interfaces
-                    .Where(iface => !string.Equals(iface.Id, actualId, StringComparison.OrdinalIgnoreCase))
+                    .Where(iface => iface.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi &&
+                                    iface.IsPhysicalDevice != false &&
+                                    !string.Equals(iface.Id, actualId, StringComparison.OrdinalIgnoreCase))
                     .Select(iface => iface.PrimaryIpv4Address)
-                    .Where(address => !string.IsNullOrWhiteSpace(address))
+                    .Where(address => !string.IsNullOrWhiteSpace(address) &&
+                                      !string.Equals(address, "127.0.0.1", StringComparison.Ordinal))
                     .Select(address => address!)
                     .ToArray()
                 : _observedOutletAddresses;

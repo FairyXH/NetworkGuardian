@@ -30,4 +30,15 @@ public sealed class TcpConnectionMigratorTests
         Assert.True(TcpConnectionMigrator.ShouldClose(
             "browser.exe", null, ConnectionCutMode.DenyList, patterns));
     }
+
+    [Theory]
+    [InlineData("127.0.0.1", false)]
+    [InlineData("0.0.0.0", false)]
+    [InlineData("::1", false)]
+    [InlineData("192.168.181.168", true)]
+    [InlineData("10.0.0.189", true)]
+    public void OnlyRealIpv4InterfaceAddressesAreEligible(string value, bool expected)
+    {
+        Assert.Equal(expected, TcpConnectionMigrator.IsEligibleOldAddress(value, out _));
+    }
 }
