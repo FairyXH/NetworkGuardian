@@ -134,6 +134,11 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             }
         }).ToList();
 
+        if (_npcap?.Status.IsAvailable == true && request.InterfaceId is not null)
+        {
+            tasks.Add(RunRawNpcapProbeAsync(request, attempts, roundCts.Token));
+        }
+
         // Consume completions as a race. Once enough strong Internet evidence or a definitive
         // captive-portal interception is observed, cancel slower probes instead of waiting for the
         // round timeout. The remaining tasks still unwind before local resources are disposed.
@@ -152,7 +157,10 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             }
 
             var current = attempts.ToArray();
-            var verified = current.Count(a => a.Evidence == ProbeEvidence.InternetVerified);
+            // A raw Npcap reply is a proxy-independent fallback. Do not let it cancel HTTPS probes:
+            // those still provide the stronger application/captive-portal observation when usable.
+            var verified = current.Count(a =>
+                a.Evidence == ProbeEvidence.InternetVerified && a.EndpointName != "NpcapRawIcmp");
             if (verified >= Math.Max(1, request.Settings.RequiredSuccessCount))
             {
                 await roundCts.CancelAsync().ConfigureAwait(false);
@@ -175,6 +183,8 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             .ToList();
 
         var successCount = attemptList.Count(a => a.Evidence == ProbeEvidence.InternetVerified);
+        var rawNpcapVerified = attemptList.Any(a =>
+            a.EndpointName == "NpcapRawIcmp" && a.Evidence == ProbeEvidence.InternetVerified);
         var required = Math.Max(1, request.Settings.RequiredSuccessCount);
         var captiveAttempt = attemptList.FirstOrDefault(a => a.Outcome == ProbeOutcome.CaptivePortalRedirect);
         var captiveSuspected = captiveAttempt is not null;
@@ -201,7 +211,12 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         string? captureDetail = _npcap?.Status.Detail;
         string? captureNextHopMac = null;
         var interfaceTrafficObserved = false;
-        if (isOnline && request.InterfaceId is not null && _npcap?.Status.IsAvailable == true && capture is null)
+        if (rawNpcapVerified)
+        {
+            captureVerification = PacketCaptureVerification.VerifiedOnTargetInterface;
+            captureDetail = "Npcap 在目标接口直接发送并收到原始公网 ICMP 帧";
+        }
+        else if (isOnline && request.InterfaceId is not null && _npcap?.Status.IsAvailable == true && capture is null)
         {
             isOnline = false;
             reachability = InternetReachability.InternetLikely;
@@ -268,6 +283,69 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         }
 
         return report;
+    }
+
+    private async Task RunRawNpcapProbeAsync(
+        ProbeRequest request,
+        ConcurrentBag<ProbeAttemptResult> attempts,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        try
+        {
+            var targets = request.Settings.PingTargets
+                .Where(target => IPAddress.TryParse(target, out _))
+                .ToList();
+            var result = await _npcap!.ProbeRawIcmpAsync(
+                    request.AdapterGuid,
+                    request.SourceAddress,
+                    request.SourceMacAddress,
+                    request.GatewayAddress,
+                    targets,
+                    TimeSpan.FromMilliseconds(Math.Max(700, request.Settings.PingTimeoutMs)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            stopwatch.Stop();
+            attempts.Add(new ProbeAttemptResult
+            {
+                EndpointName = "NpcapRawIcmp",
+                Kind = ProbeKind.Icmp,
+                Target = targets.Count > 0 ? string.Join(",", targets) : "223.5.5.5,119.29.29.29",
+                SourceAddress = request.SourceAddress,
+                Outcome = result.Success ? ProbeOutcome.Success : ProbeOutcome.Timeout,
+                Evidence = result.Success ? ProbeEvidence.InternetVerified : ProbeEvidence.None,
+                Detail = result.Detail,
+                Duration = stopwatch.Elapsed,
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            stopwatch.Stop();
+            attempts.Add(new ProbeAttemptResult
+            {
+                EndpointName = "NpcapRawIcmp",
+                Kind = ProbeKind.Icmp,
+                Target = "raw-public-ip",
+                SourceAddress = request.SourceAddress,
+                Outcome = ProbeOutcome.Timeout,
+                Detail = "Npcap 原始探针被取消",
+                Duration = stopwatch.Elapsed,
+            });
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            attempts.Add(new ProbeAttemptResult
+            {
+                EndpointName = "NpcapRawIcmp",
+                Kind = ProbeKind.Icmp,
+                Target = "raw-public-ip",
+                SourceAddress = request.SourceAddress,
+                Outcome = ProbeOutcome.UnknownFailure,
+                Detail = $"Npcap 原始探针失败：{ex.Message}",
+                Duration = stopwatch.Elapsed,
+            });
+        }
     }
 
     private async Task<ProbeAttemptResult> RunAttemptAsync(
@@ -415,19 +493,28 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             if (status is >= 300 and < 400 && request.Settings.DetectCaptivePortalRedirects)
             {
                 var location = response.Headers.Location?.ToString();
-                var sameHost = response.Headers.Location is { } target &&
-                               string.Equals(target.Host, uri.Host, StringComparison.OrdinalIgnoreCase);
-                var expectedRedirect = response.Headers.Location is { } redirectTarget &&
+                var redirectTarget = response.Headers.Location is { } target
+                    ? target.IsAbsoluteUri ? target : new Uri(uri, target)
+                    : null;
+                var sameHost = redirectTarget is not null &&
+                               string.Equals(redirectTarget.Host, uri.Host, StringComparison.OrdinalIgnoreCase);
+                var expectedRedirect = redirectTarget is not null &&
                                        IsExpectedInternetRedirect(uri, redirectTarget);
 
-                if (!sameHost && !expectedRedirect)
+                if (sameHost || expectedRedirect)
                 {
                     stopwatch.Stop();
-                    return Attempt(endpoint, request, ProbeOutcome.CaptivePortalRedirect, stopwatch,
+                    return Attempt(endpoint, request, ProbeOutcome.Success, stopwatch,
                         statusCode: status,
                         redirect: location,
-                        detail: $"HTTP {status} redirected to {location}");
+                        detail: $"HTTP {status} redirected within the expected service to {location}");
                 }
+
+                stopwatch.Stop();
+                return Attempt(endpoint, request, ProbeOutcome.CaptivePortalRedirect, stopwatch,
+                    statusCode: status,
+                    redirect: location,
+                    detail: $"HTTP {status} redirected to {location}");
             }
 
             if (status < endpoint.ExpectedStatusMin || status > endpoint.ExpectedStatusMax)

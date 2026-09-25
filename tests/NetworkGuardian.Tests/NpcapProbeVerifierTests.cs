@@ -1,4 +1,6 @@
 using NetworkGuardian.Windows.Connectivity;
+using NetworkGuardian.Windows.Network;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace NetworkGuardian.Tests;
@@ -7,6 +9,33 @@ public sealed class NpcapProbeVerifierTests
 {
     private static readonly byte[] Source = [192, 0, 2, 10];
     private static readonly byte[] Remote = [198, 51, 100, 20];
+
+    [Fact]
+    public async Task RawIcmpProbe_ReachesPublicTargetsOnARealAdapter_WhenOptedIn()
+    {
+        if (Environment.GetEnvironmentVariable("NETWORKGUARDIAN_NPCAP_HARDWARE_TESTS") != "1")
+        {
+            return;
+        }
+
+        var candidate = new NetworkInterfaceProvider().GetInterfaces().FirstOrDefault(item =>
+            item.IsUp && item.HasUsableIpv4 && item.AdapterGuid is not null &&
+            item.PrimaryGateway is not null && item.MacAddress is not null);
+        Assert.NotNull(candidate);
+
+        using var verifier = new NpcapProbeVerifier(NullLogger<NpcapProbeVerifier>.Instance);
+        Assert.True(verifier.Status.IsAvailable, verifier.Status.Detail);
+        var result = await verifier.ProbeRawIcmpAsync(
+            candidate.AdapterGuid,
+            candidate.PrimaryIpv4Address,
+            candidate.MacAddress,
+            candidate.PrimaryGateway,
+            new[] { "223.5.5.5", "119.29.29.29" },
+            TimeSpan.FromSeconds(2),
+            CancellationToken.None);
+
+        Assert.True(result.Success, result.Detail);
+    }
 
     [Fact]
     public void ClassifyIpv4DirectionRecognizesOutboundFrame()

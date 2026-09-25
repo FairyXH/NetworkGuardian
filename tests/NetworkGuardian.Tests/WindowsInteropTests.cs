@@ -187,6 +187,50 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
+    public async Task RelativeRedirectOnSameHost_IsAcceptedAsNormalServiceBehavior()
+    {
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var server = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            await using var stream = client.GetStream();
+            _ = await stream.ReadAsync(new byte[2048]);
+            var response = System.Text.Encoding.ASCII.GetBytes(
+                "HTTP/1.1 302 Found\r\nLocation: /regional\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            await stream.WriteAsync(response);
+        });
+
+        using var probe = new ConnectivityProbe();
+        var report = await probe.ProbeAsync(new ProbeRequest
+        {
+            Endpoints = new[]
+            {
+                new ProbeEndpointSettings
+                {
+                    Name = "same-host-redirect",
+                    Kind = ProbeKind.Http,
+                    Target = $"http://127.0.0.1:{port}/",
+                    TimeoutMs = 1500,
+                },
+            },
+            Settings = new ProbeSettings
+            {
+                RequiredSuccessCount = 1,
+                RoundTimeoutMs = 3000,
+                MaxConcurrency = 1,
+                PingTargets = new List<string>(),
+            },
+        }, CancellationToken.None);
+        await server;
+
+        var attempt = Assert.Single(report.Attempts);
+        Assert.Equal(ProbeOutcome.Success, attempt.Outcome);
+        Assert.False(report.CaptivePortalSuspected);
+    }
+
+    [Fact]
     public async Task ConsecutiveBoundProbes_OpenFreshConnections()
     {
         using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
@@ -561,6 +605,42 @@ public sealed class ConnectivityProbeTests
 
         Assert.False(report.IsOnline);
         Assert.Equal(0, report.AttemptCount);
+    }
+}
+
+public sealed class NpcapRawPacketTests
+{
+    [Fact]
+    public void RawIcmpFrame_HasValidEthernetIpv4AndIcmpHeaders()
+    {
+        var localMac = new byte[] { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 };
+        var gatewayMac = new byte[] { 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff };
+        var frame = NpcapProbeVerifier.NpcapApi.BuildIcmpEcho(
+            localMac, gatewayMac,
+            System.Net.IPAddress.Parse("192.0.2.10").GetAddressBytes(),
+            System.Net.IPAddress.Parse("223.5.5.5").GetAddressBytes(),
+            0x1234, 1);
+
+        Assert.Equal(gatewayMac, frame[..6]);
+        Assert.Equal(localMac, frame[6..12]);
+        Assert.Equal(0x0800, frame[12] << 8 | frame[13]);
+        Assert.Equal(0, NpcapProbeVerifier.NpcapApi.Checksum(frame.AsSpan(14, 20)));
+        Assert.Equal(0, NpcapProbeVerifier.NpcapApi.Checksum(frame.AsSpan(34, 8)));
+    }
+
+    [Fact]
+    public void RawArpFrame_TargetsGatewayWithoutUsingTheIpStack()
+    {
+        var localMac = new byte[] { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55 };
+        var localIp = System.Net.IPAddress.Parse("192.0.2.10").GetAddressBytes();
+        var gatewayIp = System.Net.IPAddress.Parse("192.0.2.1").GetAddressBytes();
+        var frame = NpcapProbeVerifier.NpcapApi.BuildArpRequest(localMac, localIp, gatewayIp);
+
+        Assert.All(frame[..6], value => Assert.Equal(0xff, value));
+        Assert.Equal(localMac, frame[6..12]);
+        Assert.Equal(0x0806, frame[12] << 8 | frame[13]);
+        Assert.Equal(localIp, frame[28..32]);
+        Assert.Equal(gatewayIp, frame[38..42]);
     }
 }
 
