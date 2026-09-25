@@ -40,6 +40,22 @@ public sealed class JsonContractTests
         Assert.Contains("\"minimumLevel\": \"information\"", json);
         Assert.Contains("\"kind\": \"http\"", json);
         Assert.Contains("\"kind\": \"tcp\"", json);
+        Assert.Contains("\"mode\": \"disabled\"", json);
+    }
+
+    [Fact]
+    public void ConnectionCutMode_RoundTripsAsCamelCase()
+    {
+        var config = GuardianConfig.CreateDefault();
+        config.ConnectionMigration.Mode = ConnectionCutMode.AllowList;
+        config.ConnectionMigration.ProcessPatterns.Add("yysls.exe");
+
+        var json = ConfigJson.Serialize(config);
+        var restored = ConfigJson.Deserialize(json);
+
+        Assert.Contains("\"mode\": \"allowList\"", json);
+        Assert.Equal(ConnectionCutMode.AllowList, restored!.ConnectionMigration.Mode);
+        Assert.Contains("yysls.exe", restored.ConnectionMigration.ProcessPatterns);
     }
 
     [Fact]

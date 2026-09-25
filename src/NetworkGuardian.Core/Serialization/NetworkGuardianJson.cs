@@ -58,6 +58,7 @@ public static class NetworkGuardianJson
         options.Converters.Add(new CamelCaseEnumConverter<ProbeKind>());
         options.Converters.Add(new CamelCaseEnumConverter<CommandKind>());
         options.Converters.Add(new CamelCaseEnumConverter<CommandWindowStyle>());
+        options.Converters.Add(new CamelCaseEnumConverter<ConnectionCutMode>());
         return options;
     }
 }
