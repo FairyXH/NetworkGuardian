@@ -4,6 +4,7 @@ using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Logging;
 using NetworkGuardian.Core.Models;
 using NetworkGuardian.Core.Policies;
+using NetworkGuardian.Core.Wlan;
 using NetworkGuardian.Infrastructure.Configuration;
 using NetworkGuardian.Infrastructure.Logging;
 using NetworkGuardian.Infrastructure.Processes;
@@ -285,9 +286,9 @@ public sealed class GuardianHostService : IAsyncDisposable
         _lastEnumerationUtc = DateTimeOffset.UtcNow;
         _forceEnumeration = false;
 
-        // Windows Settings can initiate a connection before the guardian ever selects a candidate.
-        // Seed every current adapter with both the profile and the current user's separate EAP data
-        // during startup, so that manual connection path does not fall back to a credential prompt.
+        // Windows Settings can initiate an enterprise connection before the guardian selects a candidate.
+        // Seed only real 802.1X entries. Personal/open credentials deliberately stay out of the persistent
+        // profile store and are supplied to WlanConnect as a temporary profile when a connection is needed.
         foreach (var entry in _vault.Entries.Where(e => e.Enabled))
         {
             var results = await ApplyWifiLibraryEntryAsync(entry.Id, null, cancellationToken).ConfigureAwait(false);
@@ -1096,9 +1097,10 @@ public sealed class GuardianHostService : IAsyncDisposable
                 {
                     _lastConnectAttempt[connect.InterfaceGuid] = (DateTimeOffset.UtcNow, connect.ProfileName);
 
-                    // 802.1X: the account comes from the built-in library, so the profile (and the
-                    // credentials) are written to the adapter first. Windows is never asked to prompt.
-                    if (connect.UsesLibraryCredential)
+                    // 802.1X user data requires a persistent Windows profile. Personal/open networks take
+                    // the same one-shot Native Wi-Fi path as a user entering a password: WlanConnect receives
+                    // a temporary profile and NetworkGuardian never calls WlanSetProfile for that attempt.
+                    if (connect.UsesLibraryCredential && connect.RequiresEap)
                     {
                         var prepared = await EnsureLibraryProfileAsync(connect, cancellationToken)
                             .ConfigureAwait(false);
@@ -1116,9 +1118,27 @@ public sealed class GuardianHostService : IAsyncDisposable
                         }
                     }
 
-                    var result = await _wifi.ConnectAsync(
-                            connect.InterfaceGuid, connect.ProfileName, connect.Bssid, cancellationToken)
-                        .ConfigureAwait(false);
+                    WlanOperationResult result;
+                    if (connect.UsesLibraryCredential && !connect.RequiresEap)
+                    {
+                        var resolved = ResolveTemporaryCredential(connect);
+                        if (resolved.Credential is null)
+                        {
+                            result = WlanOperationResult.Fail(resolved.Failure ?? "无线网络库凭据不可用");
+                        }
+                        else
+                        {
+                            result = await _wifi.ConnectTemporaryAsync(
+                                    connect.InterfaceGuid, resolved.Credential, connect.Bssid, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                    }
+                    else
+                    {
+                        result = await _wifi.ConnectAsync(
+                                connect.InterfaceGuid, connect.ProfileName, connect.Bssid, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
 
                     _engine.NotifyConnectResult(
                         connect.InterfaceGuid, connect.ProfileName, result.Success, result.Failure,
@@ -1355,6 +1375,42 @@ public sealed class GuardianHostService : IAsyncDisposable
         return result;
     }
 
+    private (WifiNetworkCredential? Credential, string? Failure) ResolveTemporaryCredential(
+        ConnectWifiAction action)
+    {
+        var entry = _vault.Find(action.Ssid) ?? _vault.FindByProfile(action.ProfileName);
+        if (entry is null)
+        {
+            return (null, $"无线网络库中没有「{action.Ssid}」的可用凭据");
+        }
+
+        if (!entry.Enabled)
+        {
+            return (null, $"「{action.Ssid}」在无线网络库中已被停用");
+        }
+
+        if (entry.PasswordDecryptionFailed)
+        {
+            return (null, $"「{action.Ssid}」保存的密码无法解密，请在“网络凭据库”中重新填写");
+        }
+
+        var kind = action.Security is WifiSecurity.Open or WifiSecurity.EnhancedOpen
+            ? WifiCredentialKind.Open
+            : WifiCredentialKind.Personal;
+        var credential = CloneCredential(entry, connectAutomatically: false);
+
+        // The scan is live runtime evidence and wins over a stale v1 library entry. Older libraries only
+        // supported enterprise credentials, so personal hotspots could survive an upgrade as kind=0.
+        credential.Kind = kind;
+        credential.Security = action.Security;
+        credential.ProfileName = action.Ssid;
+        credential.ProfileXmlOverride = null;
+        credential.Identity = string.Empty;
+        credential.UseWinLogonCredentials = false;
+
+        return (credential, null);
+    }
+
     // ---------- Manual operations used by the UI ----------
 
     public async Task<AdapterScanSnapshot> ScanAdapterAsync(Guid interfaceGuid, CancellationToken cancellationToken)
@@ -1539,9 +1595,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Persists edited library entries, immediately writes enabled entries and their per-user EAP data to
-    /// every current adapter, and clears their retry counters. Applying during save prevents Windows from
-    /// prompting when the user selects the network in Settings before the guardian's next recovery cycle.
+    /// Persists edited library entries, immediately writes enabled enterprise entries and their per-user
+    /// EAP data to every current adapter, and clears their retry counters. Personal/open entries remain in
+    /// the DPAPI-protected library and are only handed to WlanConnect for a temporary connection.
     /// </summary>
     public async Task SaveWifiLibraryAsync(
         IReadOnlyList<WifiNetworkCredential> entries,
@@ -1579,8 +1635,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     }
 
     /// <summary>
-    /// Writes one library entry to the given adapters (or every adapter) right away. Used by the UI button
-    /// so the user can push a corrected account without waiting for the next connect attempt.
+    /// Writes one enterprise library entry to the given adapters (or every adapter) right away. Personal
+    /// and open entries never write a system profile; they are consumed by the temporary connection path.
     /// </summary>
     public async Task<IReadOnlyList<string>> ApplyWifiLibraryEntryAsync(
         string entryId,
@@ -1591,6 +1647,11 @@ public sealed class GuardianHostService : IAsyncDisposable
         if (entry is null)
         {
             return new[] { "无线网络库中没有该条目" };
+        }
+
+        if (!ShouldPersistEnterpriseProfile(entry))
+        {
+            return new[] { "个人/开放网络使用临时 WLAN API 连接，不写入系统配置" };
         }
 
         var adapters = interfaceGuid is { } guid
@@ -1637,6 +1698,34 @@ public sealed class GuardianHostService : IAsyncDisposable
         RequestImmediateCycle();
         _logger.LogInformation("手动写入 802.1X 配置：{Results}", string.Join("；", results));
         return results;
+    }
+
+    private bool ShouldPersistEnterpriseProfile(WifiNetworkCredential entry)
+    {
+        if (!entry.IsEnterprise)
+        {
+            return false;
+        }
+
+        // A v1 library entry defaults to Enterprise. If Windows already has a non-EAP profile with the
+        // same name, that is stronger evidence that this is a personal/open network and must not be
+        // overwritten during startup before the first scan completes.
+        foreach (var adapter in _wifi.GetAdapters())
+        {
+            var existing = _wifi.GetProfileXml(adapter.InterfaceGuid, entry.EffectiveProfileName);
+            if (!string.IsNullOrWhiteSpace(existing) && !WifiProfileInspector.IsEnterprise(existing))
+            {
+                _logger.LogInformation(
+                    "凭据库条目 {Ssid} 标记为企业网，但现有 Windows 配置不是 802.1X；保留系统配置并使用临时连接路径",
+                    entry.Ssid);
+                return false;
+            }
+        }
+
+        var observed = _wifi.GetAdapters()
+            .SelectMany(adapter => _wifi.GetLastScan(adapter.InterfaceGuid)?.Networks ?? Array.Empty<ScannedNetwork>())
+            .FirstOrDefault(network => string.Equals(network.Ssid, entry.Ssid, StringComparison.OrdinalIgnoreCase));
+        return observed is null || WifiProfileInspector.IsEnterpriseSecurity(observed.Security);
     }
 
     private Guid? SelectAutoConnectOwner(IReadOnlyList<WifiAdapterInfo> availableAdapters)
