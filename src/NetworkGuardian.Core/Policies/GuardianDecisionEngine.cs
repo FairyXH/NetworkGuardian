@@ -852,6 +852,18 @@ public sealed class GuardianDecisionEngine
                 }
 
                 // Connected but not passing traffic: only now may we consider a change.
+                // A non-outlet Wi-Fi is only a standby while Ethernet is healthy. Moving that
+                // standby because its strict bound probe is slow creates a diversity loop:
+                // same-upstream Wi-Fi is moved away, then the diverse but lossy network is moved
+                // back again. Preserve the standby until it is actually needed for failover.
+                if (healthyEthernetOutlet is not null && iface?.IsDefaultRoute != true)
+                {
+                    state.Connectivity.Reset(now);
+                    wifiNotes.Add($"{adapter.Description}: connected standby '{adapter.CurrentSsid}' has no " +
+                                  "verified traffic, but healthy Ethernet is active; preserving the standby");
+                    continue;
+                }
+
                 if (isNewAdapterProbe)
                 {
                     state.Connectivity.RecordFailure(now);

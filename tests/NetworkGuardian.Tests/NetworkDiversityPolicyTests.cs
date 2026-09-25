@@ -109,6 +109,35 @@ public sealed class NetworkDiversityPolicyTests
         Assert.Equal("CampusWiFi", connect.Ssid);
     }
 
+    [Fact]
+    public void OfflineStandbyWifiIsNotRotatedWhileEthernetIsHealthy()
+    {
+        var config = TestData.Config(value =>
+        {
+            value.Wifi.StaleConnectionSeconds = 0;
+            value.Recovery.WifiFailureThreshold = 1;
+        });
+        var engine = new GuardianDecisionEngine(config);
+        var scan = TestData.Scan(
+            TestData.AdapterA,
+            TestData.Network(TestData.AdapterA, "LossyHotspot", 55),
+            TestData.Network(TestData.AdapterA, "HomeWiFi", 90));
+        var adapter = TestData.ConnectedAdapter(
+            TestData.AdapterA, "LossyHotspot", "LossyHotspot", 55, scan) with
+        {
+            SavedProfiles = new[] { "LossyHotspot", "HomeWiFi" },
+        };
+        var standby = TestData.WifiInterface(TestData.AdapterA, probe: TestData.OfflineProbe()) with
+        {
+            IsDefaultRoute = false,
+        };
+
+        var decision = engine.Evaluate(Input(config, EthernetOutlet(), standby, adapter));
+
+        Assert.DoesNotContain(decision.Actions, action => action is DisconnectWifiAction);
+        Assert.Contains(decision.Notes, note => note.Contains("preserving the standby"));
+    }
+
     private static InterfaceRuntimeState EthernetOutlet() =>
         TestData.EthernetInterface(probe: TestData.OnlineProbe() with { StableOnline = true }) with
         {
