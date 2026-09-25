@@ -206,8 +206,18 @@ public sealed class StickyConnectionTests
         };
 
         engine.Evaluate(Input(config, TestData.Now, TestData.OfflineProbe(), interfaces, new[] { connected }));
+        interfaces = new[]
+        {
+            TestData.WifiInterface(TestData.AdapterA, probe: TestData.OfflineProbe("10.20.30.40") with
+            {
+                TimestampUtc = TestData.Now.AddSeconds(90),
+            }),
+        };
         var beforeTimeout = engine.Evaluate(Input(
-            config, TestData.Now.AddSeconds(90), TestData.OfflineProbe(), interfaces, new[] { connected }));
+            config, TestData.Now.AddSeconds(90), TestData.OfflineProbe() with
+            {
+                TimestampUtc = TestData.Now.AddSeconds(90),
+            }, interfaces, new[] { connected }));
         Assert.DoesNotContain(beforeTimeout.Actions, action => action is DisconnectWifiAction);
 
         var freshScan = TestData.Scan(
@@ -219,8 +229,18 @@ public sealed class StickyConnectionTests
             CompletedAtUtc = TestData.Now.AddSeconds(121),
         };
         var stale = connected with { LastScan = freshScan };
+        interfaces = new[]
+        {
+            TestData.WifiInterface(TestData.AdapterA, probe: TestData.OfflineProbe("10.20.30.40") with
+            {
+                TimestampUtc = TestData.Now.AddSeconds(122),
+            }),
+        };
         var decision = engine.Evaluate(Input(
-            config, TestData.Now.AddSeconds(122), TestData.OfflineProbe(), interfaces, new[] { stale }));
+            config, TestData.Now.AddSeconds(122), TestData.OfflineProbe() with
+            {
+                TimestampUtc = TestData.Now.AddSeconds(122),
+            }, interfaces, new[] { stale }));
 
         var disconnect = Assert.Single(decision.Actions.OfType<DisconnectWifiAction>());
         Assert.Equal("CampusWiFi", disconnect.Ssid);

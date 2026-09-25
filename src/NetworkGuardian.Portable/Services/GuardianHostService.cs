@@ -751,9 +751,13 @@ public sealed class GuardianHostService : IAsyncDisposable
             }).ToArray();
 
             var interfaceReports = await Task.WhenAll(interfaceTasks).ConfigureAwait(false);
+            var hasOnlineAlternative = interfaceReports.Any(item => item.Report.IsOnline);
             foreach (var (candidate, report) in interfaceReports)
             {
-                var stabilized = ApplyProbeStability(candidate.Id, report);
+                var stabilized = ApplyProbeStability(
+                    candidate.Id,
+                    report,
+                    failImmediately: !report.IsOnline && hasOnlineAlternative);
                 if (candidate.WlanInterfaceGuid is { } guid)
                 {
                     byAdapter[guid] = stabilized;
@@ -780,14 +784,17 @@ public sealed class GuardianHostService : IAsyncDisposable
         ScheduleNextProbe(byInterfaceId.Count > 0 ? byInterfaceId.Values : new[] { _globalProbe });
     }
 
-    private ConnectivityProbeReport ApplyProbeStability(string interfaceId, ConnectivityProbeReport report)
+    private ConnectivityProbeReport ApplyProbeStability(
+        string interfaceId,
+        ConnectivityProbeReport report,
+        bool failImmediately = false)
     {
         _probeStability.TryGetValue(interfaceId, out var state);
         state ??= new InterfaceProbeStability();
         _probeStability[interfaceId] = state;
         return state.Apply(
             report,
-            failureThreshold: 2,
+            failureThreshold: failImmediately ? 1 : 2,
             recoveryThreshold: _config.Recovery.InternetRecoveryThreshold,
             recoveryHold: TimeSpan.FromSeconds(_config.Recovery.InterfaceRecoveryHoldSeconds),
             now: DateTimeOffset.UtcNow);
@@ -1220,12 +1227,6 @@ public sealed class GuardianHostService : IAsyncDisposable
                             ? $"校园网认证失败：{definition.Name}（{result.Failure ?? result.ToString()}）"
                             : $"命令执行失败：{definition.Name}（{result.Failure ?? result.ToString()}）");
 
-                    if (definition.WaitAfterRunSeconds > 0)
-                    {
-                        await Task.Delay(TimeSpan.FromSeconds(definition.WaitAfterRunSeconds), cancellationToken)
-                            .ConfigureAwait(false);
-                    }
-
                     _forceProbe = true;
                     break;
                 }
@@ -1495,15 +1496,12 @@ public sealed class GuardianHostService : IAsyncDisposable
         try
         {
             _logger.LogInformation("Manual connectivity test requested");
-            var report = await _probe.ProbeAsync(
-                    new ProbeRequest { Endpoints = _config.ProbeEndpoints, Settings = _config.Probe },
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            _globalProbe = report;
+            await RefreshEnumerationAsync(cancellationToken).ConfigureAwait(false);
+            await RefreshProbesAsync(cancellationToken).ConfigureAwait(false);
             _lastProbeUtc = DateTimeOffset.UtcNow;
-            _forceEnumeration = true;
-            return report;
+            _forceEnumeration = false;
+            _forceProbe = false;
+            return _globalProbe;
         }
         finally
         {

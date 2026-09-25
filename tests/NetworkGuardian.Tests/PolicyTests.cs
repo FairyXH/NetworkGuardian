@@ -433,6 +433,32 @@ public sealed class AdapterAssignmentPlannerTests
 public sealed class CampusAuthRateLimitTests
 {
     [Fact]
+    public void ReEvaluatingTheSameProbe_DoesNotInflateFailureCounters()
+    {
+        var config = TestData.Config(c => c.Recovery.InternetFailureThreshold = 3);
+        var engine = new GuardianDecisionEngine(config);
+        var probe = TestData.OfflineProbe();
+        var input = new GuardianInput
+        {
+            Now = TestData.Now,
+            Config = config,
+            GlobalProbe = probe,
+            Interfaces = new[] { TestData.EthernetInterface(probe: probe) },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        };
+
+        engine.Evaluate(input);
+        engine.Evaluate(input with { Now = TestData.Now.AddSeconds(1) });
+        engine.Evaluate(input with { Now = TestData.Now.AddSeconds(2) });
+
+        var diagnostics = engine.GetDiagnostics(TestData.Now.AddSeconds(2));
+        Assert.Equal(1, diagnostics.ConsecutiveInternetFailures);
+        Assert.Equal(1, diagnostics.ConsecutiveEthernetFailures);
+    }
+
+    [Fact]
     public void CampusAuth_IsSuspendedDuringQuietPeriod()
     {
         var config = TestData.Config(c =>
@@ -508,6 +534,33 @@ public sealed class CampusAuthRateLimitTests
         });
 
         Assert.DoesNotContain(decision.Actions, a => a is RunExternalCommandAction { IsCampusAuth: true });
+    }
+
+    [Fact]
+    public void CampusAuth_StartsForFailedEthernetWhileWifiKeepsInternetOnline()
+    {
+        var config = TestData.Config(c =>
+        {
+            c.Ethernet.AuthenticateWhenLinkUpButOffline = true;
+            c.CampusAuth.Enabled = true;
+            c.CampusAuth.ExecutablePath = @"C:\tools\campus.exe";
+            c.CampusAuth.TriggerAfterConsecutiveFailures = 1;
+        });
+        var engine = new GuardianDecisionEngine(config);
+        var ethernetProbe = TestData.OfflineProbe("10.10.10.20");
+
+        var decision = engine.Evaluate(new GuardianInput
+        {
+            Now = TestData.Now,
+            Config = config,
+            GlobalProbe = TestData.OnlineProbe("192.168.181.168"),
+            Interfaces = new[] { TestData.EthernetInterface(probe: ethernetProbe) },
+            WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+            Devices = Array.Empty<ManagedDevice>(),
+            Radio = TestData.RadioOn,
+        });
+
+        Assert.Contains(decision.Actions, action => action is RunExternalCommandAction { IsCampusAuth: true });
     }
 
     [Fact]

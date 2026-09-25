@@ -326,6 +326,17 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
             ? _outboundNextHopMac
             : null;
 
+    public async Task<bool> WaitForVerificationAsync(TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (!IsVerified && DateTimeOffset.UtcNow < deadline && !_cts.IsCancellationRequested)
+        {
+            await Task.Delay(20).ConfigureAwait(false);
+        }
+
+        return IsVerified;
+    }
+
     private void ReadLoop()
     {
         while (!_cts.IsCancellationRequested)
@@ -361,26 +372,43 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
         ReadOnlySpan<byte> packet,
         ReadOnlySpan<byte> source)
     {
-        const int ethernetHeaderLength = 14;
-        if (source.Length != 4 || packet.Length < ethernetHeaderLength + 20 ||
-            packet[12] != 0x08 || packet[13] != 0x00)
+        var ipOffset = 14;
+        if (source.Length != 4 || packet.Length < ipOffset + 20)
         {
             return CapturedPacketDirection.None;
         }
 
-        var ipHeaderLength = (packet[ethernetHeaderLength] & 0x0f) * 4;
-        if (ipHeaderLength < 20 || packet.Length < ethernetHeaderLength + ipHeaderLength)
+
+        var etherType = (packet[12] << 8) | packet[13];
+        if (etherType is 0x8100 or 0x88a8)
+        {
+            ipOffset += 4;
+            if (packet.Length < ipOffset + 20)
+            {
+                return CapturedPacketDirection.None;
+            }
+
+            etherType = (packet[16] << 8) | packet[17];
+        }
+
+        if (etherType != 0x0800)
+        {
+            return CapturedPacketDirection.None;
+        }
+
+        var ipHeaderLength = (packet[ipOffset] & 0x0f) * 4;
+        if (ipHeaderLength < 20 || packet.Length < ipOffset + ipHeaderLength)
         {
             return CapturedPacketDirection.None;
         }
 
         var direction = CapturedPacketDirection.None;
-        if (packet.Slice(ethernetHeaderLength + 12, 4).SequenceEqual(source))
+        if (packet.Slice(ipOffset + 12, 4).SequenceEqual(source))
         {
             direction |= CapturedPacketDirection.Outbound;
         }
 
-        if (packet.Slice(ethernetHeaderLength + 16, 4).SequenceEqual(source))
+        if (packet.Slice(ipOffset + 16, 4).SequenceEqual(source))
         {
             direction |= CapturedPacketDirection.Inbound;
         }

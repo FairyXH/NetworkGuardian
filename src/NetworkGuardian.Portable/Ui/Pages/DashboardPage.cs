@@ -85,7 +85,11 @@ internal sealed class DashboardPage : IPage
               $"{route.InterfaceMetric?.ToString() ?? "?"} + 路由度量 {route.RouteMetric?.ToString() ?? "?"}）";
         var outlet = FindOutletInterface(snapshot, route);
         var outletName = outlet?.Name ?? route?.InterfaceAlias ?? "未确定";
-        var outletOnline = outlet?.Probe?.IsStableOnline ?? snapshot.GlobalProbe.IsStableOnline;
+        var outletProbe = outlet?.Probe;
+        var outletOnline = outletProbe?.IsOnline ?? snapshot.GlobalProbe.IsOnline;
+        var outletProbeAge = outletProbe is null
+            ? "探测 —"
+            : $"探测 {(outletProbe.IsOnline ? "在线" : "离线")}，{Math.Max(0, (snapshot.TimestampUtc - outletProbe.TimestampUtc).TotalSeconds):F0} 秒前";
         var expectedOutlet = snapshot.Interfaces.FirstOrDefault(iface =>
             string.Equals(iface.Id, snapshot.ExpectedOutletInterfaceId, StringComparison.OrdinalIgnoreCase));
         var policyState = snapshot.OutletMatchesPolicy switch
@@ -100,7 +104,7 @@ internal sealed class DashboardPage : IPage
         var outletDetail = outlet is null
             ? $"{routeText}｜{policyState}{routeAge}"
             : $"{outlet.Description}｜{FormatInterfaceKind(outlet.Kind)}｜IPv4 {outlet.PrimaryIpv4Address ?? "无"}｜" +
-              $"下一跳 {Format.NextHop(route?.NextHop)}｜有效跃点 {route?.EffectiveMetric?.ToString() ?? "?"}｜" +
+              $"下一跳 {Format.NextHop(route?.NextHop)}｜有效跃点 {route?.EffectiveMetric?.ToString() ?? "?"}｜{outletProbeAge}｜" +
               $"{policyState}{routeAge}";
 
         var wifiSummary = snapshot.WifiAdapters.Count == 0

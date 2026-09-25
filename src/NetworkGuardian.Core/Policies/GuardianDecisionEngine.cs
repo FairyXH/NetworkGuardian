@@ -68,6 +68,8 @@ public sealed class GuardianDecisionEngine
     private DateTimeOffset? _lastRecoveryActionUtc;
     private string? _lastRecoveryAction;
     private DateTimeOffset? _lastInternetSuccessUtc;
+    private DateTimeOffset? _lastGlobalProbeTimestampUtc;
+    private DateTimeOffset? _lastEthernetProbeTimestampUtc;
     private bool _internetWasOnline;
 
     public GuardianDecisionEngine(
@@ -329,36 +331,41 @@ public sealed class GuardianDecisionEngine
         var internetOnline = probe.IsOnline;
 
         // ---------- Internet debounce ----------
-        if (internetOnline)
+        var isNewGlobalProbe = _lastGlobalProbeTimestampUtc != probe.TimestampUtc;
+        if (isNewGlobalProbe)
         {
-            _lastInternetSuccessUtc = now;
-            if (!_internetWasOnline)
+            _lastGlobalProbeTimestampUtc = probe.TimestampUtc;
+            if (internetOnline)
             {
-                _logger.LogInformation("Internet restored (probe {Summary})", probe.Summary);
-                _internetWasOnline = true;
-            }
+                _lastInternetSuccessUtc = now;
+                if (!_internetWasOnline)
+                {
+                    _logger.LogInformation("Internet restored (probe {Summary})", probe.Summary);
+                    _internetWasOnline = true;
+                }
 
-            if (_internetTracker.RecordSuccess(now))
-            {
-                _stateMachine.Transition(RecoveryState.Healthy, now, "connectivity probe recovered");
-            }
+                if (_internetTracker.RecordSuccess(now))
+                {
+                    _stateMachine.Transition(RecoveryState.Healthy, now, "connectivity probe recovered");
+                }
 
-            _recoveryBackoff.Reset();
-            _blacklist.ClearExpired(now);
-            foreach (var limiter in _commandLimiters.Values)
-            {
-                limiter.NotifySuccess();
+                _recoveryBackoff.Reset();
+                _blacklist.ClearExpired(now);
+                foreach (var limiter in _commandLimiters.Values)
+                {
+                    limiter.NotifySuccess();
+                }
             }
-        }
-        else
-        {
-            if (_internetWasOnline)
+            else
             {
-                _logger.LogWarning("Internet lost (probe {Summary})", probe.Summary);
-                _internetWasOnline = false;
-            }
+                if (_internetWasOnline)
+                {
+                    _logger.LogWarning("Internet lost (probe {Summary})", probe.Summary);
+                    _internetWasOnline = false;
+                }
 
-            _internetTracker.RecordFailure(now);
+                _internetTracker.RecordFailure(now);
+            }
         }
 
         var connectivity = ClassifyConnectivity(input, internetOnline);
@@ -524,26 +531,36 @@ public sealed class GuardianDecisionEngine
         var ethernetEligible = ethernetInterfaces.Any(i => i.IsUp || i.HasUsableIpv4);
         var ethernetWithInternet = ethernetInterfaces.Any(i => i.Probe?.IsOnline == true);
 
-        if (ethernetEligible && !internetOnline)
+        var latestEthernetProbe = ethernetInterfaces
+            .Select(i => i.Probe)
+            .Where(report => report is not null)
+            .OrderByDescending(report => report!.TimestampUtc)
+            .FirstOrDefault();
+        if (latestEthernetProbe is not null && _lastEthernetProbeTimestampUtc != latestEthernetProbe.TimestampUtc)
         {
-            _ethernetTracker.RecordFailure(now);
-        }
-        else
-        {
-            _ethernetTracker.RecordSuccess(now);
+            _lastEthernetProbeTimestampUtc = latestEthernetProbe.TimestampUtc;
+            if (ethernetEligible && !ethernetWithInternet)
+            {
+                _ethernetTracker.RecordFailure(now);
+            }
+            else
+            {
+                _ethernetTracker.RecordSuccess(now);
+            }
         }
 
         var campusAuthConfigured = config.CampusAuth.Enabled &&
                                    !string.IsNullOrWhiteSpace(config.CampusAuth.ExecutablePath);
         var captivePortal = probe.CaptivePortalSuspected && internetOnline == false;
         var internetFailures = _internetTracker.ConsecutiveFailures;
+        var ethernetFailures = _ethernetTracker.ConsecutiveFailures;
 
         var shouldAuth = campusAuthConfigured &&
                          !CampusQuietPeriod.IsActive(config.Wifi, now) &&
                          config.Ethernet.Enabled &&
                          config.Ethernet.AuthenticateWhenLinkUpButOffline &&
-                         (!internetOnline || captivePortal) &&
-                         internetFailures >= config.CampusAuth.TriggerAfterConsecutiveFailures &&
+                         (!ethernetWithInternet || captivePortal) &&
+                         ethernetFailures >= config.CampusAuth.TriggerAfterConsecutiveFailures &&
                          (ethernetEligible || !config.CampusAuth.RequireEthernetLink) &&
                          (!captivePortal || config.CampusAuth.RunOnCaptivePortal);
 
@@ -569,12 +586,11 @@ public sealed class GuardianDecisionEngine
                     IsCampusAuth = true,
                     Reason = captivePortal
                         ? "captive portal detected while Ethernet link is up"
-                        : $"{internetFailures} consecutive Internet probe failures with Ethernet link up",
+                        : $"{ethernetFailures} consecutive Ethernet probe failures with link up",
                 });
 
                 _stateMachine.Transition(RecoveryState.Authenticating, now, "starting campus authenticator");
                 _stateMachine.Transition(RecoveryState.WaitingForAuthentication, now, "campus authenticator launched");
-                return BuildDecision(now, actions, notes, connectivity);
             }
 
             notes.Add(reason);
@@ -748,9 +764,19 @@ public sealed class GuardianDecisionEngine
                     state.LastConnectedProfile = adapter.Connection!.ProfileName;
                 }
 
+                var observationTimestamp = iface?.Probe?.TimestampUtc ?? input.GlobalProbe.TimestampUtc;
+                var isNewAdapterProbe = state.LastProbeTimestampUtc != observationTimestamp;
+                if (isNewAdapterProbe)
+                {
+                    state.LastProbeTimestampUtc = observationTimestamp;
+                }
+
                 if (usable)
                 {
-                    state.Connectivity.RecordSuccess(now);
+                    if (isNewAdapterProbe)
+                    {
+                        state.Connectivity.RecordSuccess(now);
+                    }
                     if (!string.IsNullOrWhiteSpace(adapter.Connection?.ProfileName))
                     {
                         _blacklist.RecordSuccess(adapter.InterfaceGuid, adapter.Connection!.ProfileName, now);
@@ -822,7 +848,10 @@ public sealed class GuardianDecisionEngine
                 }
 
                 // Connected but not passing traffic: only now may we consider a change.
-                state.Connectivity.RecordFailure(now);
+                if (isNewAdapterProbe)
+                {
+                    state.Connectivity.RecordFailure(now);
+                }
                 var failureDuration = state.Connectivity.FirstFailureUtc is { } failedAt
                     ? now - failedAt
                     : TimeSpan.Zero;

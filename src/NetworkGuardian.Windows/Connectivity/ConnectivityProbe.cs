@@ -208,7 +208,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         }
         else if (capture is not null && isOnline)
         {
-            await Task.Delay(75, CancellationToken.None).ConfigureAwait(false);
+            await capture.WaitForVerificationAsync(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
             if (capture.IsVerified)
             {
                 captureVerification = PacketCaptureVerification.VerifiedOnTargetInterface;
@@ -219,7 +219,8 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             {
                 isOnline = false;
                 reachability = InternetReachability.InternetLikely;
-                captureDetail = "应用层探测成功，但 Npcap 未在目标接口捕获到完整双向流量";
+                captureDetail = $"应用层探测成功，但 Npcap 未在目标接口捕获到完整双向流量" +
+                                $"（出站={capture.SawOutbound}，入站={capture.SawInbound}）";
             }
         }
 

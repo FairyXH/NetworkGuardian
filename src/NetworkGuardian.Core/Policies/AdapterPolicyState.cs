@@ -43,6 +43,8 @@ internal sealed class AdapterPolicyState
 
     public string? LastKnownSsid { get; set; }
 
+    public DateTimeOffset? LastProbeTimestampUtc { get; set; }
+
     public DateTimeOffset? LastScanRequestUtc { get; set; }
 
     public void ApplyConfig(RecoverySettings recovery, GeneralSettings general)
