@@ -202,6 +202,7 @@ internal sealed class SettingsPage : IPage
         // ---------- 无线策略 ----------
         var wifi = new Form(ctx, this);
         wifi.Toggle("粘性连接：已正常连接的网卡不参与择优切换", config.Wifi.StickyConnection, v => config.Wifi.StickyConnection = v);
+        wifi.Toggle("有线为健康出口时，备用 Wi-Fi 优先连接不同网络", config.Wifi.DiversifyFromHealthyEthernet, v => config.Wifi.DiversifyFromHealthyEthernet = v);
         wifi.Toggle("允许在连接仍然存在但已无法上网时重新选网", config.Wifi.RecoverStaleConnections, v => config.Wifi.RecoverStaleConnections = v);
         wifi.Number("已连接 Wi-Fi 持续离线多久后允许换网（秒）", config.Wifi.StaleConnectionSeconds, 30, 3600, v => config.Wifi.StaleConnectionSeconds = v);
         wifi.Toggle("优先 5GHz / 6GHz", config.Wifi.PreferHighBand, v => config.Wifi.PreferHighBand = v);

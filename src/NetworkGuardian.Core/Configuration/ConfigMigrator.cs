@@ -214,6 +214,14 @@ public sealed class ConfigMigrator
             applied.Add("v11: fast route probes with delayed, verified failback hysteresis.");
         }
 
+        if (version < 12)
+        {
+            config.Wifi.DiversifyFromHealthyEthernet = true;
+            config.Version = 12;
+            version = 12;
+            applied.Add("v12: diversify standby Wi-Fi from a healthy Ethernet upstream.");
+        }
+
         config.Version = GuardianConfig.CurrentVersion;
 
         foreach (var note in applied)

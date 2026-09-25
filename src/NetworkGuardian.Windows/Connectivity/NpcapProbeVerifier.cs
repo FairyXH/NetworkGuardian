@@ -311,11 +311,20 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
 
     private volatile bool _sawInbound;
 
+    private string? _outboundNextHopMac;
+
+    private string? _inboundNextHopMac;
+
     public bool SawOutbound => _sawOutbound;
 
     public bool SawInbound => _sawInbound;
 
     public bool IsVerified => SawOutbound && SawInbound;
+
+    public string? VerifiedNextHopMac => IsVerified &&
+        string.Equals(_outboundNextHopMac, _inboundNextHopMac, StringComparison.OrdinalIgnoreCase)
+            ? _outboundNextHopMac
+            : null;
 
     private void ReadLoop()
     {
@@ -331,10 +340,22 @@ public sealed class NpcapCaptureSession : IAsyncDisposable
             var packet = new byte[Math.Min(header.CapturedLength, 96)];
             Marshal.Copy(dataPointer, packet, 0, packet.Length);
             var direction = ClassifyIpv4Direction(packet, _source);
-            _sawOutbound |= direction.HasFlag(CapturedPacketDirection.Outbound);
-            _sawInbound |= direction.HasFlag(CapturedPacketDirection.Inbound);
+            if (direction.HasFlag(CapturedPacketDirection.Outbound))
+            {
+                _outboundNextHopMac ??= FormatMac(packet.AsSpan(0, 6));
+                _sawOutbound = true;
+            }
+
+            if (direction.HasFlag(CapturedPacketDirection.Inbound))
+            {
+                _inboundNextHopMac ??= FormatMac(packet.AsSpan(6, 6));
+                _sawInbound = true;
+            }
         }
     }
+
+    private static string FormatMac(ReadOnlySpan<byte> value) =>
+        string.Join(":", value.ToArray().Select(item => item.ToString("X2")));
 
     internal static CapturedPacketDirection ClassifyIpv4Direction(
         ReadOnlySpan<byte> packet,

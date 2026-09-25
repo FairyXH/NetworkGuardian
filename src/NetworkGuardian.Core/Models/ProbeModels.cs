@@ -63,6 +63,9 @@ public sealed record ConnectivityProbeReport
 
     public string? CaptureVerificationDetail { get; init; }
 
+    /// <summary>Layer-2 next-hop MAC observed in both directions by Npcap.</summary>
+    public string? CaptureNextHopMac { get; init; }
+
     public string? CaptivePortalInterceptedBy { get; init; }
 
     public int SuccessCount { get; init; }

@@ -15,7 +15,7 @@ public sealed class GuardianConfig
     /// <summary>Schema version. Bumped whenever a migration step is required.</summary>
     public int Version { get; set; } = CurrentVersion;
 
-    public const int CurrentVersion = 11;
+    public const int CurrentVersion = 12;
 
     public GeneralSettings General { get; set; } = new();
 
@@ -361,6 +361,8 @@ public sealed class ProbeEndpointSettings
 
 public sealed class WifiSettings
 {
+    /// <summary>Prefer a Wi-Fi path on a different upstream while healthy Ethernet is the outlet.</summary>
+    public bool DiversifyFromHealthyEthernet { get; set; } = true;
     /// <summary>Never switch an adapter that currently has a working connection (sticky connection).</summary>
     public bool StickyConnection { get; set; } = true;
 

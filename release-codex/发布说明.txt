@@ -1,0 +1,83 @@
+NetworkGuardian 便携版（单文件，无需安装）
+==========================================
+
+这是什么
+--------
+NetworkGuardian 是一个 Windows 网络保活工具：持续监测物理以太网 / 无线网卡的链路、IP、路由与外网可达性，
+只在连接**真正失效**时才做最小必要的恢复动作（打开 Wi-Fi 无线电、启用被禁用的物理无线网卡、按网卡扫描、
+只连接已保存的配置、在校园网未认证时运行你自己配置的认证程序或命令行）。
+已经正常工作的连接不会被主动切换（粘性连接）。
+
+本目录是**自包含便携版**：单个 exe，内置 .NET 运行时（Native AOT 编译），
+目标机器无需安装 .NET、Windows App Runtime、Visual Studio 或任何 SDK 组件。
+
+文件
+----
+  NetworkGuardian.exe                  主程序（约 8 MB，双击即可运行；提权助手已内置）
+  发布说明.txt                          本文件
+
+运行要求
+--------
+  * Windows 10 2004 (build 19041) 或更高，x64
+  * 主程序**不需要**管理员权限；只有启用被禁用网卡、或执行标记了“以管理员运行”的命令时，
+    会以同一个 exe（`NetworkGuardian.exe --helper`）请求一次 UAC 提权，完成单个操作后立即退出。
+    UAC 提示里显示的程序名就是 NetworkGuardian。
+
+使用
+----
+  1. 双击 NetworkGuardian.exe；默认启动后最小化到托盘（可在设置页关闭该行为）。
+  2. 首次运行会在 %LOCALAPPDATA%\NetworkGuardian\ 生成 config.json 与 Logs\。
+  3. 托盘图标：左键打开窗口，右键菜单可暂停/恢复自动恢复、运行连通性测试、重新扫描 Wi-Fi、
+     清除失败记录与冷却、打开日志目录、退出。
+  4. 「设置」页的改动先落在工作副本上，点「保存并应用」才会写入 config.json 并立即生效。
+
+位置权限（重要）
+----------------
+Windows 11 把 SSID / BSSID / RSSI 等网络标识放在位置隐私权限之后。没有权限时：
+
+  * 扫描通常仍然可用，但拿不到 BSSID / RSSI / 信道；
+  * 部分机器上连扫描都会被拒绝。
+
+开启方式：设置 → 隐私和安全性 → 位置 → 打开「定位服务」→ 打开「让桌面应用访问你的位置」→ 重启本程序。
+程序不会尝试绕过该权限，只会在总览页给出中文提示。
+
+权限与安全边界
+--------------
+  * 不导出 / 不显示 / 不记录 Wi-Fi 密码（配置文件中不存在任何密钥字段）；
+  * 不绕过 UAC；不修改系统安全策略；不做隐蔽持久化（开机启动只写当前用户的 HKCU\...\Run）；
+  * 不修改未知路由（接口度量管理默认关闭）；不自动加入陌生开放网络；不关闭防火墙；
+  * 日志只记录外部命令的路径与退出码，不记录参数内容。
+
+配置与日志位置
+--------------
+  %LOCALAPPDATA%\NetworkGuardian\config.json          配置（保存时留一份 config.backup.json）
+  %LOCALAPPDATA%\NetworkGuardian\config.invalid.json  无法解析时的隔离副本
+  %LOCALAPPDATA%\NetworkGuardian\Logs\*.log           滚动日志（含"决策提示"，即程序看到但不动作的原因）
+  环境变量 NETWORKGUARDIAN_CONFIG_ROOT 可整体替换上述根目录（测试用）
+
+无线网卡自动恢复（日志里都能查到原因）
+--------------------------------------
+  * 每块网卡的 Wi-Fi 开关被关掉：Windows 设置 → 网络和 Internet → Wi-Fi 里，每块无线网卡各有一个
+    开关（例如"WLAN""WLAN 3"）。被关掉的那块会被自动打开。这一项通过 Windows 无线电管理器
+    （IMediaRadioManager/IRadioInstance）逐块读写，**不需要管理员权限、不弹 UAC**；若该网卡是硬件
+    开关关闭的，日志会说明软件无法打开。（wlanapi 的 radio_state 写入在本机网卡上被驱动拒绝（错误 87），
+    只能读不能写。）
+  * 被禁用的物理无线网卡（设备管理器/网络设置里禁用，problem code 22/21）：自动启用。
+    普通权限下这一步会弹一次 UAC 确认，未确认则不会打开。
+  * 驱动启动失败（problem code 10/43 等，Windows 不会显示成"已禁用"）：尝试一次"禁用+启用"重启，
+    每块网卡最多 3 次/小时、间隔至少 120 秒、连续 2 次失败即停止；若设备仍未启动，日志会明确写出
+    "需要重装或回滚该网卡驱动"，不会谎报成功。
+  * 一个 SSID 只允许一张网卡连接：检测到两张网卡连接同一个 Wi-Fi 时，断开信号较弱的那张，
+    并阻止它立刻重连回去（它会改用其它已保存网络）。如需允许多张网卡共用同一 SSID，可在设置页打开。
+
+卸载
+----
+  删除本目录即可；如需清理配置与日志，再删除 %LOCALAPPDATA%\NetworkGuardian\。
+  若曾开启「开机启动」，请在设置页关闭，或删除 HKCU\Software\Microsoft\Windows\CurrentVersion\Run 下的
+  NetworkGuardian 值。
+
+命令行参数（自查 / 自动化用）
+----------------------------
+  NetworkGuardian.exe --minimized            启动后隐藏到托盘
+  NetworkGuardian.exe --page wireless        直接打开指定页面：dashboard|wireless|ethernet|settings|logs
+  NetworkGuardian.exe --visible              强制显示窗口（即使配置为启动时最小化）

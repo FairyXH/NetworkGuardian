@@ -205,6 +205,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                     ? PacketCaptureVerification.CaptureFailed
                     : PacketCaptureVerification.NoTrafficOnTargetInterface;
         string? captureDetail = _npcap?.Status.Detail;
+        string? captureNextHopMac = null;
         if (isOnline && request.InterfaceId is not null && _npcap?.Status.IsAvailable == true && capture is null)
         {
             isOnline = false;
@@ -218,6 +219,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             {
                 captureVerification = PacketCaptureVerification.VerifiedOnTargetInterface;
                 captureDetail = "Npcap 在目标接口捕获到探测请求和回包";
+                captureNextHopMac = capture.VerifiedNextHopMac;
             }
             else
             {
@@ -241,6 +243,7 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             Reachability = reachability,
             CaptureVerification = captureVerification,
             CaptureVerificationDetail = captureDetail,
+            CaptureNextHopMac = captureNextHopMac,
             CaptivePortalSuspected = captiveSuspected,
             CaptivePortalInterceptedBy = captiveAttempt is null
                 ? null

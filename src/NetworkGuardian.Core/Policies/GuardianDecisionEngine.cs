@@ -49,6 +49,8 @@ public sealed class GuardianDecisionEngine
     private readonly object _gate = new();
     private readonly ILogger _logger;
     private readonly CandidateSelector _selector;
+    private readonly Dictionary<string, string> _ssidGateways = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _ssidNextHopMacs = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConnectFailureBlacklist _blacklist;
     private readonly EapConnectRetryPolicy _eapRetries;
     private readonly NetworkDeviceClassifier _classifier;
@@ -641,6 +643,27 @@ public sealed class GuardianDecisionEngine
             .Where(a => physicalWifiGuids.Count == 0 || physicalWifiGuids.Contains(a.InterfaceGuid))
             .ToList();
 
+        foreach (var connected in adapters.Where(adapter =>
+                     adapter.IsConnected && !string.IsNullOrWhiteSpace(adapter.CurrentSsid)))
+        {
+            var connectedInterface = input.Interfaces.FirstOrDefault(iface =>
+                iface.WlanInterfaceGuid == connected.InterfaceGuid);
+            if (!string.IsNullOrWhiteSpace(connectedInterface?.PrimaryGateway))
+            {
+                _ssidGateways[connected.CurrentSsid!] = connectedInterface.PrimaryGateway!;
+            }
+
+            if (!string.IsNullOrWhiteSpace(connectedInterface?.Probe?.CaptureNextHopMac))
+            {
+                _ssidNextHopMacs[connected.CurrentSsid!] = connectedInterface.Probe.CaptureNextHopMac!;
+            }
+        }
+
+        var healthyEthernetOutlet = input.Interfaces.FirstOrDefault(iface =>
+            iface.Kind == InterfaceKind.Ethernet && iface.IsDefaultRoute &&
+            iface.IsUp && iface.HasUsableIpv4 && iface.HasDefaultGateway &&
+            iface.Probe?.IsStableOnline == true);
+
         foreach (var staleGuid in _adapters.Keys.Where(g => adapters.All(a => a.InterfaceGuid != g)).ToList())
         {
             // Adapter disappeared (USB unplugged): forget its history so a later re-plug starts clean.
@@ -748,6 +771,68 @@ public sealed class GuardianDecisionEngine
                     if (!string.IsNullOrWhiteSpace(adapter.Connection?.ProfileName))
                     {
                         _blacklist.RecordSuccess(adapter.InterfaceGuid, adapter.Connection!.ProfileName, now);
+                    }
+
+                    if (config.Wifi.DiversifyFromHealthyEthernet && healthyEthernetOutlet is not null &&
+                        iface?.IsDefaultRoute != true &&
+                        IsRedundantWithEthernet(adapter.CurrentSsid, iface, healthyEthernetOutlet, config.Wifi))
+                    {
+                        var diversityScan = adapter.LastScan;
+                        var diversityScanAge = diversityScan?.CompletedAtUtc is { } completedAt
+                            ? now - completedAt
+                            : (TimeSpan?)null;
+                        var diversityScanIsFresh = diversityScan is { Completed: true } &&
+                                                   diversityScanAge is { } diversityAge &&
+                                                   diversityAge < TimeSpan.FromSeconds(30);
+                        if (!diversityScanIsFresh)
+                        {
+                            if (state.ScanLimiter.TryAcquire(now, out _, out _))
+                            {
+                                state.ScanLimiter.RecordRun(now);
+                                state.LastScanRequestUtc = now;
+                                actions.Add(new ScanAdapterAction
+                                {
+                                    InterfaceGuid = adapter.InterfaceGuid,
+                                    Force = false,
+                                    Reason = "healthy Ethernet shares this Wi-Fi upstream; scan for a diverse standby network",
+                                });
+                            }
+
+                            continue;
+                        }
+
+                        var occupied = adapters
+                            .Where(other => other.InterfaceGuid != adapter.InterfaceGuid && other.IsConnected &&
+                                            !string.IsNullOrWhiteSpace(other.CurrentSsid))
+                            .Select(other => other.CurrentSsid!)
+                            .Append(adapter.CurrentSsid!)
+                            .ToArray();
+                        var diverse = _selector.SelectCandidates(
+                                adapter.InterfaceGuid, diversityScan, adapter.SavedProfiles, config.Wifi, now, out _,
+                                state.LastConnectedProfile, occupied, input.EapCatalog)
+                            .FirstOrDefault(candidate =>
+                                !IsRedundantWithEthernet(candidate.Ssid, null, healthyEthernetOutlet, config.Wifi));
+
+                        if (diverse is not null)
+                        {
+                            var limiter = GetCommandLimiter(
+                                $"diversify-wifi:{adapter.InterfaceGuid}", 6, TimeSpan.FromSeconds(60), 3);
+                            if (limiter.TryAcquire(now, out _, out _))
+                            {
+                                limiter.RecordRun(now);
+                                actions.Add(new DisconnectWifiAction
+                                {
+                                    InterfaceGuid = adapter.InterfaceGuid,
+                                    Ssid = adapter.CurrentSsid!,
+                                    SuppressAutoReconnect = true,
+                                    Reason = $"healthy Ethernet is the active outlet and shares this upstream; " +
+                                             $"switching standby Wi-Fi to diverse network '{diverse.Ssid}'",
+                                });
+                                state.LastDisconnectActionUtc = now;
+                                RecordRecoveryAction($"{adapter.Description}: 有线出口正常，备用 Wi-Fi 从同网 " +
+                                                     $"{adapter.CurrentSsid} 切换到独立网络 {diverse.Ssid}");
+                            }
+                        }
                     }
 
                     continue;
@@ -923,6 +1008,14 @@ public sealed class GuardianDecisionEngine
                 excludedSsids,
                 input.EapCatalog);
 
+            if (config.Wifi.DiversifyFromHealthyEthernet && healthyEthernetOutlet is not null)
+            {
+                candidates = candidates
+                    .OrderBy(candidate => IsRedundantWithEthernet(
+                        candidate.Ssid, null, healthyEthernetOutlet, config.Wifi) ? 1 : 0)
+                    .ToList();
+            }
+
             if (config.Logging.VerboseNetwork && rejections.Count > 0)
             {
                 wifiNotes.Add($"{adapter.Description}: rejected {rejections.Count} network(s): " +
@@ -1091,6 +1184,42 @@ public sealed class GuardianDecisionEngine
         // Connected with an address but no default route and no probe: leave it alone. It is not
         // proven broken, and the sticky policy forbids speculative switching.
         return true;
+    }
+
+    private bool IsRedundantWithEthernet(
+        string? ssid,
+        InterfaceRuntimeState? wifiInterface,
+        InterfaceRuntimeState ethernet,
+        WifiSettings settings)
+    {
+        if (string.IsNullOrWhiteSpace(ssid))
+        {
+            return false;
+        }
+
+        if (CampusQuietPeriod.IsCampusSsid(settings, ssid))
+        {
+            return true;
+        }
+
+        var ethernetGateway = ethernet.PrimaryGateway;
+        var wifiGateway = wifiInterface?.PrimaryGateway;
+        if (string.IsNullOrWhiteSpace(wifiGateway) && _ssidGateways.TryGetValue(ssid, out var learnedGateway))
+        {
+            wifiGateway = learnedGateway;
+        }
+
+        var sameGateway = !string.IsNullOrWhiteSpace(ethernetGateway) &&
+                          string.Equals(ethernetGateway, wifiGateway, StringComparison.OrdinalIgnoreCase);
+        var ethernetNextHop = ethernet.Probe?.CaptureNextHopMac;
+        var wifiNextHop = wifiInterface?.Probe?.CaptureNextHopMac;
+        if (string.IsNullOrWhiteSpace(wifiNextHop) && _ssidNextHopMacs.TryGetValue(ssid, out var learnedNextHop))
+        {
+            wifiNextHop = learnedNextHop;
+        }
+        var sameNpcapNextHop = !string.IsNullOrWhiteSpace(ethernetNextHop) &&
+                               string.Equals(ethernetNextHop, wifiNextHop, StringComparison.OrdinalIgnoreCase);
+        return sameGateway || sameNpcapNextHop;
     }
 
     private ConnectivityLevel ClassifyConnectivity(GuardianInput input, bool internetOnline)
