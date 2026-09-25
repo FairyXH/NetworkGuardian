@@ -184,9 +184,11 @@ try {
 
     Write-Host '== privileged helper (NetworkGuardian.exe --helper)'
     $helperDir = Join-Path $root 'helper'
-    $requestPath = Join-Path $helperDir 'request-verify.json'
-    $responsePath = Join-Path $helperDir 'response-verify.json'
-    '{"protocolVersion":1,"operation":"query-status","deviceInstanceId":"BOGUS\\DEVICE\\0000","requirePhysicalDevice":true}' |
+    $requestPath = Join-Path $helperDir ("request-$([Guid]::NewGuid().ToString('N')).json")
+    $responsePath = Join-Path $helperDir ("response-$([Guid]::NewGuid().ToString('N')).json")
+    $correlationId = [Guid]::NewGuid().ToString('N')
+    (@{ protocolVersion = 2; operation = 'query-status'; deviceInstanceId = 'BOGUS\DEVICE\0000';
+        requirePhysicalDevice = $true; correlationId = $correlationId } | ConvertTo-Json -Compress) |
         Set-Content -Path $requestPath -Encoding utf8
 
     $helper = Start-Process -FilePath $exe `
@@ -196,7 +198,8 @@ try {
     Check 'the helper answered while the GUI instance was running' (Test-Path $responsePath)
     if (Test-Path $responsePath) {
         $response = Get-Content $responsePath -Raw | ConvertFrom-Json
-        Check 'the helper reports its protocol version' ($response.protocolVersion -eq 1) "(got $($response.protocolVersion))"
+        Check 'the helper reports its protocol version' ($response.protocolVersion -eq 2) "(got $($response.protocolVersion))"
+        Check 'the helper response matches the request' ($response.correlationId -eq $correlationId)
         Check 'helper reports its elevation state' ($null -ne $response.helperElevated)
         Write-Host "         helperElevated=$($response.helperElevated), helperVersion=$($response.helperVersion), outcome=$($response.outcome)"
 
@@ -215,9 +218,11 @@ try {
     }
 
     if ($InstanceId) {
-        $requestPath2 = Join-Path $helperDir 'request-verify2.json'
-        $responsePath2 = Join-Path $helperDir 'response-verify2.json'
-        (@{ protocolVersion = 1; operation = 'query-status'; deviceInstanceId = $InstanceId; requirePhysicalDevice = $true } | ConvertTo-Json -Compress) |
+        $requestPath2 = Join-Path $helperDir ("request-$([Guid]::NewGuid().ToString('N')).json")
+        $responsePath2 = Join-Path $helperDir ("response-$([Guid]::NewGuid().ToString('N')).json")
+        $correlationId2 = [Guid]::NewGuid().ToString('N')
+        (@{ protocolVersion = 2; operation = 'query-status'; deviceInstanceId = $InstanceId;
+            requirePhysicalDevice = $true; correlationId = $correlationId2 } | ConvertTo-Json -Compress) |
             Set-Content -Path $requestPath2 -Encoding utf8
 
         Start-Process -FilePath $exe `
@@ -264,9 +269,9 @@ try {
     Write-Host '== leftovers'
     # Remove the exchange files this script created; anything left is an app leftover.
     # (-Include needs -Recurse or a wildcard path, so filter by name explicitly.)
-    Get-ChildItem $helperDir -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like 'request-verify*.json' -or $_.Name -like 'response-verify*.json' } |
-        Remove-Item -Force -ErrorAction SilentlyContinue
+    @($requestPath, $responsePath, $requestPath2, $responsePath2) |
+        Where-Object { $_ } |
+        ForEach-Object { Remove-Item -LiteralPath $_ -Force -ErrorAction SilentlyContinue }
     $helperLeftovers = Get-ChildItem $helperDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'helper.log' }
     Check 'no helper exchange files are left behind' ($helperLeftovers.Count -eq 0) "($($helperLeftovers.Name -join ', '))"
     Check 'the helper wrote its audit log' (Test-Path (Join-Path $helperDir 'helper.log'))
