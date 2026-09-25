@@ -417,8 +417,10 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
                 var location = response.Headers.Location?.ToString();
                 var sameHost = response.Headers.Location is { } target &&
                                string.Equals(target.Host, uri.Host, StringComparison.OrdinalIgnoreCase);
+                var expectedRedirect = response.Headers.Location is { } redirectTarget &&
+                                       IsExpectedInternetRedirect(uri, redirectTarget);
 
-                if (!sameHost)
+                if (!sameHost && !expectedRedirect)
                 {
                     stopwatch.Stop();
                     return Attempt(endpoint, request, ProbeOutcome.CaptivePortalRedirect, stopwatch,
@@ -492,6 +494,18 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
         System.Net.Sockets.SocketException socket => $"套接字错误（{socket.SocketErrorCode}）",
         _ => "探测失败",
     };
+
+    internal static bool IsExpectedInternetRedirect(Uri source, Uri target)
+    {
+        // Bing localizes www.bing.com to the mainland China host. This is normal service behavior,
+        // not a captive portal interception; TLS plus this exact vendor-owned redirect is strong
+        // Internet evidence. Keep the exception deliberately narrow so arbitrary redirects remain
+        // portal evidence.
+        return string.Equals(source.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(target.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(source.Host, "www.bing.com", StringComparison.OrdinalIgnoreCase) &&
+               string.Equals(target.Host, "cn.bing.com", StringComparison.OrdinalIgnoreCase);
+    }
 
     private async Task<ProbeAttemptResult> DnsProbeAsync(
         ProbeEndpointSettings endpoint,
@@ -663,14 +677,30 @@ public sealed class ConnectivityProbe : IConnectivityProbe, IDisposable
             {
                 handler.ConnectCallback = async (context, token) =>
                 {
-                    // DNS only supplies candidate IP addresses; it is not reachability evidence.
-                    // Binding DNS to a home router proved less reliable than the actual Internet
-                    // path and caused false offline results. The TCP socket below is still pinned
-                    // to the requested interface, and Npcap verifies its request and response.
-                    var addresses = IPAddress.TryParse(context.DnsEndPoint.Host, out var literal)
-                        ? new[] { literal }
-                        : await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token)
+                    // Resolve through this adapter's DNS path. System DNS follows the preferred
+                    // route, so using it here would make every adapter appear offline when that
+                    // preferred adapter retains link/IP but loses its upstream WAN.
+                    IReadOnlyList<IPAddress> addresses;
+                    if (IPAddress.TryParse(context.DnsEndPoint.Host, out var literal))
+                    {
+                        addresses = new[] { literal };
+                    }
+                    else if (dnsServerAddresses.Count > 0)
+                    {
+                        addresses = await ResolveBoundDnsAsync(
+                                context.DnsEndPoint.Host,
+                                sourceAddress!,
+                                interfaceIndex,
+                                dnsServerAddresses,
+                                TimeSpan.FromMilliseconds(Math.Max(500, settings.TimeoutMs)),
+                                token)
                             .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, token)
+                            .ConfigureAwait(false);
+                    }
                     Exception? lastError = null;
 
                     foreach (var address in addresses

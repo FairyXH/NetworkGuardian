@@ -242,7 +242,7 @@ public sealed class ConnectivityProbeTests
     }
 
     [Fact]
-    public async Task BoundHttpProbe_UsesDnsOnlyForAddressDiscovery()
+    public async Task BoundHttpProbe_WithoutAdapterDnsUsesSystemDnsForAddressDiscovery()
     {
         using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
         listener.Start();
@@ -281,11 +281,28 @@ public sealed class ConnectivityProbeTests
             },
             SourceAddress = "127.0.0.1",
             InterfaceIndex = 1,
-            DnsServerAddresses = new[] { "192.0.2.53" },
+            DnsServerAddresses = Array.Empty<string>(),
         }, CancellationToken.None);
         await server;
 
         Assert.True(report.IsOnline);
+    }
+
+    [Theory]
+    [InlineData("https://www.bing.com/", "https://cn.bing.com/")]
+    [InlineData("https://www.bing.com/search?q=test", "https://cn.bing.com/search?q=test")]
+    public void BingChinaLocalization_IsAnExpectedInternetRedirect(string source, string target)
+    {
+        Assert.True(ConnectivityProbe.IsExpectedInternetRedirect(new Uri(source), new Uri(target)));
+    }
+
+    [Theory]
+    [InlineData("http://www.bing.com/", "http://cn.bing.com/")]
+    [InlineData("https://www.bing.com/", "https://login.example.com/")]
+    [InlineData("https://example.com/", "https://cn.bing.com/")]
+    public void UnrelatedRedirect_RemainsCaptivePortalEvidence(string source, string target)
+    {
+        Assert.False(ConnectivityProbe.IsExpectedInternetRedirect(new Uri(source), new Uri(target)));
     }
 
     [Fact]
