@@ -249,7 +249,8 @@ public sealed class ConnectivityProbeTests
         var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
         var server = Task.Run(async () =>
         {
-            using var client = await listener.AcceptTcpClientAsync();
+            using var client = await listener.AcceptTcpClientAsync()
+                .WaitAsync(TimeSpan.FromSeconds(5));
             await using var stream = client.GetStream();
             _ = await stream.ReadAsync(new byte[2048]);
             var response = System.Text.Encoding.ASCII.GetBytes(
