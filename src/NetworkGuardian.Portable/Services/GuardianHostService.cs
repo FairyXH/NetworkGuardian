@@ -44,6 +44,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly NativeWifiManager _wifi;
     private readonly WifiRadioController _radio;
     private readonly NetworkInterfaceProvider _interfaces;
+    private readonly TcpConnectionMigrator _tcpConnections;
     private readonly ConnectivityProbe _probe;
     private readonly NpcapProbeVerifier _npcap;
     private readonly PhysicalDeviceManager _devices;
@@ -90,6 +91,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     private ConnectivityProbeReport _globalProbe;
     private Dictionary<Guid, ConnectivityProbeReport> _wifiProbeByAdapter = new();
     private Dictionary<string, ConnectivityProbeReport> _probeByInterfaceId = new();
+    private string? _observedOutletInterfaceId;
+    private IReadOnlyList<string> _observedOutletAddresses = Array.Empty<string>();
     private readonly Dictionary<string, InterfaceProbeStability> _probeStability = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<Guid, (DateTimeOffset AtUtc, string Profile)> _lastConnectAttempt = new();
     private WifiEapCatalog _eapCatalog = WifiEapCatalog.Empty;
@@ -138,6 +141,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             guid => _deviceByNetCfgGuid.TryGetValue(guid, out var record) ? record : null,
             () => _wifi.GetAdapters().Select(a => a.InterfaceGuid).ToList(),
             loggerFactory.CreateLogger<NetworkInterfaceProvider>());
+        _tcpConnections = new TcpConnectionMigrator(loggerFactory.CreateLogger<TcpConnectionMigrator>());
 
         _engine = new GuardianDecisionEngine(_config, loggerFactory.CreateLogger<GuardianDecisionEngine>());
 
@@ -373,7 +377,8 @@ public sealed class GuardianHostService : IAsyncDisposable
                     interfaces = BuildInterfaceStates();
                 }
 
-                PublishLiveRouteSnapshot(interfaces, adapters, desired);
+                await PublishLiveRouteSnapshotAsync(interfaces, adapters, desired, cancellationToken)
+                    .ConfigureAwait(false);
 
                 // Probes run outside this watchdog so network timeouts never delay the one-second
                 // metric check. Three seconds is the freshness target for outlet health.
@@ -396,15 +401,49 @@ public sealed class GuardianHostService : IAsyncDisposable
         _logger.LogInformation("实时出口/跃点监视器已停止");
     }
 
-    private void PublishLiveRouteSnapshot(
+    private async Task PublishLiveRouteSnapshotAsync(
         IReadOnlyList<InterfaceRuntimeState> interfaces,
         IReadOnlyList<WifiAdapterRuntimeState> adapters,
-        IReadOnlyDictionary<string, int> desiredMetrics)
+        IReadOnlyDictionary<string, int> desiredMetrics,
+        CancellationToken cancellationToken)
     {
         var expectedId = InterfaceMetricPlanner.ExpectedOutletId(interfaces, desiredMetrics);
         var actualRoute = _defaultRoutes.FirstOrDefault();
-        var actualId = DefaultRouteSelector.FindInterface(actualRoute, interfaces)?.Id;
+        var actualInterface = DefaultRouteSelector.FindInterface(actualRoute, interfaces);
+        var actualId = actualInterface?.Id;
         var now = DateTimeOffset.UtcNow;
+
+        if (actualId is not null && !string.Equals(actualId, _observedOutletInterfaceId,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var oldAddresses = _observedOutletInterfaceId is null
+                ? interfaces
+                    .Where(iface => !string.Equals(iface.Id, actualId, StringComparison.OrdinalIgnoreCase))
+                    .Select(iface => iface.PrimaryIpv4Address)
+                    .Where(address => !string.IsNullOrWhiteSpace(address))
+                    .Select(address => address!)
+                    .ToArray()
+                : _observedOutletAddresses;
+            var previousId = _observedOutletInterfaceId;
+            _observedOutletInterfaceId = actualId;
+            _observedOutletAddresses = string.IsNullOrWhiteSpace(actualInterface?.PrimaryIpv4Address)
+                ? Array.Empty<string>()
+                : new[] { actualInterface.PrimaryIpv4Address! };
+
+            if (_config.ConnectionMigration.Mode != ConnectionCutMode.Disabled && oldAddresses.Count > 0)
+            {
+                var closed = await _tcpConnections.CloseAsync(
+                        oldAddresses, _config.ConnectionMigration, cancellationToken)
+                    .ConfigureAwait(false);
+                _logger.LogInformation(
+                    "出口连接迁移: {Previous} -> {Current}; 旧地址={Addresses}; 已关闭 {Count} 条 TCP 连接",
+                    previousId ?? "startup", actualId, string.Join(",", oldAddresses), closed);
+            }
+        }
+        else if (actualId is not null && !string.IsNullOrWhiteSpace(actualInterface?.PrimaryIpv4Address))
+        {
+            _observedOutletAddresses = new[] { actualInterface.PrimaryIpv4Address! };
+        }
 
         _snapshot = _snapshot with
         {
