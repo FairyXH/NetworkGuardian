@@ -7,6 +7,28 @@ namespace NetworkGuardian.Tests;
 public sealed class InterfaceProbeStabilityTests
 {
     [Fact]
+    public void CurrentOnlineAlternative_WinsOverFailedPrimaryWithStaleStableVerdict()
+    {
+        var failedPrimary = TestData.OfflineProbe() with { StableOnline = true };
+        var onlineAlternative = TestData.OnlineProbe() with { StableOnline = true };
+
+        var selected = ConnectivityProbeReport.SelectBest(new[] { failedPrimary, onlineAlternative });
+
+        Assert.Same(onlineAlternative, selected);
+    }
+
+    [Fact]
+    public void StableAlternative_WinsOverRecoveringPrimary()
+    {
+        var recoveringPrimary = TestData.OnlineProbe() with { StableOnline = false };
+        var stableAlternative = TestData.OnlineProbe() with { StableOnline = true };
+
+        var selected = ConnectivityProbeReport.SelectBest(new[] { recoveringPrimary, stableAlternative });
+
+        Assert.Same(stableAlternative, selected);
+    }
+
+    [Fact]
     public void RouteOrderFailsOverQuicklyAndFailsBackOnlyAfterObservation()
     {
         var tracker = new InterfaceProbeStability();

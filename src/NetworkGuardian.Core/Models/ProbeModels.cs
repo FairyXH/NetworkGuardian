@@ -93,6 +93,19 @@ public sealed record ConnectivityProbeReport
         CaptivePortalInterceptedBy = reason,
     };
 
+    public static ConnectivityProbeReport? SelectBest(IEnumerable<ConnectivityProbeReport> reports)
+    {
+        var samples = reports as IReadOnlyList<ConnectivityProbeReport> ?? reports.ToList();
+
+        // Prefer current proof over a debounced historical verdict. This prevents a failed primary
+        // interface from masking a working alternative, while still retaining stability as the
+        // tie-breaker and as a fallback when every current probe is inconclusive.
+        return samples.FirstOrDefault(report => report.IsOnline && report.IsStableOnline)
+               ?? samples.FirstOrDefault(report => report.IsOnline)
+               ?? samples.FirstOrDefault(report => report.IsStableOnline)
+               ?? samples.FirstOrDefault();
+    }
+
     public string Summary =>
         $"{Reachability} {(IsOnline ? "online" : "offline")} {SuccessCount}/{AttemptCount}" +
         (CaptivePortalSuspected ? $" captive-portal via {CaptivePortalInterceptedBy}" : string.Empty);

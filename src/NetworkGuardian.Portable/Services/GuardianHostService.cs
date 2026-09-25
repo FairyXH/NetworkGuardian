@@ -812,9 +812,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 byInterfaceId[candidate.Id] = stabilized;
             }
 
-            _globalProbe = byInterfaceId.Values
-                .FirstOrDefault(report => report.IsOnline)
-                ?? byInterfaceId.Values.FirstOrDefault()
+            _globalProbe = ConnectivityProbeReport.SelectBest(byInterfaceId.Values)
                 ?? ConnectivityProbeReport.NotAttempted(DateTimeOffset.UtcNow, "no-up-interface");
         }
         else
