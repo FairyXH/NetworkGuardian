@@ -122,7 +122,7 @@ internal sealed class SettingsPage : IPage
 
         // ---------- 出口切换连接迁移 ----------
         var migration = new Form(ctx, this);
-        migration.Dropdown(
+        migration.Choice(
             "切换出口时切断原网卡的已有 TCP 连接",
             ConnectionCutModeLabels,
             (int)config.ConnectionMigration.Mode,
