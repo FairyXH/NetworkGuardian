@@ -25,9 +25,8 @@ internal sealed class HitTarget
 /// Double buffered GDI drawing surface with text helpers and hit testing.
 /// </summary>
 /// <remarks>
-/// The whole UI is painted from scratch on every frame into a memory bitmap which is then blitted to
-/// the window. Nothing is retained: the layout code runs on each paint and registers the clickable
-/// regions as a side effect, which removes an entire class of stale-hitbox bugs.
+/// Layout and hit regions are refreshed each frame; the buffer, GDI objects and text measurements
+/// survive until the window size or DPI changes.
 /// </remarks>
 internal sealed class Canvas : IDisposable
 {
@@ -39,6 +38,8 @@ internal sealed class Canvas : IDisposable
 
     private readonly Dictionary<(int Color, int Style, int Width), IntPtr> _pens = new();
     private readonly Dictionary<int, IntPtr> _brushes = new();
+    private readonly Dictionary<(string Text, TextStyle Style), Size> _measurements = new();
+    private readonly Dictionary<(string Text, int Width, TextStyle Style), int> _wrappedMeasurements = new();
 
     // Current viewport translation (page scrolling) and the stack of previous ones.
     private readonly Stack<(int X, int Y)> _offsetStack = new();
@@ -60,7 +61,15 @@ internal sealed class Canvas : IDisposable
         SetBkMode(_hdc, TRANSPARENT);
     }
 
-    public IntPtr Target { get; }
+    public IntPtr Target { get; private set; }
+
+    public void BeginFrame(IntPtr target)
+    {
+        Target = target;
+        Hits.Clear();
+        if (_measurements.Count > 1024) _measurements.Clear();
+        if (_wrappedMeasurements.Count > 512) _wrappedMeasurements.Clear();
+    }
 
     public int Width { get; }
 
@@ -167,12 +176,15 @@ internal sealed class Canvas : IDisposable
         {
             return Size.Empty;
         }
+        if (_measurements.TryGetValue((text, style), out var cached)) return cached;
 
         var oldFont = SelectObject(_hdc, Fonts.Get(style, _scalePercent));
         GetTextExtentPoint32W(_hdc, text, text.Length, out var size);
         SelectObject(_hdc, oldFont);
 
-        return new Size(size.cx, size.cy);
+        var result = new Size(size.cx, size.cy);
+        _measurements[(text, style)] = result;
+        return result;
     }
 
     /// <summary>Height a wrapped text needs inside the given width.</summary>
@@ -182,12 +194,14 @@ internal sealed class Canvas : IDisposable
         {
             return 0;
         }
+        if (_wrappedMeasurements.TryGetValue((text, width, style), out var cached)) return cached;
 
         var oldFont = SelectObject(_hdc, Fonts.Get(style, _scalePercent));
         var rect = new RECT { Left = 0, Top = 0, Right = Math.Max(1, width), Bottom = 0 };
         DrawTextW(_hdc, text, -1, ref rect, DT_CALCRECT | DT_WORDBREAK | DT_NOPREFIX | DT_EDITCONTROL);
         SelectObject(_hdc, oldFont);
 
+        _wrappedMeasurements[(text, width, style)] = rect.Height;
         return rect.Height;
     }
 

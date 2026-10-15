@@ -40,6 +40,10 @@ internal sealed class MainWindow
     private readonly List<IPage> _pages;
     private readonly Dictionary<string, int> _scrollByPage = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<HitTarget> _hits = new();
+    private Canvas? _canvas;
+    private int _refreshPending;
+    private long _paintCount;
+    private double _paintMilliseconds;
 
     private IntPtr _hwnd;
     private IntPtr _foregroundBrush;
@@ -162,7 +166,11 @@ internal sealed class MainWindow
     }
 
     /// <summary>Repaints from a background thread (the monitor loop publishes snapshots there).</summary>
-    public void RequestRefresh() => PostMessageW(_hwnd, (uint)WM_APP_REFRESH, IntPtr.Zero, IntPtr.Zero);
+    public void RequestRefresh()
+    {
+        if (Interlocked.Exchange(ref _refreshPending, 1) == 0)
+            PostMessageW(_hwnd, (uint)WM_APP_REFRESH, IntPtr.Zero, IntPtr.Zero);
+    }
 
     /// <summary>Ends the message loop from any thread (WM_QUIT is thread local).</summary>
     public void PostQuit() => PostMessageW(_hwnd, (uint)WM_APP_QUIT, IntPtr.Zero, IntPtr.Zero);
@@ -424,6 +432,7 @@ internal sealed class MainWindow
                 return IntPtr.Zero;
 
             case WM_APP_REFRESH:
+                Interlocked.Exchange(ref _refreshPending, 0);
                 Invalidate();
                 return IntPtr.Zero;
 
@@ -602,6 +611,8 @@ internal sealed class MainWindow
                 return IntPtr.Zero;
 
             case WM_DESTROY:
+                _canvas?.Dispose();
+                _canvas = null;
                 CloseEditor(commit: false);
                 KillTimer(_hwnd, new IntPtr(ToastTimerId));
                 return IntPtr.Zero;
@@ -753,10 +764,14 @@ internal sealed class MainWindow
             return;
         }
 
-        using var canvas = new Canvas(hdc, client.Width, client.Height, _scalePercent)
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        if (_canvas is null || _canvas.Width != client.Width || _canvas.Height != client.Height || _canvas.ScalePercent != _scalePercent)
         {
-            HoverTest = rect => IsHovered(rect),
-        };
+            _canvas?.Dispose();
+            _canvas = new Canvas(hdc, client.Width, client.Height, _scalePercent) { HoverTest = rect => IsHovered(rect) };
+        }
+        var canvas = _canvas;
+        canvas.BeginFrame(hdc);
 
         canvas.Fill(new Rectangle(0, 0, client.Width, client.Height), Palette.WindowBackground);
 
@@ -772,6 +787,11 @@ internal sealed class MainWindow
         _hits.AddRange(canvas.Hits);
 
         canvas.Blit();
+        _paintMilliseconds += watch.Elapsed.TotalMilliseconds;
+        if (++_paintCount % 120 == 0)
+        {
+            _host.LogUiDebug($"Paint average {_paintMilliseconds / _paintCount:F2} ms across {_paintCount} frames");
+        }
     }
 
     private void DrawHeader(Canvas canvas, RECT client)

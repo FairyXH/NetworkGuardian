@@ -753,7 +753,19 @@ public sealed class GuardianHostService : IAsyncDisposable
                 var orderedActions = decision.Actions
                     .OrderByDescending(action => action is ApplyInterfaceMetricsAction)
                     .ToList();
-                foreach (var action in orderedActions)
+                foreach (var action in orderedActions.Where(a => a is ApplyInterfaceMetricsAction))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false);
+                }
+                using var scanGate = new SemaphoreSlim(2);
+                await Task.WhenAll(orderedActions.OfType<ScanAdapterAction>().Select(async action =>
+                {
+                    await scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try { await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false); }
+                    finally { scanGate.Release(); }
+                })).ConfigureAwait(false);
+                foreach (var action in orderedActions.Where(a => a is not ApplyInterfaceMetricsAction and not ScanAdapterAction))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false);
@@ -1307,10 +1319,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                     if (result.Success)
                     {
                         Notification?.Invoke(this, $"已连接 {connect.Ssid}");
-                        await Task.Delay(
-                                TimeSpan.FromSeconds(Math.Max(0, _config.General.DhcpWaitSeconds)),
-                                cancellationToken)
-                            .ConfigureAwait(false);
+                        await WaitForAddressAsync(connect.InterfaceGuid, cancellationToken).ConfigureAwait(false);
                         _forceProbe = true;
                     }
                     else
@@ -1916,6 +1925,16 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         var owner = SelectAutoConnectOwner(_wifi.GetAdapters());
         return CloneCredential(entry, interfaceGuid == owner);
+    }
+
+    private async Task WaitForAddressAsync(Guid adapter, CancellationToken token)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Max(0, _config.General.DhcpWaitSeconds));
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (_interfaces.GetInterfaces().Any(i => i.WlanInterfaceGuid == adapter && i.IsUp && i.HasUsableIpv4 && i.HasDefaultGateway)) return;
+            await Task.Delay(300, token).ConfigureAwait(false);
+        }
     }
 
     private string ResolveProfileSsid(Guid guid, string profile) =>
