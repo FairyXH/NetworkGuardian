@@ -20,6 +20,7 @@ internal sealed class SettingsPage : IPage
     };
 
     private GuardianConfig? _working;
+    private GuardianConfig? _baseline;
     private string _status = "尚未加载";
     private bool _dirty;
     private MainWindow? _window;
@@ -57,12 +58,14 @@ internal sealed class SettingsPage : IPage
             // The live configuration gets its own copy so later edits keep hitting the working copy
             // until they are saved again.
             var target = Clone(config);
+            var baseline = _baseline!;
             ctx.Window.RunBackground(
                 saveOperation,
                 "正在保存并应用设置",
                 async () =>
                 {
-                    await ctx.Window.App.ApplyConfigAsync(target).ConfigureAwait(false);
+                    await ctx.Window.App.ApplyConfigAsync(target, baseline).ConfigureAwait(false);
+                    _baseline = target;
                     _status = issues.Count == 0
                         ? $"保存成功 {DateTimeOffset.Now:HH:mm:ss}"
                         : $"保存成功；{issues.Count} 项被修正：{string.Join("；", issues)}";
@@ -80,6 +83,7 @@ internal sealed class SettingsPage : IPage
             {
                 var reloaded = await ctx.Window.App.ReloadConfigAsync().ConfigureAwait(false);
                 _working = Clone(reloaded);
+                _baseline = Clone(reloaded);
                 _status = "已从磁盘重新加载";
                 _dirty = false;
             });
@@ -431,6 +435,7 @@ internal sealed class SettingsPage : IPage
         if (_working is null)
         {
             _working = Clone(ctx.Host.Config);
+            _baseline = Clone(_working);
         }
 
         return _working;
@@ -454,16 +459,18 @@ internal sealed class SettingsPage : IPage
         _autoSaveCancellation = new CancellationTokenSource();
         var token = _autoSaveCancellation.Token;
         var snapshot = Clone(working);
-        _ = AutoSaveAsync(window, snapshot, revision, token);
+        _ = AutoSaveAsync(window, snapshot, _baseline!, revision, token);
     }
 
-    private async Task AutoSaveAsync(MainWindow window, GuardianConfig config, long revision, CancellationToken cancellationToken)
+    private async Task AutoSaveAsync(MainWindow window, GuardianConfig config, GuardianConfig baseline, long revision, CancellationToken cancellationToken)
     {
         try
         {
             await Task.Delay(350, cancellationToken).ConfigureAwait(false);
             new ConfigValidator().Normalize(config);
-            await window.App.ApplyConfigAsync(config).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await window.App.ApplyConfigAsync(config, baseline).ConfigureAwait(false);
+            _baseline = config;
             if (revision == Interlocked.Read(ref _editRevision))
             {
                 _dirty = false;

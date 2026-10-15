@@ -290,7 +290,7 @@ internal sealed class PortableApp
     }
 
     /// <summary>Saves the configuration and applies everything the UI changed.</summary>
-    public async Task ApplyConfigAsync(GuardianConfig config)
+    public async Task ApplyConfigAsync(GuardianConfig config, GuardianConfig? baseline = null)
     {
         await _configApplyGate.WaitAsync().ConfigureAwait(false);
         try
@@ -300,6 +300,10 @@ internal sealed class PortableApp
                 return;
             }
 
+            if (baseline is not null)
+            {
+                config = ConfigMerge.Apply(_host.Config, baseline, config);
+            }
             await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
             ApplyLoggingSettings(config);
 
@@ -307,6 +311,23 @@ internal sealed class PortableApp
             {
                 _logger.LogWarning("The run-at-logon registration could not be updated");
             }
+        }
+        finally
+        {
+            _configApplyGate.Release();
+        }
+    }
+
+    public async Task UpdateConfigAsync(Action<GuardianConfig> update)
+    {
+        await _configApplyGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_host is null) return;
+            var config = ConfigJson.Deserialize(ConfigJson.Serialize(_host.Config))!;
+            update(config);
+            await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
+            ApplyLoggingSettings(config);
         }
         finally
         {

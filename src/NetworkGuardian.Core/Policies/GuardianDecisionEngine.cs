@@ -674,6 +674,18 @@ public sealed class GuardianDecisionEngine
             _logger.LogInformation("Adapter {Adapter} no longer present; policy state cleared", staleGuid);
         }
 
+        foreach (var adapter in adapters.Where(a => a.IsConnected && a.CurrentSsid is not null &&
+                     !WifiBindingPolicy.Allows(config.Wifi, a.CurrentSsid, a.InterfaceGuid)))
+        {
+            actions.Add(new DisconnectWifiAction
+            {
+                InterfaceGuid = adapter.InterfaceGuid,
+                Ssid = adapter.CurrentSsid!,
+                SuppressAutoReconnect = true,
+                Reason = "此 SSID 已指定其他网卡，释放错误连接",
+            });
+        }
+
         // ---------- One SSID per adapter ----------
         // Two adapters associated with the same access point duplicate every frame and, with several
         // drivers, degrade the link for both. When the user wants one SSID per adapter, the weaker
@@ -695,12 +707,15 @@ public sealed class GuardianDecisionEngine
                     .ThenBy(a => a.Description, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                var keep = _ssidOwners.TryGetValue(group.Key, out var ownerGuid)
+                var keep = WifiBindingPolicy.Owner(config.Wifi, group.Key) is { } assignedOwner
+                    ? ranked.FirstOrDefault(adapter => adapter.InterfaceGuid == assignedOwner) ?? ranked[0]
+                    : _ssidOwners.TryGetValue(group.Key, out var ownerGuid)
                     ? ranked.FirstOrDefault(adapter => adapter.InterfaceGuid == ownerGuid) ?? ranked[0]
                     : ranked[0];
                 _ssidOwners[group.Key] = keep.InterfaceGuid;
                 foreach (var loser in ranked.Where(adapter => adapter.InterfaceGuid != keep.InterfaceGuid))
                 {
+                    if (actions.OfType<DisconnectWifiAction>().Any(a => a.InterfaceGuid == loser.InterfaceGuid)) continue;
                     var key = $"duplicate-ssid:{loser.InterfaceGuid}";
                     var limiter = GetCommandLimiter(key, 12, TimeSpan.FromSeconds(60), 4);
 

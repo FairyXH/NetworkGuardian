@@ -1195,6 +1195,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
                 case ConnectWifiAction connect:
                 {
+                    if (!WifiBindingPolicy.Allows(_config.Wifi, connect.Ssid, connect.InterfaceGuid)) break;
                     _lastConnectAttempt[connect.InterfaceGuid] = (DateTimeOffset.UtcNow, connect.ProfileName);
 
                     // 802.1X user data requires a persistent Windows profile. Personal/open networks take
@@ -1544,6 +1545,9 @@ public sealed class GuardianHostService : IAsyncDisposable
         try
         {
             _logger.LogInformation("Manual connect on {Adapter} to profile {Profile}", interfaceGuid, profileName);
+            var ssid = ResolveProfileSsid(interfaceGuid, profileName);
+            if (!WifiBindingPolicy.Allows(_config.Wifi, ssid, interfaceGuid))
+                return WlanOperationResult.Fail("此 Wi-Fi 已指定其他网卡，请先修改或取消指定");
             var result = await _wifi.ConnectAsync(interfaceGuid, profileName, null, cancellationToken)
                 .ConfigureAwait(false);
             _engine.NotifyConnectResult(interfaceGuid, profileName, result.Success, result.Failure, DateTimeOffset.UtcNow);
@@ -1773,9 +1777,9 @@ public sealed class GuardianHostService : IAsyncDisposable
             entry.AppliedFingerprint = null;
             entry.LastAppliedUtc = null;
 
-            var allowAutoConnect = entry.ConnectAutomatically &&
+            var allowAutoConnect = entry.ConnectAutomatically && WifiBindingPolicy.Allows(_config.Wifi, entry.Ssid, adapter.InterfaceGuid) &&
                                    (_config.Wifi.AllowSameSsidOnMultipleAdapters ||
-                                    adapter.InterfaceGuid == autoConnectOwner);
+                                    adapter.InterfaceGuid == (WifiBindingPolicy.Owner(_config.Wifi, entry.Ssid) ?? autoConnectOwner));
             var result = _profiles.Apply(
                 adapter.InterfaceGuid,
                 CloneCredential(entry, allowAutoConnect),
@@ -1844,6 +1848,8 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     private WifiNetworkCredential CredentialForAdapter(WifiNetworkCredential entry, Guid interfaceGuid)
     {
+        if (WifiBindingPolicy.Owner(_config.Wifi, entry.Ssid) is { } assigned)
+            return CloneCredential(entry, entry.ConnectAutomatically && interfaceGuid == assigned);
         if (_config.Wifi.AllowSameSsidOnMultipleAdapters || !entry.ConnectAutomatically)
         {
             return entry;
@@ -1852,6 +1858,11 @@ public sealed class GuardianHostService : IAsyncDisposable
         var owner = SelectAutoConnectOwner(_wifi.GetAdapters());
         return CloneCredential(entry, interfaceGuid == owner);
     }
+
+    private string ResolveProfileSsid(Guid guid, string profile) =>
+        _wifi.GetLastScan(guid)?.Networks.FirstOrDefault(n => n.ProfileName == profile)?.Ssid ??
+        _vault.Entries.FirstOrDefault(e => e.EffectiveProfileName == profile)?.Ssid ??
+        WifiProfileInspector.TryReadSsid(_wifi.GetProfileXml(guid, profile)) ?? profile;
 
     private static WifiNetworkCredential CloneCredential(WifiNetworkCredential source, bool connectAutomatically)
     {

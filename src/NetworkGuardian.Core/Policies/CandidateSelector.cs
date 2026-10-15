@@ -75,8 +75,7 @@ public sealed class CandidateSelector
                 continue;
             }
 
-            if (CampusQuietPeriod.IsCampusSsid(settings, network.Ssid) &&
-                settings.CampusWifiAdapterAssignments.TryGetValue(network.Ssid, out var assignedAdapter) &&
+            if (settings.CampusWifiAdapterAssignments.TryGetValue(network.Ssid, out var assignedAdapter) &&
                 Guid.TryParse(assignedAdapter, out var assignedGuid) &&
                 assignedGuid != interfaceGuid)
             {
