@@ -75,11 +75,9 @@ public sealed class CandidateSelector
                 continue;
             }
 
-            if (settings.CampusWifiAdapterAssignments.TryGetValue(network.Ssid, out var assignedAdapter) &&
-                Guid.TryParse(assignedAdapter, out var assignedGuid) &&
-                assignedGuid != interfaceGuid)
+            if (!WifiBindingPolicy.Allows(settings, network.Ssid, interfaceGuid))
             {
-                rejections.Add($"{network.Ssid}: 已指定由无线网卡 {assignedGuid:D} 连接");
+                rejections.Add($"{network.Ssid}: 已指定由无线网卡 {WifiBindingPolicy.Owner(settings, network.Ssid):D} 连接");
                 continue;
             }
 

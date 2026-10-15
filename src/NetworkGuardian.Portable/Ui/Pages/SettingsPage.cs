@@ -21,6 +21,7 @@ internal sealed class SettingsPage : IPage
 
     private GuardianConfig? _working;
     private GuardianConfig? _baseline;
+    private GuardianConfig? _observedConfig;
     private string _status = "尚未加载";
     private bool _dirty;
     private MainWindow? _window;
@@ -65,7 +66,6 @@ internal sealed class SettingsPage : IPage
                 async () =>
                 {
                     await ctx.Window.App.ApplyConfigAsync(target, baseline).ConfigureAwait(false);
-                    _baseline = target;
                     _status = issues.Count == 0
                         ? $"保存成功 {DateTimeOffset.Now:HH:mm:ss}"
                         : $"保存成功；{issues.Count} 项被修正：{string.Join("；", issues)}";
@@ -79,11 +79,14 @@ internal sealed class SettingsPage : IPage
         var reloading = ctx.Window.IsOperationRunning(reloadOperation);
         Widgets.Button(ctx, save.Right + ctx.Scale(8), y, reloading ? "加载中…" : "重新加载", () =>
         {
+            _autoSaveCancellation?.Cancel();
+            Interlocked.Increment(ref _editRevision);
             ctx.Window.RunBackground(reloadOperation, "正在从磁盘重新加载设置", async () =>
             {
                 var reloaded = await ctx.Window.App.ReloadConfigAsync().ConfigureAwait(false);
                 _working = Clone(reloaded);
                 _baseline = Clone(reloaded);
+                _observedConfig = reloaded;
                 _status = "已从磁盘重新加载";
                 _dirty = false;
             });
@@ -448,6 +451,14 @@ internal sealed class SettingsPage : IPage
         {
             _working = Clone(ctx.Host.Config);
             _baseline = Clone(_working);
+            _observedConfig = ctx.Host.Config;
+        }
+        else if (!ReferenceEquals(_observedConfig, ctx.Host.Config))
+        {
+            var latest = ctx.Host.Config;
+            _working = ConfigMerge.Apply(latest, _baseline!, _working);
+            _baseline = Clone(latest);
+            _observedConfig = latest;
         }
 
         return _working;
@@ -482,7 +493,6 @@ internal sealed class SettingsPage : IPage
             new ConfigValidator().Normalize(config);
             cancellationToken.ThrowIfCancellationRequested();
             await window.App.ApplyConfigAsync(config, baseline).ConfigureAwait(false);
-            _baseline = config;
             if (revision == Interlocked.Read(ref _editRevision))
             {
                 _dirty = false;

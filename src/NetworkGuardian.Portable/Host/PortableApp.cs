@@ -338,6 +338,9 @@ internal sealed class PortableApp
     /// <summary>Re-reads the configuration document from disk.</summary>
     public async Task<GuardianConfig> ReloadConfigAsync()
     {
+        await _configApplyGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
         var config = await _configStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
         if (_host is not null)
         {
@@ -346,6 +349,8 @@ internal sealed class PortableApp
 
         ApplyLoggingSettings(config);
         return config;
+        }
+        finally { _configApplyGate.Release(); }
     }
 
     public bool IsRunAtLogonEnabled()

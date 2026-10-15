@@ -374,7 +374,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             try
             {
                 var adapters = BuildAdapterStates();
-                var interfaces = BuildInterfaceStates();
+                var interfaces = BuildInterfaceStates(adapters);
                 var desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
                 var drifted = interfaces.Any(i =>
                     desired.TryGetValue(i.Id, out var metric) &&
@@ -390,7 +390,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                         _logger.LogInformation("跃点锁定: {Note}", note);
                     }
 
-                    interfaces = BuildInterfaceStates();
+                    interfaces = BuildInterfaceStates(adapters);
                 }
 
                 await PublishLiveRouteSnapshotAsync(interfaces, adapters, desired, cancellationToken)
@@ -724,7 +724,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             }
 
             var adapters = BuildAdapterStates();
-            var interfaces = BuildInterfaceStates();
+            var interfaces = BuildInterfaceStates(adapters);
 
             // The library can change while the program runs (the user edits an entry), so the engine gets a
             // fresh summary of "which 802.1X networks can be authenticated" every cycle.
@@ -782,7 +782,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 // the dashboard never keeps showing the pre-failover outlet for another heartbeat.
                 if (orderedActions.Any(action => action is ApplyInterfaceMetricsAction))
                 {
-                    input = input with { Interfaces = BuildInterfaceStates() };
+                    input = input with { Interfaces = BuildInterfaceStates(adapters) };
                 }
             }
 
@@ -1015,7 +1015,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         return states;
     }
 
-    private IReadOnlyList<InterfaceRuntimeState> BuildInterfaceStates()
+    private IReadOnlyList<InterfaceRuntimeState> BuildInterfaceStates(IReadOnlyList<WifiAdapterRuntimeState> adapters)
     {
         var interfaces = _interfaces.GetInterfaces();
         var routes = DefaultRouteSelector.Order(_interfaces.GetDefaultRoutes());
@@ -1035,8 +1035,9 @@ public sealed class GuardianHostService : IAsyncDisposable
 
             var isDefault = bestRoute is not null && DefaultRouteSelector.MatchesInterface(bestRoute, state);
             var route = routes.FirstOrDefault(r => DefaultRouteSelector.MatchesInterface(r, state));
+            var wifi = adapters.FirstOrDefault(a => a.InterfaceGuid == state.WlanInterfaceGuid);
             var quality = _config.Quality.Enabled && state.WlanInterfaceGuid is { } qualityGuid
-                ? LinkQuality.Where(q => q.Adapter == qualityGuid && q.IsMeasured &&
+                ? LinkQuality.Where(q => q.Adapter == qualityGuid && q.Ssid == wifi?.CurrentSsid && q.Band == wifi?.Connection?.Band && q.IsMeasured &&
                     DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5))
                     .OrderByDescending(q => q.UpdatedAtUtc).FirstOrDefault() : null;
 
@@ -1049,7 +1050,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 QualityScore = _config.Quality.Enabled && state.Kind == InterfaceKind.Wifi ?
                     (quality?.Score ?? 50) + LearnedRouteBonus(state, quality) : null,
                 UserPreferred = _temporaryPreference is { } preferred && DateTimeOffset.UtcNow < preferred.Until &&
-                    state.WlanInterfaceGuid == preferred.Adapter && _wifi.GetConnection(preferred.Adapter)?.Ssid == preferred.Ssid &&
+                    state.WlanInterfaceGuid == preferred.Adapter && wifi?.CurrentSsid == preferred.Ssid &&
                     (quality is null || quality.Score >= 50),
             });
         }
@@ -1451,7 +1452,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                     if (disconnect.SuppressAutoReconnect)
                     {
                         var profileMode = _wifi.SetProfileAutoConnect(
-                            disconnect.InterfaceGuid, disconnect.Ssid, enabled: false);
+                            disconnect.InterfaceGuid, _wifi.GetConnection(disconnect.InterfaceGuid)?.ProfileName ?? disconnect.Ssid, enabled: false);
                         if (!profileMode.Success)
                         {
                             _logger.LogWarning(

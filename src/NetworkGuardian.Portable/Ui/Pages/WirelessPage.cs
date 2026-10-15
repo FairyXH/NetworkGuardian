@@ -358,7 +358,7 @@ internal sealed class WirelessPage : IPage
                                    assignedAdapterGuid == guid;
                 var campusWidth = Widgets.MeasureButtonWidth(ctx, isCampus ? "校园网 ✓" : "标为校园网");
                 var connectWidth = Widgets.MeasureButtonWidth(ctx, "连接");
-                var assignmentLabel = assignedHere ? "取消指定" : hasAssignment ? "改为本卡" : "指定本卡";
+                var assignmentLabel = assignedHere ? "本卡专用 ▾" : hasAssignment ? "已指定网卡 ▾" : "指定网卡 ▾";
                 var assignmentWidth = Widgets.MeasureButtonWidth(ctx, assignmentLabel);
                 var campusRight = card.Right - ctx.Scale(16) - assignmentWidth - ctx.Scale(6) -
                                   (network.HasProfile && network.Connectable && !network.IsCurrentConnection
@@ -381,18 +381,23 @@ internal sealed class WirelessPage : IPage
 
                 {
                     var assignmentRect = new Rectangle(campusRight + ctx.Scale(6), actionY, assignmentWidth, ctx.Scale(26));
+                    var popupRect = canvas.ToClient(assignmentRect);
                     var assignmentOperation = $"wireless-assignment-{ssidForCampus}";
                     Widgets.ButtonAt(ctx, assignmentRect, assignmentLabel, () =>
                     {
-                        ctx.Window.RunBackground(assignmentOperation, $"正在保存 {ssidForCampus} 的网卡指定",
-                            () => ctx.Window.App.UpdateConfigAsync(updated =>
-                            {
-                                if (assignedHere) updated.Wifi.CampusWifiAdapterAssignments.Remove(ssidForCampus);
-                                else updated.Wifi.CampusWifiAdapterAssignments[ssidForCampus] = guid.ToString("D");
-                            }),
-                            assignedHere
-                                ? $"已取消 {ssidForCampus} 的无线网卡指定"
-                                : $"{ssidForCampus} 已指定使用 {adapter.Description}");
+                        var choices = snapshot.WifiAdapters.Select(a => (Guid: a.InterfaceGuid, Name: a.Description)).ToList();
+                        var owner = NetworkGuardian.Core.Policies.WifiBindingPolicy.Owner(ctx.Host.Config.Wifi, ssidForCampus);
+                        if (owner is { } offline && choices.All(a => a.Guid != offline))
+                            choices.Add((offline, $"当前离线的指定网卡 {offline:D}"));
+                        var items = new[] { "不指定（自动评级分配）" }.Concat(choices.Select(a => $"{a.Name} ({a.Guid:D})")).ToArray();
+                        var selected = owner is { } current ? choices.FindIndex(a => a.Guid == current) + 1 : 0;
+                        ctx.Window.ShowPopupMenu(popupRect, items, selected, index =>
+                            ctx.Window.RunBackground(assignmentOperation, $"正在保存 {ssidForCampus} 的网卡指定",
+                                () => ctx.Window.App.UpdateConfigAsync(updated =>
+                                {
+                                    if (index == 0) updated.Wifi.CampusWifiAdapterAssignments.Remove(ssidForCampus);
+                                    else updated.Wifi.CampusWifiAdapterAssignments[ssidForCampus] = choices[index - 1].Guid.ToString("D");
+                                }), index == 0 ? $"已取消 {ssidForCampus} 的无线网卡指定" : $"{ssidForCampus} 已指定使用 {choices[index - 1].Name}"));
                     }, enabled: !ctx.Window.IsOperationRunning(assignmentOperation));
                 }
 
