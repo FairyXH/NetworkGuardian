@@ -69,6 +69,9 @@ public sealed class GuardianHostService : IAsyncDisposable
     private Task? _loop;
     private Task? _radioWatchdog;
     private Task? _routeWatchdog;
+    private Task? _qualityLoop;
+    private readonly NetworkHistoryStore _history = new(Path.Combine(GuardianPaths.Root, "network-history.json"));
+    public IReadOnlyList<LinkQualityEstimate> LinkQuality => _history.Snapshot;
     private GuardianConfig _config;
     private GuardianSnapshot _snapshot;
     private DateTimeOffset _lastEnumerationUtc = DateTimeOffset.MinValue;
@@ -264,6 +267,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     {
         _config = await _configStore.LoadAsync(cancellationToken).ConfigureAwait(false);
         ApplyConfigToComponents(_config);
+        await _history.LoadAsync(cancellationToken).ConfigureAwait(false);
+        if (_history.LoadIssue is { } historyIssue) _logger.LogWarning("{Issue}", historyIssue);
 
         HelperClient.PruneStaleExchangeFiles(TimeSpan.FromHours(6));
 
@@ -320,6 +325,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _loop = Task.Run(() => MonitorLoopAsync(_cts.Token), CancellationToken.None);
         _radioWatchdog = Task.Run(() => RadioWatchdogLoopAsync(_cts.Token), CancellationToken.None);
         _routeWatchdog = Task.Run(() => RouteWatchdogLoopAsync(_cts.Token), CancellationToken.None);
+        _qualityLoop = Task.Run(() => QualityLoopAsync(_cts.Token), CancellationToken.None);
 
         _logger.LogInformation("Guardian host started (config {Path})", _configStore.ConfigPath);
     }
@@ -731,6 +737,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 ManualScanRequested = _manualScanRequested,
                 Location = _location.Read(),
                 EapCatalog = _eapCatalog,
+                LinkQuality = _config.Quality.Enabled ? LinkQuality : Array.Empty<LinkQualityEstimate>(),
             };
 
             _manualScanRequested = false;
@@ -1004,6 +1011,10 @@ public sealed class GuardianHostService : IAsyncDisposable
 
             var isDefault = bestRoute is not null && DefaultRouteSelector.MatchesInterface(bestRoute, state);
             var route = routes.FirstOrDefault(r => DefaultRouteSelector.MatchesInterface(r, state));
+            var quality = _config.Quality.Enabled && state.WlanInterfaceGuid is { } qualityGuid
+                ? LinkQuality.Where(q => q.Adapter == qualityGuid && q.IsMeasured &&
+                    DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5))
+                    .OrderByDescending(q => q.UpdatedAtUtc).FirstOrDefault() : null;
 
             result.Add(state with
             {
@@ -1011,10 +1022,58 @@ public sealed class GuardianHostService : IAsyncDisposable
                 IsDefaultRoute = isDefault,
                 RouteMetric = route?.RouteMetric,
                 InterfaceMetric = state.InterfaceMetric ?? route?.InterfaceMetric,
+                QualityScore = _config.Quality.Enabled && state.Kind == InterfaceKind.Wifi ? quality?.Score ?? 50 : null,
             });
         }
 
         return result;
+    }
+
+    private async Task QualityLoopAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (_config.Quality.Enabled && !IsPaused && DateTimeOffset.UtcNow >= _resumeQuietUntilUtc)
+                {
+                    var snapshot = Snapshot;
+                    var links = snapshot.Interfaces.Where(i => i.Kind == InterfaceKind.Wifi && i.IsPhysicalDevice != false &&
+                        i.IsUp && i.PrimaryIpv4Address is not null && i.HasDefaultGateway).ToArray();
+                    // Fixed small batches run off the recovery and route loops; at most two adapters at a time.
+                    using var gate = new SemaphoreSlim(2);
+                    await Task.WhenAll(links.Select(async iface =>
+                    {
+                        await gate.WaitAsync(token).ConfigureAwait(false);
+                        try
+                        {
+                            var adapter = snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == iface.WlanInterfaceGuid);
+                            if (adapter?.CurrentSsid is not { } ssid) return;
+                            var sample = await LinkQualitySampler.SampleAsync(iface, _config.Probe.NpcapRawTcpTargets, token).ConfigureAwait(false);
+                            var live = _wifi.GetConnection(adapter.InterfaceGuid);
+                            if (live?.Ssid != ssid || !live.IsConnected) return;
+                            _history.Record(adapter.InterfaceGuid, ssid, adapter.Connection?.Band ?? NetworkBand.Unknown,
+                                adapter.DeviceInstanceId, sample);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            _logger.LogDebug(ex, "Quality sampling failed on {Adapter}", iface.Name);
+                        }
+                        finally { gate.Release(); }
+                    })).ConfigureAwait(false);
+                    await _history.SaveAsync(token).ConfigureAwait(false);
+                    RequestImmediateCycle();
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+            catch (Exception ex) { _logger.LogWarning(ex, "Quality history update failed"); }
+            try
+            {
+                var degraded = LinkQuality.Any(q => q.IsMeasured && q.Score < 50 && DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5));
+                await Task.Delay(TimeSpan.FromSeconds(degraded ? 15 : _config.Quality.SampleIntervalSeconds), token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+        }
     }
 
     private void PublishSnapshot(GuardianDecision decision, GuardianInput input)
@@ -1975,6 +2034,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             {
                 await Task.WhenAny(_routeWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
             }
+            if (_qualityLoop is not null) await _qualityLoop.ConfigureAwait(false);
         }
         catch (Exception ex)
         {

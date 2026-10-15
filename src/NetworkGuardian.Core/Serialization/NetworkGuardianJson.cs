@@ -24,6 +24,7 @@ namespace NetworkGuardian.Core.Serialization;
     AllowTrailingCommas = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
 [JsonSerializable(typeof(GuardianConfig))]
+[JsonSerializable(typeof(NetworkHistory))]
 [JsonSerializable(typeof(WifiCredentialLibrary))]
 [JsonSerializable(typeof(HelperRequest))]
 [JsonSerializable(typeof(HelperResponse))]

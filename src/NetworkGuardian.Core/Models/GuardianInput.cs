@@ -24,6 +24,8 @@ public sealed record GuardianInput
 
     public bool ManualScanRequested { get; init; }
 
+    public IReadOnlyList<LinkQualityEstimate> LinkQuality { get; init; } = Array.Empty<LinkQualityEstimate>();
+
     public LocationPermissionSnapshot Location { get; init; } = new() { ObservedAtUtc = default };
 
     /// <summary>

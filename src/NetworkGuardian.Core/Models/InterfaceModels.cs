@@ -67,6 +67,8 @@ public sealed record InterfaceRuntimeState
     /// <summary>Per-interface connectivity probe bound to this interface's source address.</summary>
     public ConnectivityProbeReport? Probe { get; init; }
 
+    public double? QualityScore { get; init; }
+
     public string MetricDescription =>
         InterfaceMetric is null && RouteMetric is null
             ? "n/a"

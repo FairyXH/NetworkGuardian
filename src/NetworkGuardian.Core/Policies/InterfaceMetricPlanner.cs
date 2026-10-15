@@ -83,6 +83,8 @@ public static class InterfaceMetricPlanner
             return megabits;
         }
 
+        if (state.QualityScore is { } quality) return quality * 1000;
+
         var signal = state.WlanInterfaceGuid is { } guid
             ? wifiAdapters.FirstOrDefault(adapter => adapter.InterfaceGuid == guid)?.SignalQuality ?? 0
             : 0;

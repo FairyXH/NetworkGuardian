@@ -18,13 +18,29 @@ internal sealed class DashboardPage : IPage
 
     public string Title => "总览";
 
-    public string Description => "系统持续保持现有可用连接，仅在连接失效后才重新选网。";
+    public string Description => "按实际质量安排网络与网卡，保留稳定连接；指定网卡始终优先。";
 
     public int Render(PageContext ctx, Rectangle area)
     {
         var canvas = ctx.Canvas;
         var snapshot = ctx.Snapshot;
         var y = area.Top + Widgets.Heading(ctx, area, Title, Description);
+
+        var qualityLines = snapshot.WifiAdapters.Select(a =>
+        {
+            var quality = ctx.Host.LinkQuality.FirstOrDefault(q => q.Adapter == a.InterfaceGuid && q.Ssid == a.CurrentSsid && q.Band == a.Connection?.Band);
+            var age = quality is null ? string.Empty : $" · 更新于 {quality.UpdatedAtUtc.ToLocalTime():HH:mm:ss}";
+            return $"{a.Description} / {a.CurrentSsid ?? "未连接"}\n{quality?.Summary ?? "待评估：连接后积累实际采样"}{age}";
+        });
+        var qualityText = string.Join("\n", qualityLines);
+        if (qualityText.Length == 0) qualityText = "尚未发现无线网卡";
+        if (!ctx.Host.Config.Quality.Enabled) qualityText = "质量评级已关闭\n" + qualityText;
+        var qualityHeight = canvas.MeasureWrappedHeight(qualityText, area.Width - ctx.Scale(32), TextStyle.Body);
+        var qualityCard = new Rectangle(area.Left, y, area.Width, ctx.Scale(52) + qualityHeight);
+        canvas.Card(qualityCard);
+        canvas.Text("网络与网卡质量", new Rectangle(area.Left + ctx.Scale(16), y + ctx.Scale(12), area.Width - ctx.Scale(32), ctx.Scale(24)), Palette.TextPrimary, TextStyle.Section);
+        canvas.Text(qualityText, new Rectangle(area.Left + ctx.Scale(16), y + ctx.Scale(38), area.Width - ctx.Scale(32), qualityHeight), Palette.TextSecondary, TextStyle.Body, wrap: TextWrap.Wrap);
+        y = qualityCard.Bottom + ctx.Scale(12);
 
         var proxyTextWidth = area.Width - ctx.Scale(32);
         var proxyTextHeight = canvas.MeasureWrappedHeight(ProxyCompatibilityGuidance, proxyTextWidth, TextStyle.Body);

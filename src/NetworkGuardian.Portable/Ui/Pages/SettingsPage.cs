@@ -250,6 +250,15 @@ internal sealed class SettingsPage : IPage
         wifi.Text("SSID 白名单（非空时只连接其中的 SSID）", Join(config.Wifi.SsidAllowList), v => config.Wifi.SsidAllowList = Split(v), multiline: true);
         y = DrawCard(ctx, area, y, "无线策略（粘性连接）", wifi);
 
+        var quality = new Form(ctx, this);
+        quality.Toggle("启用网络与网卡质量评级", config.Quality.Enabled, v => config.Quality.Enabled = v);
+        quality.Toggle("持续劣化时自动改善网卡分配", config.Quality.RebalanceEnabled, v => config.Quality.RebalanceEnabled = v);
+        quality.Number("常规采样间隔（秒）", config.Quality.SampleIntervalSeconds, 15, 3600, v => config.Quality.SampleIntervalSeconds = v);
+        quality.Number("迁移所需采样组数", config.Quality.MinimumSamples, 5, 40, v => config.Quality.MinimumSamples = v);
+        quality.Number("迁移冷却（秒）", config.Quality.RebalanceCooldownSeconds, 120, 86400, v => config.Quality.RebalanceCooldownSeconds = v);
+        quality.Note("网关丢包、外网 ICMP 与 TCP 失败分别统计。固定轻量采样不持续测速；指定网卡始终优先。目标联网验证成功后才释放原连接。");
+        y = DrawCard(ctx, area, y, "质量评级与网卡分配", quality);
+
         // ---------- 失败与重试 ----------
         var recovery = new Form(ctx, this);
         recovery.Number("外网连续失败阈值", config.Recovery.InternetFailureThreshold, 1, 100, v => config.Recovery.InternetFailureThreshold = v);

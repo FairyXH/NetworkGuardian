@@ -27,6 +27,8 @@ public sealed class GuardianConfig
 
     public WifiSettings Wifi { get; set; } = new();
 
+    public QualitySettings Quality { get; set; } = new();
+
     public EthernetSettings Ethernet { get; set; } = new();
 
     public CampusAuthSettings CampusAuth { get; set; } = new();
@@ -473,7 +475,7 @@ public sealed class WifiSettings
     /// <summary>Networks that must not be joined during the configured campus authentication outage.</summary>
     public List<string> CampusNetworkSsids { get; set; } = new();
 
-    /// <summary>Optional SSID to WLAN interface binding for campus networks.</summary>
+    /// <summary>SSID to WLAN interface hard binding. Legacy JSON name retained for compatibility.</summary>
     public Dictionary<string, string> CampusWifiAdapterAssignments { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
 

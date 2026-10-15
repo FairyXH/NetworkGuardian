@@ -25,35 +25,27 @@ public static class AdapterAssignmentPlanner
             return results;
         }
 
-        // Greedy global assignment: the strongest (adapter, candidate) pair wins first.
-        var pool = sets
-            .SelectMany(set => set.Candidates.Select(c => (Set: set.InterfaceGuid, Candidate: c)))
-            .OrderByDescending(pair => pair.Candidate.Score)
-            .ThenByDescending(pair => pair.Candidate.SignalQuality)
-            .ThenBy(pair => pair.Set)
-            .ThenBy(pair => pair.Candidate.Ssid, StringComparer.Ordinal)
-            .ToList();
-
-        var assignedAdapters = new HashSet<Guid>();
-        var usedSsids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (setGuid, candidate) in pool)
+        // Bounded global search: retain alternatives rather than letting one greedy pair
+        // consume the only SSID another adapter can use. Normal 2-4 adapter setups are exhaustive.
+        var plans = new List<List<AdapterCandidateAssignment>> { results };
+        foreach (var set in sets.OrderBy(s => s.InterfaceGuid))
         {
-            if (assignedAdapters.Contains(setGuid))
+            var expanded = new List<List<AdapterCandidateAssignment>>();
+            foreach (var plan in plans)
             {
-                continue;
+                expanded.Add(plan);
+                foreach (var candidate in set.Candidates.OrderByDescending(c => c.Score).Take(8))
+                {
+                    if (!allowSameSsidOnMultipleAdapters && plan.Any(p =>
+                        string.Equals(p.Candidate.Ssid, candidate.Ssid, StringComparison.OrdinalIgnoreCase))) continue;
+                    expanded.Add(new(plan) { new(set.InterfaceGuid, candidate) });
+                }
             }
-
-            if (!allowSameSsidOnMultipleAdapters && usedSsids.Contains(candidate.Ssid))
-            {
-                continue;
-            }
-
-            assignedAdapters.Add(setGuid);
-            usedSsids.Add(candidate.Ssid);
-            results.Add(new AdapterCandidateAssignment(setGuid, candidate));
+            plans = expanded.OrderByDescending(Utility).Take(512).ToList();
         }
-
-        return results;
+        return plans.OrderByDescending(Utility).First();
     }
+
+    private static double Utility(List<AdapterCandidateAssignment> plan) =>
+        plan.Count == 0 ? 0 : plan.Count * 1000 + plan.Sum(p => p.Candidate.Score) + plan.Max(p => p.Candidate.Score);
 }

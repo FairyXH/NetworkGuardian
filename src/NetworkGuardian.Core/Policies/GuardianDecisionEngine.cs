@@ -71,6 +71,8 @@ public sealed class GuardianDecisionEngine
     private DateTimeOffset? _lastGlobalProbeTimestampUtc;
     private DateTimeOffset? _lastEthernetProbeTimestampUtc;
     private bool _internetWasOnline;
+    private DateTimeOffset _lastQualityHandoverUtc = DateTimeOffset.MinValue;
+    private (Guid Source, Guid Target, string Ssid, DateTimeOffset Started)? _qualityHandover;
 
     public GuardianDecisionEngine(
         GuardianConfig config,
@@ -686,6 +688,8 @@ public sealed class GuardianDecisionEngine
             });
         }
 
+        PlanQualityHandover(input, actions, wifiNotes);
+
         // ---------- One SSID per adapter ----------
         // Two adapters associated with the same access point duplicate every frame and, with several
         // drivers, degrade the link for both. When the user wants one SSID per adapter, the weaker
@@ -700,6 +704,7 @@ public sealed class GuardianDecisionEngine
 
             foreach (var group in duplicates)
             {
+                if (_qualityHandover is { } transfer && group.Key == transfer.Ssid) continue;
                 // Keep the strongest link; ties are broken by description so the choice is stable
                 // across cycles instead of oscillating between equally strong adapters.
                 var ranked = group
@@ -760,7 +765,8 @@ public sealed class GuardianDecisionEngine
 
             // The duplicate-SSID pass already decided this adapter must be released. Do not add a second
             // disconnect or any scan/connect work for the same stale snapshot.
-            if (actions.OfType<DisconnectWifiAction>().Any(action => action.InterfaceGuid == adapter.InterfaceGuid))
+            if (actions.OfType<DisconnectWifiAction>().Any(action => action.InterfaceGuid == adapter.InterfaceGuid) ||
+                actions.OfType<ConnectWifiAction>().Any(action => action.InterfaceGuid == adapter.InterfaceGuid))
             {
                 continue;
             }
@@ -1079,6 +1085,9 @@ public sealed class GuardianDecisionEngine
                 continue;
             }
 
+            if (config.Quality.Enabled)
+                candidates = candidates.Select(c => NetworkQualityPolicy.Adjust(c, input.LinkQuality, now))
+                    .OrderByDescending(c => c.Score).ToList();
             reconnectNeeded.Add(new AdapterCandidateSet(adapter.InterfaceGuid, candidates));
         }
 
@@ -1192,6 +1201,81 @@ public sealed class GuardianDecisionEngine
         }
 
         return BuildDecision(now, actions, notes, connectivity);
+    }
+
+    private void PlanQualityHandover(GuardianInput input, List<GuardianAction> actions, List<string> notes)
+    {
+        var now = input.Now;
+        var settings = input.Config.Quality;
+        if (_qualityHandover is { } pending)
+        {
+            var target = input.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == pending.Target);
+            var probe = input.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == pending.Target)?.Probe;
+            if (target?.CurrentSsid == pending.Ssid && probe?.IsOnline == true && probe.TimestampUtc > pending.Started)
+            {
+                _ssidOwners[pending.Ssid] = pending.Target;
+                _qualityHandover = null;
+                notes.Add($"质量迁移验证成功：{pending.Ssid} 已在目标网卡联网，释放原连接");
+            }
+            else if (now - pending.Started > TimeSpan.FromSeconds(90))
+            {
+                if (target?.CurrentSsid == pending.Ssid)
+                    actions.Add(new DisconnectWifiAction { InterfaceGuid = pending.Target, Ssid = pending.Ssid,
+                        Reason = "质量迁移验证超时，保留原网卡连接" });
+                _qualityHandover = null;
+                notes.Add("质量迁移未验证成功，已保留原连接并进入冷却");
+            }
+            return;
+        }
+        if (!settings.Enabled || !settings.RebalanceEnabled ||
+            now - _lastQualityHandoverUtc < TimeSpan.FromSeconds(settings.RebalanceCooldownSeconds)) return;
+        foreach (var source in input.WifiAdapters.Where(a => a.IsConnected && a.CurrentSsid is not null))
+        {
+            if (WifiBindingPolicy.Owner(input.Config.Wifi, source.CurrentSsid!) is not null) continue;
+            var quality = input.LinkQuality.FirstOrDefault(q => q.Adapter == source.InterfaceGuid &&
+                q.Ssid == source.CurrentSsid && q.Band == source.Connection?.Band && q.Samples >= settings.MinimumSamples &&
+                now - q.UpdatedAtUtc < TimeSpan.FromMinutes(3));
+            if (quality is null || quality.Score >= 50) continue;
+            foreach (var target in input.WifiAdapters.Where(a => a.InterfaceGuid != source.InterfaceGuid && !a.IsScanInProgress &&
+                         (a.CurrentSsid is null || WifiBindingPolicy.Owner(input.Config.Wifi, a.CurrentSsid) is null)))
+            {
+                var targetHealth = input.LinkQuality.Where(q => q.Adapter == target.InterfaceGuid &&
+                    q.Samples >= settings.MinimumSamples && now - q.UpdatedAtUtc < TimeSpan.FromDays(1))
+                    .Select(q => q.Score).DefaultIfEmpty(50).Average();
+                if (targetHealth < 70 || targetHealth - quality.Score < settings.MinimumGain) continue;
+                var state = GetAdapterState(target.InterfaceGuid, input.Config);
+                if (target.LastScan?.CompletedAtUtc is not { } scanTime || now - scanTime > TimeSpan.FromSeconds(60))
+                {
+                    if (state.ScanLimiter.TryAcquire(now, out _, out _))
+                    {
+                        state.ScanLimiter.RecordRun(now);
+                        actions.Add(new ScanAdapterAction { InterfaceGuid = target.InterfaceGuid, Force = false,
+                            Reason = "低质量连接持续存在，确认可靠网卡的可用候选" });
+                    }
+                    continue;
+                }
+                var candidate = _selector.SelectCandidates(target.InterfaceGuid, target.LastScan, target.SavedProfiles,
+                    input.Config.Wifi, now, out _, eapCatalog: input.EapCatalog)
+                    .FirstOrDefault(c => c.Ssid == source.CurrentSsid);
+                if (candidate is null || NetworkQualityPolicy.CombinationScore(target.InterfaceGuid, candidate.Ssid,
+                    candidate.Band, input.LinkQuality, now) - quality.Score < settings.MinimumGain) continue;
+                if (!state.ConnectLimiter.TryAcquire(now, out _, out _)) continue;
+                state.ConnectLimiter.RecordRun(now);
+                state.PendingConnectUtc = now;
+                state.PendingConnectProfile = candidate.ProfileName;
+                _qualityHandover = (source.InterfaceGuid, target.InterfaceGuid, candidate.Ssid, now);
+                _lastQualityHandoverUtc = now;
+                actions.Add(new ConnectWifiAction
+                {
+                    InterfaceGuid = target.InterfaceGuid, Ssid = candidate.Ssid, ProfileName = candidate.ProfileName,
+                    Security = candidate.Security, RequiresEap = candidate.RequiresEap,
+                    UsesLibraryCredential = candidate.UsesLibraryCredential, Bssid = candidate.PreferredBssid,
+                    Reason = $"原组合质量 {quality.Score:F0}，目标网卡健康度 {targetHealth:F0}；先连接并验证，再释放原连接",
+                });
+                notes.Add("正在改善低质量网络分配：保留原连接，等待目标网卡联网验证");
+                return;
+            }
+        }
     }
 
     private static bool DetermineAdapterUsable(

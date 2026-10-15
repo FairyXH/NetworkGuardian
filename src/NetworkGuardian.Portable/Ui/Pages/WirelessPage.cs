@@ -162,7 +162,7 @@ internal sealed class WirelessPage : IPage
 
         var cardHeight =
             ctx.Scale(16 + 24 + 8) +          // padding + title
-            (ctx.Scale(20) * 7) +             // seven detail lines
+            (ctx.Scale(20) * 8) +
             ctx.Scale(22) +                   // "已保存的配置" caption
             (profilesRows * ctx.Scale(24)) +
             ctx.Scale(22) +                   // scanned networks caption
@@ -208,6 +208,7 @@ internal sealed class WirelessPage : IPage
             $"DeviceInstanceId：{adapter.DeviceInstanceId ?? "—"}",
             $"配置数：{profileText}　上次扫描：{lastScan}",
             $"上次连接尝试：{lastAttempt}　最近失败：{lastFailure}",
+            ctx.Host.LinkQuality.FirstOrDefault(q => q.Adapter == adapter.InterfaceGuid && q.Ssid == adapter.CurrentSsid)?.Summary ?? "质量：待评估（采样不足）",
         };
 
         foreach (var line in lines)

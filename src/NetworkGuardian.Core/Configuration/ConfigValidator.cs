@@ -42,6 +42,11 @@ public sealed class ConfigValidator
         config.Wifi.SsidDenyList ??= new List<string>();
         config.Wifi.SsidAllowList ??= new List<string>();
         config.Wifi.CampusNetworkSsids ??= new List<string>();
+        config.Quality ??= new QualitySettings();
+        config.Quality.SampleIntervalSeconds = Clamp(config.Quality.SampleIntervalSeconds, 15, 3600, "quality.sampleIntervalSeconds", issues);
+        config.Quality.MinimumSamples = Clamp(config.Quality.MinimumSamples, 5, 40, "quality.minimumSamples", issues);
+        config.Quality.MinimumGain = Clamp(config.Quality.MinimumGain, 10, 60, "quality.minimumGain", issues);
+        config.Quality.RebalanceCooldownSeconds = Clamp(config.Quality.RebalanceCooldownSeconds, 120, 86400, "quality.rebalanceCooldownSeconds", issues);
         config.Wifi.CampusWifiAdapterAssignments ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         config.Wifi.CampusWifiAdapterAssignments = new Dictionary<string, string>(
             config.Wifi.CampusWifiAdapterAssignments,
