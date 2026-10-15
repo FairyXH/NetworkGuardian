@@ -57,6 +57,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly WifiProfileApplier _profiles;
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private readonly SemaphoreSlim _cycleSignal = new(0, 1);
+    private readonly SemaphoreSlim _bindingGate = new(1, 1);
     private readonly Random _jitter = new();
 
     /// <summary>
@@ -547,6 +548,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         await _configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         _config = config;
         ApplyConfigToComponents(config);
+        await SynchronizeBoundProfilesAsync(cancellationToken).ConfigureAwait(false);
         RequestImmediateCycle();
         _logger.LogInformation("Configuration updated and saved to {Path}", _configStore.ConfigPath);
     }
@@ -819,12 +821,52 @@ public sealed class GuardianHostService : IAsyncDisposable
         }
 
         _profilesByAdapter = profiles;
+        await SynchronizeBoundProfilesAsync(cancellationToken).ConfigureAwait(false);
 
         var physical = _devicesSnapshot.Count(d => d.Classification.IsPhysical);
         _logger.LogInformation(
             "Enumeration complete: {AdapterCount} WLAN interface(s), {DeviceCount} network device(s), " +
             "{PhysicalCount} classified physical; Npcap={NpcapAvailable} ({NpcapDetail})",
             adapterCount, _devicesSnapshot.Count, physical, npcapStatus.IsAvailable, npcapStatus.Detail);
+    }
+
+    private async Task SynchronizeBoundProfilesAsync(CancellationToken token)
+    {
+        await _bindingGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            if (_config.Wifi.CampusWifiAdapterAssignments.Count == 0 && _history.SuppressedProfiles.Count == 0) return;
+            foreach (var adapter in _wifi.GetAdapters())
+            foreach (var profile in _wifi.GetProfileNames(adapter.InterfaceGuid))
+            {
+                token.ThrowIfCancellationRequested();
+                var xml = _wifi.GetProfileXml(adapter.InterfaceGuid, profile);
+                var ssid = WifiProfileInspector.TryReadSsid(xml);
+                if (ssid is null || xml is null) continue;
+                var marker = new SuppressedWifiProfile(adapter.InterfaceGuid, profile);
+                var managed = _history.SuppressedProfiles.Contains(marker);
+                if (!WifiBindingPolicy.Allows(_config.Wifi, ssid, adapter.InterfaceGuid))
+                {
+                    if (!xml.Contains("<connectionMode>auto</connectionMode>", StringComparison.OrdinalIgnoreCase)) continue;
+                    _history.SetSuppressedProfile(marker, true);
+                    // Persist the original mode before changing Windows so restart can restore it.
+                    await _history.SaveAsync(token).ConfigureAwait(false);
+                    var result = _wifi.SetProfileAutoConnect(adapter.InterfaceGuid, profile, false);
+                    if (!result.Success) _logger.LogWarning("指定网卡自动连接约束写入失败：{Profile} {Failure}", profile, result.Failure);
+                }
+                else if (managed)
+                {
+                    var result = _wifi.SetProfileAutoConnect(adapter.InterfaceGuid, profile, true);
+                    if (result.Success)
+                    {
+                        _history.SetSuppressedProfile(marker, false);
+                        await _history.SaveAsync(token).ConfigureAwait(false);
+                    }
+                    else _logger.LogWarning("恢复自动连接失败：{Profile} {Failure}", profile, result.Failure);
+                }
+            }
+        }
+        finally { _bindingGate.Release(); }
     }
 
     private async Task RefreshProbesAsync(CancellationToken cancellationToken)
@@ -1960,7 +2002,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         }
 
         var results = new List<string>();
-        var autoConnectOwner = SelectAutoConnectOwner(adapters);
+        var autoConnectOwner = WifiBindingPolicy.Owner(_config.Wifi, entry.Ssid) ?? SelectAutoConnectOwner(_wifi.GetAdapters(), entry.Ssid);
         foreach (var adapter in adapters)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -2024,18 +2066,25 @@ public sealed class GuardianHostService : IAsyncDisposable
         return observed is null || WifiProfileInspector.IsEnterpriseSecurity(observed.Security);
     }
 
-    private Guid? SelectAutoConnectOwner(IReadOnlyList<WifiAdapterInfo> availableAdapters)
+    private Guid? SelectAutoConnectOwner(IReadOnlyList<WifiAdapterInfo> availableAdapters, string? ssid = null)
     {
         var physicalGuids = _devicesSnapshot
             .Where(device => device.Record.IsPresent && device.Classification.IsPhysical &&
                              device.Classification.Category == DeviceCategory.PhysicalWifi)
             .Select(device => device.Record.NetCfgInstanceId)
             .Where(value => Guid.TryParse(value, out _))
-            .Select(value => Guid.Parse(value!));
+            .Select(value => Guid.Parse(value!)).ToArray();
 
-        return ExclusiveAutoConnectPolicy.SelectOwner(
+        var fallback = ExclusiveAutoConnectPolicy.SelectOwner(
             physicalGuids,
             availableAdapters.Select(adapter => adapter.InterfaceGuid));
+        if (!_config.Quality.Enabled || ssid is null) return fallback;
+        var known = physicalGuids.Length > 0 ? physicalGuids : availableAdapters.Select(a => a.InterfaceGuid).ToArray();
+        var ranked = known.Select(g => (Guid: g, Score: NetworkQualityPolicy.CombinationScore(g, ssid,
+                NetworkBand.Unknown, LinkQuality, DateTimeOffset.UtcNow)))
+            .OrderByDescending(p => p.Score).ThenBy(p => p.Guid).ToArray();
+        var oldScore = ranked.FirstOrDefault(p => p.Guid == fallback).Score;
+        return ranked.Length > 0 && ranked[0].Score > oldScore + 10 ? ranked[0].Guid : fallback;
     }
 
     private WifiNetworkCredential CredentialForAdapter(WifiNetworkCredential entry, Guid interfaceGuid)
@@ -2047,7 +2096,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             return entry;
         }
 
-        var owner = SelectAutoConnectOwner(_wifi.GetAdapters());
+        var owner = SelectAutoConnectOwner(_wifi.GetAdapters(), entry.Ssid);
         return CloneCredential(entry, interfaceGuid == owner);
     }
 

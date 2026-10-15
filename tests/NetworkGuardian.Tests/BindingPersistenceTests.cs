@@ -44,4 +44,16 @@ public sealed class BindingPersistenceTests
         Assert.Null(WifiBindingPolicy.Owner(merged.Wifi, "Home"));
         Assert.Equal(TestData.AdapterB, WifiBindingPolicy.Owner(merged.Wifi, "Other"));
     }
+
+    [Fact]
+    public void NonCampusNetworkIsRejectedOnUnassignedAdapter()
+    {
+        var config = TestData.Config(c => c.Wifi.CampusWifiAdapterAssignments["Home"] = TestData.AdapterA.ToString());
+        var selector = new CandidateSelector(new ConnectFailureBlacklist(TimeSpan.FromSeconds(30)));
+        var candidates = selector.SelectCandidates(TestData.AdapterB,
+            TestData.Scan(TestData.AdapterB, TestData.Network(TestData.AdapterB, "Home", 100)),
+            new[] { "Home" }, config.Wifi, TestData.Now, out var rejections);
+        Assert.Empty(candidates);
+        Assert.Contains(rejections, r => r.Contains("已指定", StringComparison.Ordinal));
+    }
 }

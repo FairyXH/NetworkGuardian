@@ -18,6 +18,20 @@ public sealed class NetworkHistoryStore
     public string? LoadIssue { get; private set; }
     public PreferenceState Preferences => Volatile.Read(ref _preferences);
 
+    public IReadOnlyList<SuppressedWifiProfile> SuppressedProfiles
+    {
+        get { lock (_gate) return _state.SuppressedProfiles.ToArray(); }
+    }
+
+    public void SetSuppressedProfile(SuppressedWifiProfile profile, bool suppressed)
+    {
+        lock (_gate)
+        {
+            _state.SuppressedProfiles.RemoveAll(p => p == profile);
+            if (suppressed) _state.SuppressedProfiles.Add(profile);
+        }
+    }
+
     public void RecordPreference(PreferenceFeedback feedback)
     {
         lock (_gate)
@@ -80,6 +94,7 @@ public sealed class NetworkHistoryStore
                 lock (_gate)
                 {
                     _state = state;
+                    _state.SuppressedProfiles ??= new();
                     _state.Preferences ??= new();
                     if (_state.Preferences.Weights is null || _state.Preferences.Feedback is null || _state.Preferences.QuestionContexts is null)
                         _state.Preferences = new();
@@ -93,6 +108,12 @@ public sealed class NetworkHistoryStore
             {
                 LoadIssue = $"质量历史读取失败：{ex.Message}；尝试备份或重新学习";
             }
+        }
+        lock (_gate)
+        {
+            _state = new();
+            Publish(DateTimeOffset.UtcNow);
+            PublishPreferences();
         }
     }
 

@@ -23,6 +23,7 @@ public sealed class NativeWifiManager : INativeWifiService
     private readonly ILogger<NativeWifiManager> _logger;
     private readonly object _gate = new();
     private readonly ConcurrentDictionary<Guid, ScanState> _scanStates = new();
+    private readonly ConcurrentDictionary<Guid, (string Bssid, DateTimeOffset AtUtc, WifiBssEntry Entry)> _connectionBssCache = new();
     private readonly ConcurrentQueue<WlanNotificationEvent> _notifications = new();
     private readonly SemaphoreSlim _notificationSignal = new(0, 4096);
     private readonly WlanNotificationCallback _callback;
@@ -801,9 +802,18 @@ public sealed class NativeWifiManager : INativeWifiService
             return connection;
         }
 
-        var entries = ReadBssList(interfaceGuid, out _);
-        var match = entries.FirstOrDefault(e =>
-            string.Equals(e.Bssid, connection.Bssid, StringComparison.OrdinalIgnoreCase));
+        WifiBssEntry? match;
+        if (_connectionBssCache.TryGetValue(interfaceGuid, out var cached) && cached.Bssid == connection.Bssid &&
+            DateTimeOffset.UtcNow - cached.AtUtc < TimeSpan.FromSeconds(15))
+        {
+            match = cached.Entry;
+        }
+        else
+        {
+            var entries = ReadBssList(interfaceGuid, out _);
+            match = entries.FirstOrDefault(e => string.Equals(e.Bssid, connection.Bssid, StringComparison.OrdinalIgnoreCase));
+            if (match is not null) _connectionBssCache[interfaceGuid] = (connection.Bssid, DateTimeOffset.UtcNow, match);
+        }
 
         if (match is null)
         {

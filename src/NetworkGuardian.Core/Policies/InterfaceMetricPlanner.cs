@@ -84,7 +84,9 @@ public static class InterfaceMetricPlanner
             return megabits;
         }
 
-        if (state.QualityScore is { } quality) return quality * 1000;
+        // Keep a working outlet through small measurement fluctuations; a challenger needs
+        // a meaningful quality advantage before the route order changes.
+        if (state.QualityScore is { } quality) return (quality + (state.IsDefaultRoute ? 8 : 0)) * 1000;
 
         var signal = state.WlanInterfaceGuid is { } guid
             ? wifiAdapters.FirstOrDefault(adapter => adapter.InterfaceGuid == guid)?.SignalQuality ?? 0

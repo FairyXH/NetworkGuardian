@@ -67,10 +67,12 @@ public sealed class PreferenceLearningTests
             var b = Option(TestData.AdapterB, "Campus");
             store.RecordPreference(new() { AtUtc = TestData.Now, Chosen = a, Alternatives = new[] { b } });
             store.MarkQuestion("context", TestData.Now);
+            store.SetSuppressedProfile(new(TestData.AdapterB, "Home profile"), true);
             await store.SaveAsync(default);
             var loaded = new NetworkHistoryStore(path);
             await loaded.LoadAsync(default);
             Assert.Single(loaded.Preferences.Feedback);
+            Assert.Single(loaded.SuppressedProfiles);
             Assert.Equal(1, loaded.Preferences.ExplicitChoices);
             Assert.False(PreferencePolicy.CanAsk(loaded.Preferences, "context", TestData.Now.AddDays(1)));
             loaded.RemovePreference(TestData.Now);

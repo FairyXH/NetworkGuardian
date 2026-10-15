@@ -1218,6 +1218,7 @@ public sealed class GuardianDecisionEngine
     {
         var now = input.Now;
         var settings = input.Config.Quality;
+        if (!input.Config.General.AutomaticRecovery) return;
         if (_qualityHandover is { } pending)
         {
             var target = input.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == pending.Target);
