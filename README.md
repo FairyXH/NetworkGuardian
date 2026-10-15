@@ -2,9 +2,11 @@
 
 NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。它持续采集物理以太网、物理 Wi-Fi、IP、路由、无线电和真实外网可达性，在连接被确认失效后执行受限、可追踪的恢复动作。
 
-当前版本使用 C# / .NET 8，发布为 **win-x64 Native AOT 单文件 EXE**。实测发布文件约 8.95 MiB，目标电脑无需安装 .NET、Windows App SDK 或 Visual Studio。
+当前版本使用 C# / .NET 8，发布为 **win-x64 Native AOT 单文件 EXE**。发布文件约 11.30 MiB，目标电脑无需安装 .NET、Windows App SDK 或 Visual Studio。
 
-> 核心原则：保持已经可用的连接；只有在探测证据和连续失败阈值同时满足时，才执行最小必要动作。
+> 核心原则：保持稳定连接；持续低质量时先验证替代网卡，再释放原连接。SSID 指定网卡是始终生效的硬约束。
+
+0.10.0 新增实际质量评级、全局网卡分配、全部 SSID 网卡指定、配置合并保存和本地偏好学习，详见 [质量与偏好说明](docs/quality-preferences.md)。
 
 ![总览](docs/ui-dashboard.png)
 
@@ -12,14 +14,14 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 
 | 项目 | 当前值 |
 | --- | --- |
-| 应用版本 | `0.9.0` |
-| 配置 Schema | `v13` |
+| 应用版本 | `0.10.0` |
+| 配置 Schema | `v15` |
 | 目标平台 | Windows 10/11 x64 |
 | 发布形式 | Native AOT 单 EXE，提权助手内置 |
-| 实测 EXE 大小 | 8.95 MiB |
-| 发布体积门禁 | 10.0 MiB |
-| 常规测试 | 306 项 |
-| 发布包验收 | 33 项 |
+| 实测 EXE 大小 | 约 11.30 MiB |
+| 发布体积门禁 | 12.0 MiB |
+| 常规测试 | 317 项 |
+| 发布验证 | 单 EXE / Native AOT 启动 / 隔离配置 / 界面检查 |
 
 ## 功能概览
 
