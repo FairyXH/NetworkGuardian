@@ -72,7 +72,9 @@ public sealed class GuardianDecisionEngine
     private DateTimeOffset? _lastEthernetProbeTimestampUtc;
     private bool _internetWasOnline;
     private DateTimeOffset _lastQualityHandoverUtc = DateTimeOffset.MinValue;
-    private (Guid Source, Guid Target, string Ssid, DateTimeOffset Started)? _qualityHandover;
+    private (Guid Source, Guid Target, string Ssid, DateTimeOffset Started, double SourceScore)? _qualityHandover;
+    private DateTimeOffset _handoverQualityAtUtc;
+    private int _handoverQualitySuccesses;
 
     public GuardianDecisionEngine(
         GuardianConfig config,
@@ -1223,7 +1225,16 @@ public sealed class GuardianDecisionEngine
         {
             var target = input.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == pending.Target);
             var probe = input.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == pending.Target)?.Probe;
-            if (target?.CurrentSsid == pending.Ssid && probe?.IsOnline == true && probe.TimestampUtc > pending.Started)
+            var measured = input.LinkQuality.FirstOrDefault(q => q.Adapter == pending.Target && q.Ssid == pending.Ssid &&
+                q.Band == target?.Connection?.Band && q.UpdatedAtUtc > pending.Started);
+            if (measured is not null && measured.UpdatedAtUtc != _handoverQualityAtUtc)
+            {
+                _handoverQualityAtUtc = measured.UpdatedAtUtc;
+                _handoverQualitySuccesses = measured.RecentScore >= Math.Max(60, pending.SourceScore + settings.MinimumGain)
+                    ? _handoverQualitySuccesses + 1 : 0;
+            }
+            if (target?.CurrentSsid == pending.Ssid && probe?.IsOnline == true && probe.TimestampUtc > pending.Started &&
+                _handoverQualitySuccesses >= 3)
             {
                 _ssidOwners[pending.Ssid] = pending.Target;
                 _qualityHandover = null;
@@ -1251,10 +1262,12 @@ public sealed class GuardianDecisionEngine
             foreach (var target in input.WifiAdapters.Where(a => a.InterfaceGuid != source.InterfaceGuid && !a.IsScanInProgress &&
                          (a.CurrentSsid is null || WifiBindingPolicy.Owner(input.Config.Wifi, a.CurrentSsid) is null)))
             {
-                var targetHealth = input.LinkQuality.Where(q => q.Adapter == target.InterfaceGuid &&
+                var targetHistory = input.LinkQuality.Where(q => q.Adapter == target.InterfaceGuid &&
                     q.Samples >= settings.MinimumSamples && now - q.UpdatedAtUtc < TimeSpan.FromDays(1))
-                    .Select(q => q.Score).DefaultIfEmpty(50).Average();
-                if (targetHealth < 70 || targetHealth - quality.Score < settings.MinimumGain) continue;
+                    .ToArray();
+                var trial = targetHistory.Length == 0 && !target.IsConnected;
+                var targetHealth = targetHistory.Select(q => q.Score).DefaultIfEmpty(50).Average();
+                if (!trial && (targetHealth < 70 || targetHealth - quality.Score < settings.MinimumGain)) continue;
                 var state = GetAdapterState(target.InterfaceGuid, input.Config);
                 if (target.LastScan?.CompletedAtUtc is not { } scanTime || now - scanTime > TimeSpan.FromSeconds(60))
                 {
@@ -1269,20 +1282,22 @@ public sealed class GuardianDecisionEngine
                 var candidate = _selector.SelectCandidates(target.InterfaceGuid, target.LastScan, target.SavedProfiles,
                     input.Config.Wifi, now, out _, eapCatalog: input.EapCatalog)
                     .FirstOrDefault(c => c.Ssid == source.CurrentSsid);
-                if (candidate is null || NetworkQualityPolicy.CombinationScore(target.InterfaceGuid, candidate.Ssid,
+                if (candidate is null || !trial && NetworkQualityPolicy.CombinationScore(target.InterfaceGuid, candidate.Ssid,
                     candidate.Band, input.LinkQuality, now) - quality.Score < settings.MinimumGain) continue;
                 if (!state.ConnectLimiter.TryAcquire(now, out _, out _)) continue;
                 state.ConnectLimiter.RecordRun(now);
                 state.PendingConnectUtc = now;
                 state.PendingConnectProfile = candidate.ProfileName;
-                _qualityHandover = (source.InterfaceGuid, target.InterfaceGuid, candidate.Ssid, now);
+                _qualityHandover = (source.InterfaceGuid, target.InterfaceGuid, candidate.Ssid, now, quality.Score);
+                _handoverQualitySuccesses = 0;
+                _handoverQualityAtUtc = now;
                 _lastQualityHandoverUtc = now;
                 actions.Add(new ConnectWifiAction
                 {
                     InterfaceGuid = target.InterfaceGuid, Ssid = candidate.Ssid, ProfileName = candidate.ProfileName,
                     Security = candidate.Security, RequiresEap = candidate.RequiresEap,
                     UsesLibraryCredential = candidate.UsesLibraryCredential, Bssid = candidate.PreferredBssid,
-                    Reason = $"原组合质量 {quality.Score:F0}，目标网卡健康度 {targetHealth:F0}；先连接并验证，再释放原连接",
+                    Reason = $"原组合质量 {quality.Score:F0}，目标网卡{(trial ? "待评估" : $"健康度 {targetHealth:F0}")}；先验证三组新质量采样，再释放原连接",
                 });
                 notes.Add("正在改善低质量网络分配：保留原连接，等待目标网卡联网验证");
                 return;

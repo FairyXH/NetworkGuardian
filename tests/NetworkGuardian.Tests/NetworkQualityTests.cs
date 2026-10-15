@@ -108,14 +108,27 @@ public sealed class NetworkQualityTests
         var decision = engine.Evaluate(input);
         Assert.Contains(decision.Actions, a => a is ConnectWifiAction c && c.InterfaceGuid == TestData.AdapterA && c.Ssid == "Fast");
         Assert.DoesNotContain(decision.Actions, a => a is DisconnectWifiAction);
-        var connectedTarget = target with { Connection = target.Connection! with { Ssid = "Fast" } };
+        var connectedTarget = target with { Connection = target.Connection! with { Ssid = "Fast", Band = NetworkBand.Band5GHz } };
         var pending = input with { Now = TestData.Now.AddSeconds(2), WifiAdapters = new[] { source, connectedTarget } };
         Assert.DoesNotContain(engine.Evaluate(pending).Actions, a => a is DisconnectWifiAction);
-        var verified = pending with { Now = TestData.Now.AddSeconds(4), Interfaces = new[]
+        GuardianDecision? result = null;
+        for (var i = 0; i < 3; i++)
         {
-            input.Interfaces[0] with { Probe = TestData.OnlineProbe() with { TimestampUtc = TestData.Now.AddSeconds(3) } }, input.Interfaces[1],
-        } };
-        Assert.Contains(engine.Evaluate(verified).Actions, a => a is DisconnectWifiAction d && d.InterfaceGuid == TestData.AdapterB);
+            var sampledAt = TestData.Now.AddSeconds(3 + i * 15);
+            var verified = pending with { Now = sampledAt.AddSeconds(1), Interfaces = new[]
+            {
+                input.Interfaces[0] with { Probe = TestData.OnlineProbe() with { TimestampUtc = sampledAt } }, input.Interfaces[1],
+            }, LinkQuality = new[] { input.LinkQuality[0], Quality(TestData.AdapterA, "Fast", 95) with
+                { UpdatedAtUtc = sampledAt, RecentScore = 95 } } };
+            result = engine.Evaluate(verified);
+            if (i < 2) Assert.DoesNotContain(result.Actions, a => a is DisconnectWifiAction);
+        }
+        Assert.Contains(result!.Actions, a => a is DisconnectWifiAction d && d.InterfaceGuid == TestData.AdapterB);
+        var idle = TestData.DisconnectedAdapter(TestData.AdapterA, new[] { "Fast" }, target.LastScan);
+        var trial = new GuardianDecisionEngine(config).Evaluate(input with
+        { WifiAdapters = new[] { source, idle }, LinkQuality = new[] { input.LinkQuality[0] } });
+        Assert.Contains(trial.Actions, a => a is ConnectWifiAction);
+        Assert.DoesNotContain(trial.Actions, a => a is DisconnectWifiAction);
         config.Wifi.CampusWifiAdapterAssignments["Fast"] = TestData.AdapterB.ToString();
         Assert.DoesNotContain(new GuardianDecisionEngine(config).Evaluate(input).Actions, a => a is ConnectWifiAction);
     }

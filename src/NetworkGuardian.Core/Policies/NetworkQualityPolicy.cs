@@ -19,6 +19,7 @@ public static class NetworkQualityPolicy
         var latency = delays.Length > 0 ? delays.Average() : (double?)null;
         var jitter = samples.Average(s => s.JitterMs);
         var score = Score(gatewayLoss, internetLoss, tcpLoss, latency, jitter);
+        var last = samples[^1];
         return new()
         {
             Adapter = history.Adapter, Ssid = history.Ssid, Band = history.Band,
@@ -26,6 +27,9 @@ public static class NetworkQualityPolicy
             GatewayLoss = gatewayLoss, InternetLoss = internetLoss, TcpFailure = tcpLoss,
             LatencyMs = latency, JitterMs = jitter,
             Score = score * .8 + history.LongTermScore * .2,
+            RecentScore = Score(gatewayKnown ? Loss(last.GatewaySent, last.GatewayReplies) : null,
+                internetKnown ? Loss(last.InternetSent, last.InternetReplies) : null,
+                tcpKnown ? Loss(last.TcpSent, last.TcpReplies) : null, last.LatencyMs, last.JitterMs),
         };
     }
 

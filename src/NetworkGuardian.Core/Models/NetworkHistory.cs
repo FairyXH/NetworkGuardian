@@ -41,6 +41,7 @@ public sealed record LinkQualityEstimate
     public DateTimeOffset UpdatedAtUtc { get; init; }
     public int Samples { get; init; }
     public double Score { get; init; } = 50;
+    public double RecentScore { get; init; } = 50;
     public double? GatewayLoss { get; init; }
     public double? InternetLoss { get; init; }
     public double? TcpFailure { get; init; }
