@@ -42,6 +42,18 @@ public sealed class NetworkQualityTests
     }
 
     [Fact]
+    public void UncalibratedTcpTargetsAreUnknownRatherThanTotalPacketLoss()
+    {
+        var history = new LinkQualityHistory { LongTermScore = 95 };
+        for (var i = 0; i < 10; i++) history.Samples.Add(new()
+        { AtUtc = TestData.Now.AddSeconds(i), GatewaySent = 4, GatewayReplies = 4, TcpSent = 3, TcpReplies = 0 });
+        var estimate = NetworkQualityPolicy.Estimate(history, TestData.Now.AddMinutes(1));
+        Assert.Null(estimate.TcpFailure);
+        Assert.Equal(0, estimate.GatewayLoss);
+        Assert.True(estimate.Score > 85);
+    }
+
+    [Fact]
     public void GlobalPlanKeepsBestNetworkOnReliableAdapter()
     {
         var history = new[] { Quality(TestData.AdapterA, "Fast", 95), Quality(TestData.AdapterB, "Fast", 20),

@@ -13,7 +13,8 @@ public static class NetworkQualityPolicy
         var internetKnown = history.Samples.Any(s => s.InternetReplies > 0);
         var gatewayLoss = gatewayKnown ? Loss(samples.Sum(s => s.GatewaySent), samples.Sum(s => s.GatewayReplies)) : null;
         var internetLoss = internetKnown ? Loss(samples.Sum(s => s.InternetSent), samples.Sum(s => s.InternetReplies)) : null;
-        var tcpLoss = Loss(samples.Sum(s => s.TcpSent), samples.Sum(s => s.TcpReplies));
+        var tcpKnown = history.Samples.Any(s => s.TcpReplies > 0);
+        var tcpLoss = tcpKnown ? Loss(samples.Sum(s => s.TcpSent), samples.Sum(s => s.TcpReplies)) : null;
         var delays = samples.Where(s => s.LatencyMs.HasValue).Select(s => s.LatencyMs!.Value).ToArray();
         var latency = delays.Length > 0 ? delays.Average() : (double?)null;
         var jitter = samples.Average(s => s.JitterMs);

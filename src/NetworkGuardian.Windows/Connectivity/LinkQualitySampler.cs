@@ -29,6 +29,11 @@ public static class LinkQualitySampler
                 await socket.ConnectAsync(IPEndPoint.Parse(target), timeout.Token).ConfigureAwait(false);
                 return (Success: true, Ms: watch.Elapsed.TotalMilliseconds);
             }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.ConnectionRefused)
+            {
+                // An RST proves a round trip, just like the raw Npcap TCP reachability check.
+                return (Success: true, Ms: watch.Elapsed.TotalMilliseconds);
+            }
             catch (Exception ex) when (ex is SocketException or OperationCanceledException)
             {
                 token.ThrowIfCancellationRequested();
