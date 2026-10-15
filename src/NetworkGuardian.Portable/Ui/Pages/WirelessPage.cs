@@ -17,7 +17,7 @@ internal sealed class WirelessPage : IPage
 
     public string Title => "无线网卡";
 
-    public string Description => "仅管理物理无线网卡；已正常连接的网卡不会被主动切换，扫描结果按网卡分别保存。";
+    public string Description => "按网卡分别扫描与评级；保留稳定连接，持续劣化时验证更优网卡；SSID 指定始终优先。";
 
     public int Render(PageContext ctx, Rectangle area)
     {

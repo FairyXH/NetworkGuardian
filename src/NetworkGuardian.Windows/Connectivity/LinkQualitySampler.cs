@@ -49,12 +49,12 @@ public static class LinkQualitySampler
             GatewaySent = icmp.GatewaySent, GatewayReplies = icmp.GatewayReplies,
             InternetSent = icmp.InternetSent, InternetReplies = icmp.InternetReplies,
             TcpSent = tcp.Length, TcpReplies = tcp.Count(t => t.Success),
-            LatencyMs = delays.Length > 0 ? delays.Average() : null,
+            LatencyMs = delays.Length > 0 ? delays.Average() : icmp.InternetLatency,
             JitterMs = icmp.Jitter,
         };
     }
 
-    private static (int GatewaySent, int GatewayReplies, int InternetSent, int InternetReplies, double Jitter)
+    private static (int GatewaySent, int GatewayReplies, int InternetSent, int InternetReplies, double Jitter, double? InternetLatency)
         EchoBatch(IPAddress source, string? gateway, CancellationToken token)
     {
         var handle = IcmpCreateFile();
@@ -66,6 +66,7 @@ public static class LinkQualitySampler
             var internetSent = 0;
             var internetReplies = 0;
             var delays = new List<double>();
+            var internetDelays = new List<double>();
             var targets = new[] { gateway, gateway, gateway, gateway, "223.5.5.5", "119.29.29.29" };
             foreach (var target in targets)
             {
@@ -90,11 +91,16 @@ public static class LinkQualitySampler
                 else
                 {
                     internetSent++;
-                    if (success) internetReplies++;
+                    if (success)
+                    {
+                        internetReplies++;
+                        internetDelays.Add(BitConverter.ToUInt32(reply, 8));
+                    }
                 }
             }
             var jitter = delays.Count > 1 ? delays.Skip(1).Zip(delays, (a, b) => Math.Abs(a - b)).Average() : 0;
-            return (gatewaySent, gatewayReplies, internetSent, internetReplies, jitter);
+            return (gatewaySent, gatewayReplies, internetSent, internetReplies, jitter,
+                internetDelays.Count > 0 ? internetDelays.Average() : null);
         }
         finally { IcmpCloseHandle(handle); }
     }
