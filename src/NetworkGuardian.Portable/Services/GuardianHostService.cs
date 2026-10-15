@@ -72,6 +72,12 @@ public sealed class GuardianHostService : IAsyncDisposable
     private Task? _qualityLoop;
     private readonly NetworkHistoryStore _history = new(Path.Combine(GuardianPaths.Root, "network-history.json"));
     public IReadOnlyList<LinkQualityEstimate> LinkQuality => _history.Snapshot;
+    public PreferenceState Preferences => _history.Preferences;
+    private PreferenceQuestion? _preferenceQuestion;
+    public PreferenceQuestion? PreferenceQuestion => Volatile.Read(ref _preferenceQuestion);
+    private sealed record TemporaryPreference(Guid Adapter, string Ssid, DateTimeOffset Until);
+    private TemporaryPreference? _temporaryPreference;
+    private readonly Dictionary<Guid, PreferenceFeedback> _pendingUserChoices = new();
     private GuardianConfig _config;
     private GuardianSnapshot _snapshot;
     private DateTimeOffset _lastEnumerationUtc = DateTimeOffset.MinValue;
@@ -738,6 +744,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 Location = _location.Read(),
                 EapCatalog = _eapCatalog,
                 LinkQuality = _config.Quality.Enabled ? LinkQuality : Array.Empty<LinkQualityEstimate>(),
+                Preferences = Preferences,
             };
 
             _manualScanRequested = false;
@@ -875,6 +882,11 @@ public sealed class GuardianHostService : IAsyncDisposable
                 if (candidate.WlanInterfaceGuid is { } guid)
                 {
                     byAdapter[guid] = stabilized;
+                    if (_config.Quality.LearningEnabled && _pendingUserChoices.Remove(guid, out var choice) &&
+                        stabilized.IsOnline && stabilized.TimestampUtc > choice.AtUtc &&
+                        stabilized.TimestampUtc - choice.AtUtc < TimeSpan.FromSeconds(90) &&
+                        _wifi.GetConnection(guid)?.Ssid == choice.Chosen.Candidate.Ssid)
+                        _history.RecordPreference(choice);
                 }
 
                 byInterfaceId[candidate.Id] = stabilized;
@@ -1034,7 +1046,11 @@ public sealed class GuardianHostService : IAsyncDisposable
                 IsDefaultRoute = isDefault,
                 RouteMetric = route?.RouteMetric,
                 InterfaceMetric = state.InterfaceMetric ?? route?.InterfaceMetric,
-                QualityScore = _config.Quality.Enabled && state.Kind == InterfaceKind.Wifi ? quality?.Score ?? 50 : null,
+                QualityScore = _config.Quality.Enabled && state.Kind == InterfaceKind.Wifi ?
+                    (quality?.Score ?? 50) + LearnedRouteBonus(state, quality) : null,
+                UserPreferred = _temporaryPreference is { } preferred && DateTimeOffset.UtcNow < preferred.Until &&
+                    state.WlanInterfaceGuid == preferred.Adapter && _wifi.GetConnection(preferred.Adapter)?.Ssid == preferred.Ssid &&
+                    (quality is null || quality.Score >= 50),
             });
         }
 
@@ -1073,6 +1089,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                         }
                         finally { gate.Release(); }
                     })).ConfigureAwait(false);
+                    RefreshPreferenceQuestion();
                     await _history.SaveAsync(token).ConfigureAwait(false);
                     RequestImmediateCycle();
                 }
@@ -1086,6 +1103,104 @@ public sealed class GuardianHostService : IAsyncDisposable
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
         }
+    }
+
+    private double LearnedRouteBonus(InterfaceRuntimeState iface, LinkQualityEstimate? quality)
+    {
+        if (!_config.Quality.LearningEnabled || !_config.Quality.ApplyLearnedPreferences || quality is null) return 0;
+        var candidate = new WifiCandidate { InterfaceGuid = quality.Adapter, Ssid = quality.Ssid,
+            ProfileName = quality.Ssid, Band = quality.Band };
+        return PreferencePolicy.Bonus(Preferences, PreferencePolicy.Option(candidate, LinkQuality, DateTimeOffset.UtcNow), DateTimeOffset.UtcNow);
+    }
+
+    public IReadOnlyList<PreferenceOption> GetPreferenceOptions()
+    {
+        var snapshot = Snapshot;
+        var options = new List<PreferenceOption>();
+        var selector = new CandidateSelector(new ConnectFailureBlacklist(TimeSpan.Zero));
+        foreach (var adapter in snapshot.WifiAdapters)
+        {
+            var candidates = selector.SelectCandidates(adapter.InterfaceGuid, adapter.LastScan, adapter.SavedProfiles,
+                _config.Wifi, DateTimeOffset.UtcNow, out _, eapCatalog: _eapCatalog).Take(3).ToList();
+            var connected = adapter.Connection;
+            var online = snapshot.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == adapter.InterfaceGuid)?.Probe?.IsOnline == true;
+            if (adapter.IsConnected && connected is not null && online &&
+                WifiBindingPolicy.Allows(_config.Wifi, connected.Ssid, adapter.InterfaceGuid))
+                candidates.Insert(0, new() { InterfaceGuid = adapter.InterfaceGuid, Ssid = connected.Ssid,
+                    ProfileName = connected.ProfileName ?? connected.Ssid, Band = connected.Band, SignalQuality = connected.SignalQuality });
+            foreach (var candidate in candidates.DistinctBy(c => c.Ssid))
+            {
+                var option = PreferencePolicy.Option(candidate, LinkQuality, DateTimeOffset.UtcNow) with
+                { AdapterName = adapter.Description, Connected = adapter.IsConnected && candidate.Ssid == adapter.CurrentSsid && online };
+                if (option.Quality < 50 && option.Confidence >= .25) continue;
+                options.Add(option);
+            }
+        }
+        return options.OrderByDescending(o => o.Connected).ThenByDescending(o => o.Quality).Take(3).ToArray();
+    }
+
+    public void RefreshPreferenceQuestion(bool force = false)
+    {
+        if (!_config.Quality.LearningEnabled || (!force && !_config.Quality.PreferenceQuestionsEnabled)) return;
+        var options = GetPreferenceOptions();
+        if (options.Count < 2) return;
+        var now = DateTimeOffset.UtcNow;
+        var context = PreferencePolicy.Context(options, now);
+        if (!force && (PreferenceQuestion is not null || !PreferencePolicy.CanAsk(Preferences, context, now))) return;
+        var ranked = options.Select(o => PreferencePolicy.Predict(Preferences, o, now)).OrderDescending().ToArray();
+        if (!force && Preferences.ExplicitChoices >= 10 && ranked[0] - ranked[1] > .15) return;
+        _history.MarkQuestion(context, now);
+        Volatile.Write(ref _preferenceQuestion, new(context, options, now));
+    }
+
+    public void DismissPreferenceQuestion() => Volatile.Write(ref _preferenceQuestion, null);
+
+    public async Task ChoosePreferenceAsync(PreferenceOption requested, bool remember, CancellationToken token)
+    {
+        await _cycleGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            var alternatives = GetPreferenceOptions();
+            var chosen = alternatives.FirstOrDefault(o => o.Key == requested.Key) ??
+                throw new InvalidOperationException("网络环境已变化，请刷新偏好卡片后重试");
+            if (!WifiBindingPolicy.Allows(_config.Wifi, chosen.Candidate.Ssid, chosen.Candidate.InterfaceGuid))
+                throw new InvalidOperationException("此 SSID 已指定其他网卡");
+            if (!chosen.Connected)
+            {
+                var c = chosen.Candidate;
+                await ExecuteActionAsync(new ConnectWifiAction { InterfaceGuid = c.InterfaceGuid, Ssid = c.Ssid,
+                    ProfileName = c.ProfileName, Bssid = c.PreferredBssid, Security = c.Security,
+                    UsesLibraryCredential = c.UsesLibraryCredential, RequiresEap = c.RequiresEap,
+                    Reason = "用户通过偏好卡片选择网络" }, token).ConfigureAwait(false);
+                await RefreshProbesAsync(token).ConfigureAwait(false);
+                if (_wifi.GetConnection(c.InterfaceGuid)?.Ssid != c.Ssid ||
+                    !_wifiProbeByAdapter.TryGetValue(c.InterfaceGuid, out var report) || !report.IsOnline)
+                    throw new InvalidOperationException("所选网络尚未通过外网验证，未记录偏好");
+            }
+            _temporaryPreference = new(chosen.Candidate.InterfaceGuid, chosen.Candidate.Ssid, DateTimeOffset.UtcNow.AddHours(1));
+            _engine.NotifyUserPreferredOwner(chosen.Candidate.Ssid, chosen.Candidate.InterfaceGuid);
+            if (remember && _config.Quality.LearningEnabled)
+                _history.RecordPreference(new() { AtUtc = DateTimeOffset.UtcNow, Chosen = chosen, Alternatives = alternatives });
+            DismissPreferenceQuestion();
+            await _history.SaveAsync(token).ConfigureAwait(false);
+        }
+        finally { _cycleGate.Release(); RequestImmediateCycle(); }
+    }
+
+    public async Task ResetPreferencesAsync(DateTimeOffset? remove = null)
+    {
+        if (remove is { } at) _history.RemovePreference(at);
+        else _history.ResetPreferences();
+        DismissPreferenceQuestion();
+        await _history.SaveAsync(CancellationToken.None).ConfigureAwait(false);
+        RequestImmediateCycle();
+    }
+
+    public async Task ExportPreferencesAsync()
+    {
+        var path = Path.Combine(GuardianPaths.Root, "preference-export.json");
+        await File.WriteAllTextAsync(path, _history.ExportPreferences()).ConfigureAwait(false);
+        Notification?.Invoke(this, $"偏好记录已导出：{path}");
     }
 
     private void PublishSnapshot(GuardianDecision decision, GuardianInput input)
@@ -1619,6 +1734,14 @@ public sealed class GuardianHostService : IAsyncDisposable
             var result = await _wifi.ConnectAsync(interfaceGuid, profileName, null, cancellationToken)
                 .ConfigureAwait(false);
             _engine.NotifyConnectResult(interfaceGuid, profileName, result.Success, result.Failure, DateTimeOffset.UtcNow);
+            if (result.Success && _config.Quality.LearningEnabled && Snapshot.GlobalProbe.IsStableOnline)
+            {
+                var options = GetPreferenceOptions();
+                var chosen = options.FirstOrDefault(o => o.Candidate.InterfaceGuid == interfaceGuid && o.Candidate.Ssid == ssid);
+                if (chosen is not null && !chosen.Connected && options.Count > 1)
+                    _pendingUserChoices[interfaceGuid] = new() { AtUtc = DateTimeOffset.UtcNow, Source = "manual",
+                        Chosen = chosen, Alternatives = options };
+            }
             _forceProbe = true;
             return result;
         }
@@ -2054,6 +2177,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 await Task.WhenAny(_routeWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
             }
             if (_qualityLoop is not null) await _qualityLoop.ConfigureAwait(false);
+            await _history.SaveAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

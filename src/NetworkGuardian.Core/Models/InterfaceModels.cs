@@ -68,6 +68,7 @@ public sealed record InterfaceRuntimeState
     public ConnectivityProbeReport? Probe { get; init; }
 
     public double? QualityScore { get; init; }
+    public bool UserPreferred { get; init; }
 
     public string MetricDescription =>
         InterfaceMetric is null && RouteMetric is null

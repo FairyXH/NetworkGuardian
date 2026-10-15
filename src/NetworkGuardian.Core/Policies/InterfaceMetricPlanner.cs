@@ -26,7 +26,8 @@ public static class InterfaceMetricPlanner
         // dead Ethernet adapter from black-holing a working Wi-Fi connection.
         var leaders = verified.Count > 0 ? verified : usable;
         var orderedLeaders = leaders
-            .OrderBy(InterfaceClassRank)
+            .OrderBy(i => i.UserPreferred ? 0 : 1)
+            .ThenBy(InterfaceClassRank)
             .ThenByDescending(i => LinkScore(i, wifiAdapters))
             .ThenBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();

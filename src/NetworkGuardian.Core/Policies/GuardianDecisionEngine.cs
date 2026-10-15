@@ -1088,6 +1088,12 @@ public sealed class GuardianDecisionEngine
             if (config.Quality.Enabled)
                 candidates = candidates.Select(c => NetworkQualityPolicy.Adjust(c, input.LinkQuality, now))
                     .OrderByDescending(c => c.Score).ToList();
+            if (config.Quality.LearningEnabled && config.Quality.ApplyLearnedPreferences)
+                candidates = candidates.Select(c =>
+                {
+                    var bonus = PreferencePolicy.Bonus(input.Preferences, PreferencePolicy.Option(c, input.LinkQuality, now), now);
+                    return c with { Score = c.Score + bonus, ScoreReason = c.ScoreReason + $", learnedPreference={bonus:F1}" };
+                }).OrderByDescending(c => c.Score).ToList();
             reconnectNeeded.Add(new AdapterCandidateSet(adapter.InterfaceGuid, candidates));
         }
 
@@ -1201,6 +1207,11 @@ public sealed class GuardianDecisionEngine
         }
 
         return BuildDecision(now, actions, notes, connectivity);
+    }
+
+    public void NotifyUserPreferredOwner(string ssid, Guid adapter)
+    {
+        lock (_gate) _ssidOwners[ssid] = adapter;
     }
 
     private void PlanQualityHandover(GuardianInput input, List<GuardianAction> actions, List<string> notes)

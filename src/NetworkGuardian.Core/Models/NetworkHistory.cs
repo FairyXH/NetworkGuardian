@@ -3,6 +3,7 @@ namespace NetworkGuardian.Core.Models;
 public sealed class NetworkHistory
 {
     public List<LinkQualityHistory> Links { get; set; } = new();
+    public PreferenceState Preferences { get; set; } = new();
 }
 
 public sealed class LinkQualityHistory

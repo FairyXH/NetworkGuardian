@@ -253,6 +253,9 @@ internal sealed class SettingsPage : IPage
         var quality = new Form(ctx, this);
         quality.Toggle("启用网络与网卡质量评级", config.Quality.Enabled, v => config.Quality.Enabled = v);
         quality.Toggle("持续劣化时自动改善网卡分配", config.Quality.RebalanceEnabled, v => config.Quality.RebalanceEnabled = v);
+        quality.Toggle("启用本地用网偏好学习", config.Quality.LearningEnabled, v => config.Quality.LearningEnabled = v);
+        quality.Toggle("允许偏好卡片主动询问", config.Quality.PreferenceQuestionsEnabled, v => config.Quality.PreferenceQuestionsEnabled = v);
+        quality.Toggle("反馈充足后让模型有限参与评分", config.Quality.ApplyLearnedPreferences, v => config.Quality.ApplyLearnedPreferences = v);
         quality.Number("常规采样间隔（秒）", config.Quality.SampleIntervalSeconds, 15, 3600, v => config.Quality.SampleIntervalSeconds = v);
         quality.Number("迁移所需采样组数", config.Quality.MinimumSamples, 5, 40, v => config.Quality.MinimumSamples = v);
         quality.Number("迁移冷却（秒）", config.Quality.RebalanceCooldownSeconds, 120, 86400, v => config.Quality.RebalanceCooldownSeconds = v);

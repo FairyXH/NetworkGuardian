@@ -8,4 +8,7 @@ public sealed class QualitySettings
     public int RebalanceCooldownSeconds { get; set; } = 600;
     public int MinimumSamples { get; set; } = 10;
     public int MinimumGain { get; set; } = 20;
+    public bool LearningEnabled { get; set; } = true;
+    public bool PreferenceQuestionsEnabled { get; set; } = true;
+    public bool ApplyLearnedPreferences { get; set; } = true;
 }

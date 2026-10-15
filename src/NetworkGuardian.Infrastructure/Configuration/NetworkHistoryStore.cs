@@ -12,9 +12,61 @@ public sealed class NetworkHistoryStore
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private NetworkHistory _state = new();
     private IReadOnlyList<LinkQualityEstimate> _snapshot = Array.Empty<LinkQualityEstimate>();
+    private PreferenceState _preferences = new();
     public NetworkHistoryStore(string path) => _path = path;
     public IReadOnlyList<LinkQualityEstimate> Snapshot => Volatile.Read(ref _snapshot);
     public string? LoadIssue { get; private set; }
+    public PreferenceState Preferences => Volatile.Read(ref _preferences);
+
+    public void RecordPreference(PreferenceFeedback feedback)
+    {
+        lock (_gate)
+        {
+            PreferencePolicy.Train(_state.Preferences, feedback);
+            PublishPreferences();
+        }
+    }
+
+    public void MarkQuestion(string context, DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            _state.Preferences.LastQuestionUtc = now;
+            _state.Preferences.QuestionContexts[context] = now;
+            _state.Preferences.QuestionContexts = _state.Preferences.QuestionContexts
+                .OrderByDescending(p => p.Value).Take(128).ToDictionary(p => p.Key, p => p.Value);
+            PublishPreferences();
+        }
+    }
+
+    public void ResetPreferences()
+    {
+        lock (_gate) { _state.Preferences = new(); PublishPreferences(); }
+    }
+
+    public void RemovePreference(DateTimeOffset at)
+    {
+        lock (_gate)
+        {
+            var retained = _state.Preferences.Feedback.Where(f => f.AtUtc != at).ToArray();
+            var rebuilt = new PreferenceState
+            {
+                LastQuestionUtc = _state.Preferences.LastQuestionUtc,
+                QuestionContexts = _state.Preferences.QuestionContexts,
+            };
+            foreach (var feedback in retained) PreferencePolicy.Train(rebuilt, feedback);
+            _state.Preferences = rebuilt;
+            PublishPreferences();
+        }
+    }
+
+    public string ExportPreferences()
+    {
+        lock (_gate) return NetworkGuardianJson.Serialize(_state.Preferences);
+    }
+
+    private void PublishPreferences() => Volatile.Write(ref _preferences,
+        NetworkGuardianJson.Deserialize<PreferenceState>(NetworkGuardianJson.Serialize(_state.Preferences))!);
 
     public async Task LoadAsync(CancellationToken token)
     {
@@ -28,6 +80,10 @@ public sealed class NetworkHistoryStore
                 lock (_gate)
                 {
                     _state = state;
+                    _state.Preferences ??= new();
+                    if (_state.Preferences.Weights is null || _state.Preferences.Feedback is null || _state.Preferences.QuestionContexts is null)
+                        _state.Preferences = new();
+                    PublishPreferences();
                     Trim();
                     Publish(DateTimeOffset.UtcNow);
                 }

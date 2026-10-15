@@ -8,6 +8,7 @@ namespace NetworkGuardian.Portable.Ui.Pages;
 /// <summary>总览：外网状态、以太网、默认路由、无线电、网卡数量、恢复状态机与最近动作。</summary>
 internal sealed class DashboardPage : IPage
 {
+    private readonly PreferenceCard _preferences = new();
     private const string ProxyCompatibilityGuidance =
         "Npcap 原始探测优先开启且 Npcap 可用时，程序直接在物理网卡发送 ARP、TCP SYN 和 ICMP，不经过 Proxifier、YogaDNS、系统 DNS 或 TUN 默认路由，无需为本程序添加代理直连规则。\n" +
         "若 VPN/TUN 启用了禁止物理网卡直连的 kill switch，原始公网探测会按策略显示离线；请关闭该安全策略或关闭“Npcap 原始探测优先”。Npcap 不可用时程序自动降级到常规探测，此时仍建议把 NetworkGuardian.exe 和探测域名加入代理/DNS 绕过规则。";
@@ -25,6 +26,7 @@ internal sealed class DashboardPage : IPage
         var canvas = ctx.Canvas;
         var snapshot = ctx.Snapshot;
         var y = area.Top + Widgets.Heading(ctx, area, Title, Description);
+        y = _preferences.Render(ctx, area, y);
 
         var qualityLines = snapshot.WifiAdapters.Select(a =>
         {

@@ -25,6 +25,7 @@ namespace NetworkGuardian.Core.Serialization;
     DefaultIgnoreCondition = JsonIgnoreCondition.Never)]
 [JsonSerializable(typeof(GuardianConfig))]
 [JsonSerializable(typeof(NetworkHistory))]
+[JsonSerializable(typeof(PreferenceState))]
 [JsonSerializable(typeof(WifiCredentialLibrary))]
 [JsonSerializable(typeof(HelperRequest))]
 [JsonSerializable(typeof(HelperResponse))]
