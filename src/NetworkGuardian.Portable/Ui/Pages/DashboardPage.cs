@@ -15,9 +15,9 @@ internal sealed class DashboardPage : IPage
 
     public string Tag => "dashboard";
 
-    public string Label => "总览";
+    public string Label => "运行概览";
 
-    public string Title => "总览";
+    public string Title => "运行概览";
 
     public string Description => "按实际质量安排网络与网卡，保留稳定连接；指定网卡始终优先。";
 

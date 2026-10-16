@@ -129,7 +129,27 @@ internal sealed class DevicesPage : IPage
             dy += ctx.Scale(78);
         }
 
-        return devicesRect.Bottom - area.Top;
+        var bottom = devicesRect.Bottom;
+        var offlineRules = ctx.Config.DisabledDeviceInstanceIds.Where(id =>
+            ctx.Host.Devices.All(d => !string.Equals(d.Record.DeviceInstanceId, id, StringComparison.OrdinalIgnoreCase))).ToArray();
+        foreach (var deviceId in offlineRules)
+        {
+            var rect = new Rectangle(area.Left, bottom + ctx.Scale(10), area.Width, ctx.Scale(76));
+            canvas.Card(rect);
+            Widgets.Caption(ctx, rect.Left + ctx.Scale(16), rect.Top + ctx.Scale(10), rect.Width - ctx.Scale(200), "保持禁用 · 设备当前离线");
+            Widgets.Mono(ctx, rect.Left + ctx.Scale(16), rect.Top + ctx.Scale(32), rect.Width - ctx.Scale(200), deviceId);
+            var operation = $"device-state-{deviceId}";
+            Widgets.ButtonAt(ctx, new Rectangle(rect.Right - ctx.Scale(170), rect.Top + ctx.Scale(20), ctx.Scale(154), ctx.Scale(32)),
+                "取消离线禁用", () =>
+                {
+                    if (!ctx.Window.Confirm($"确定取消该离线设备的禁用规则吗？\n{deviceId}")) return;
+                    ctx.Window.RunBackground(operation, "正在取消离线设备禁用规则",
+                        () => ctx.Window.App.UpdateConfigAsync(config => config.DisabledDeviceInstanceIds.RemoveAll(id =>
+                            string.Equals(id, deviceId, StringComparison.OrdinalIgnoreCase))), "已取消离线设备禁用规则");
+                }, enabled: !ctx.Window.IsOperationRunning(operation), confirm: false);
+            bottom = rect.Bottom;
+        }
+        return bottom - area.Top;
     }
 
 

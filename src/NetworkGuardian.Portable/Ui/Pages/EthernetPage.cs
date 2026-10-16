@@ -8,9 +8,9 @@ internal sealed class EthernetPage : IPage
 {
     public string Tag => "ethernet";
 
-    public string Label => "以太网";
+    public string Label => "有线网络";
 
-    public string Title => "以太网";
+    public string Title => "有线网络";
 
     public string Description => "只读展示链路、地址、网关与探测结果；默认不修改任何路由或接口度量。";
 
