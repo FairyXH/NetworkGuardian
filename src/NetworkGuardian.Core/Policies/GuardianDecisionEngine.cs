@@ -310,6 +310,7 @@ public sealed class GuardianDecisionEngine
 
     private GuardianDecision EvaluateCore(GuardianInput input)
     {
+        input = DeviceDisablePolicy.Filter(input);
         var now = input.Now;
         var config = input.Config;
         ApplyConfig(config);

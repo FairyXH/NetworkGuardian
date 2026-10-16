@@ -43,6 +43,9 @@ public sealed class GuardianConfig
 
     public List<string> InterfaceDenyList { get; set; } = new();
 
+    /// <summary>Physical PnP devices explicitly kept disabled, independent of automatic recovery.</summary>
+    public List<string> DisabledDeviceInstanceIds { get; set; } = new();
+
     public static GuardianConfig CreateDefault() => new()
     {
         Version = CurrentVersion,
