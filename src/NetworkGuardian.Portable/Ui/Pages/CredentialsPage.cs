@@ -174,7 +174,7 @@ internal sealed class CredentialsPage : IPage
                     await ctx.Host.RescanAllAsync(CancellationToken.None).ConfigureAwait(false);
                     _status = "Wi-Fi 列表已刷新";
                 });
-            }, enabled: !refreshing);
+            }, enabled: !refreshing, confirm: false);
         y += ctx.Scale(FieldRowHeight + 8);
 
         var issues = ctx.Host.WifiLibraryIssues;
@@ -304,7 +304,7 @@ internal sealed class CredentialsPage : IPage
                 {
                     _revealed.Remove(entry.Id);
                 }
-            });
+            }, confirm: false);
 
         Widgets.ButtonAt(ctx, new Rectangle(passwordColumn + column - ctx.Scale(192) + revealWidth + ctx.Scale(6), cy + ctx.Scale(20),
                 Widgets.MeasureButtonWidth(ctx, "清除"), ctx.Scale(30)),
@@ -346,7 +346,7 @@ internal sealed class CredentialsPage : IPage
                 {
                     _advanced.Remove(entry.Id);
                 }
-            });
+            }, confirm: false);
         cy += ctx.Scale(FieldRowHeight);
 
         if (showAdvanced)

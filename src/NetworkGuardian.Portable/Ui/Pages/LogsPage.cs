@@ -50,8 +50,8 @@ internal sealed class LogsPage : IPage
         var cy = filterRect.Top + ctx.Scale(14);
         var fieldWidth = ctx.Scale(200);
 
-        Widgets.Dropdown(ctx, x, cy, fieldWidth, "等级", LevelLabels, _level.Index, i => { _level.Index = i; _autoScroll = true; });
-        Widgets.Dropdown(ctx, x + fieldWidth + ctx.Scale(12), cy, fieldWidth, "分类", ChannelLabels, _channel.Index, i => _channel.Index = i);
+        Widgets.Dropdown(ctx, x, cy, fieldWidth, "等级", LevelLabels, _level.Index, i => { _level.Index = i; _autoScroll = true; }, confirm: false);
+        Widgets.Dropdown(ctx, x + fieldWidth + ctx.Scale(12), cy, fieldWidth, "分类", ChannelLabels, _channel.Index, i => _channel.Index = i, confirm: false);
 
         Widgets.Field(
             ctx,
@@ -64,10 +64,10 @@ internal sealed class LogsPage : IPage
 
         // One control row per line: the three action buttons must never run past the card edge.
         var toggleTop = cy + ctx.Scale(52);
-        Widgets.Toggle(ctx, x, toggleTop, fieldWidth, "自动滚动到最新", _autoScroll, () => _autoScroll = !_autoScroll);
+        Widgets.Toggle(ctx, x, toggleTop, fieldWidth, "自动滚动到最新", _autoScroll, () => _autoScroll = !_autoScroll, confirm: false);
 
         var actionTop = toggleTop + ctx.Scale(36);
-        var refresh = Widgets.Button(ctx, x, actionTop, "刷新", () => ctx.Window.Invalidate());
+        var refresh = Widgets.Button(ctx, x, actionTop, "刷新", () => ctx.Window.Invalidate(), confirm: false);
         var clearRect = new Rectangle(
             refresh.Right + ctx.Scale(8), actionTop, Widgets.MeasureButtonWidth(ctx, "清空缓冲"), ctx.Scale(32));
         Widgets.ButtonAt(ctx, clearRect, "清空缓冲", () =>
@@ -76,7 +76,7 @@ internal sealed class LogsPage : IPage
             ctx.Window.ShowToast("已清空内存日志缓冲（文件日志不受影响）");
         });
 
-        Widgets.Button(ctx, clearRect.Right + ctx.Scale(8), actionTop, "打开日志目录", () => ctx.Host.OpenLogFolder());
+        Widgets.Button(ctx, clearRect.Right + ctx.Scale(8), actionTop, "打开日志目录", () => ctx.Host.OpenLogFolder(), confirm: false);
 
         y = filterRect.Bottom + ctx.Scale(12);
 

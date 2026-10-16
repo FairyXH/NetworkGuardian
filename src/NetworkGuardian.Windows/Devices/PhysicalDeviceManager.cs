@@ -190,11 +190,16 @@ public sealed class PhysicalDeviceManager : IDeviceManager
 
     public async Task<DeviceOperationResult> DisableAsync(string deviceInstanceId, CancellationToken cancellationToken)
     {
-        var verification = Verify(deviceInstanceId, out _);
+        var verification = Verify(deviceInstanceId, out var record);
         if (verification is not null)
         {
             return verification;
         }
+
+        if (record is { IsStarted: false, ProblemCode: 21 or 22 })
+            return new DeviceOperationResult { DeviceInstanceId = deviceInstanceId, Operation = "disable",
+                Outcome = DeviceOperationOutcome.AlreadyInDesiredState, StartedAfter = false,
+                ProblemCodeAfter = record.ProblemCode };
 
         if (HelperClient.IsProcessElevated())
         {
