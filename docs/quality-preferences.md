@@ -1,5 +1,7 @@
 # NetworkGuardian 0.10.0
 
+本文记录 0.10.0 引入的质量、分配和偏好基础策略。当前主页问答与神经网络见 [模型专题](network-brain.md)，Agent 蒸馏见 [训练协议](../skills/networkguardian/references/training.md)，侧栏和保持禁用见 [设备管理说明](device-disable-and-navigation.md)。下文早期偏好卡和单文件数据描述不能替代当前完整界面与数据清单，后者见 [README](../README.md) 和 [维护说明](maintenance.md)。
+
 ## 质量评级与分配
 
 程序按网卡、SSID、频段记录实际质量，不因 USB 或 PCI 接口类型预设优劣。
