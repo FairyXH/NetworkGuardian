@@ -178,7 +178,8 @@ public sealed class DistillationService : IAsyncDisposable
                     catch { selected.State = "deployed"; Save(selected); throw; }
                     selected.State = "rolled_back"; Save(selected); return Summary(selected);
                 case "delete":
-                    if (selected.State is "running" or "deployed" or "deploying" or "rolling_back")
+                    if (selected.State is "running" or "deploying" or "rolling_back" ||
+                        selected.State == "deployed" && _current().Provenance == selected.Candidate.Provenance)
                         throw new InvalidOperationException("运行中或仍需回滚的部署任务不能删除");
                     File.Delete(Path.Combine(_directory, selected.Id + ".json"));
                     File.Delete(Path.Combine(_directory, selected.Id + ".json.bak"));

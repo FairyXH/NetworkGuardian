@@ -181,5 +181,21 @@ public sealed class DistillationTests : IDisposable
         Assert.Equal(id, (await recovered.InvokeAsync("status", Args(id)))["jobId"]!.GetValue<string>());
     }
 
+    [Fact]
+    public async Task ObsoleteDeploymentCanBeCleanedWithoutDeletingCurrentModel()
+    {
+        await using var service = Service();
+        var id = await Create(service, epochs: 300);
+        await LabelAll(service, id);
+        Assert.True((await Complete(service, id))["evaluation"]!["passed"]!.GetValue<bool>());
+        await service.InvokeAsync("deploy", Args(id));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.InvokeAsync("delete", Args(id)));
+        _current = BrainDistillation.Clone(_current);
+        _current.Provenance = "subsequent-deployment";
+        var currentHash = BrainDistillation.Hash(_current);
+        Assert.True((await service.InvokeAsync("delete", Args(id)))["success"]!.GetValue<bool>());
+        Assert.Equal(currentHash, BrainDistillation.Hash(_current));
+    }
+
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); }
 }
