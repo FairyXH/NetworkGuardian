@@ -9,6 +9,7 @@ namespace NetworkGuardian.Portable.Ui.Pages;
 internal sealed class DashboardPage : IPage
 {
     private readonly PreferenceCard _preferences = new();
+    private readonly QualityReportCard _qualityReport = new();
     private const string ProxyCompatibilityGuidance =
         "Npcap 原始探测优先开启且 Npcap 可用时，程序直接在物理网卡发送 ARP、TCP SYN 和 ICMP，不经过 Proxifier、YogaDNS、系统 DNS 或 TUN 默认路由，无需为本程序添加代理直连规则。\n" +
         "若 VPN/TUN 启用了禁止物理网卡直连的 kill switch，原始公网探测会按策略显示离线；请关闭该安全策略或关闭“Npcap 原始探测优先”。Npcap 不可用时程序自动降级到常规探测，此时仍建议把 NetworkGuardian.exe 和探测域名加入代理/DNS 绕过规则。";
@@ -26,23 +27,8 @@ internal sealed class DashboardPage : IPage
         var canvas = ctx.Canvas;
         var snapshot = ctx.Snapshot;
         var y = area.Top + Widgets.Heading(ctx, area, Title, Description);
+        y = _qualityReport.Render(ctx, area, y);
         y = _preferences.Render(ctx, area, y);
-
-        var qualityLines = snapshot.WifiAdapters.Select(a =>
-        {
-            var quality = ctx.Host.LinkQuality.FirstOrDefault(q => q.Adapter == a.InterfaceGuid && q.Ssid == a.CurrentSsid && q.Band == a.Connection?.Band);
-            var age = quality is null ? string.Empty : $" · 更新于 {quality.UpdatedAtUtc.ToLocalTime():HH:mm:ss}";
-            return $"{a.Description} / {a.CurrentSsid ?? "未连接"}\n{quality?.Summary ?? "待评估：连接后积累实际采样"}{age}";
-        });
-        var qualityText = string.Join("\n", qualityLines);
-        if (qualityText.Length == 0) qualityText = "尚未发现无线网卡";
-        if (!ctx.Host.Config.Quality.Enabled) qualityText = "质量评级已关闭\n" + qualityText;
-        var qualityHeight = canvas.MeasureWrappedHeight(qualityText, area.Width - ctx.Scale(32), TextStyle.Body);
-        var qualityCard = new Rectangle(area.Left, y, area.Width, ctx.Scale(52) + qualityHeight);
-        canvas.Card(qualityCard);
-        canvas.Text("网络与网卡质量", new Rectangle(area.Left + ctx.Scale(16), y + ctx.Scale(12), area.Width - ctx.Scale(32), ctx.Scale(24)), Palette.TextPrimary, TextStyle.Section);
-        canvas.Text(qualityText, new Rectangle(area.Left + ctx.Scale(16), y + ctx.Scale(38), area.Width - ctx.Scale(32), qualityHeight), Palette.TextSecondary, TextStyle.Body, wrap: TextWrap.Wrap);
-        y = qualityCard.Bottom + ctx.Scale(12);
 
         var proxyTextWidth = area.Width - ctx.Scale(32);
         var proxyTextHeight = canvas.MeasureWrappedHeight(ProxyCompatibilityGuidance, proxyTextWidth, TextStyle.Body);
