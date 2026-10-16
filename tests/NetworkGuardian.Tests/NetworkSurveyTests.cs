@@ -81,6 +81,24 @@ public sealed class NetworkSurveyTests
     }
 
     [Fact]
+    public void ActionConfidenceDependsOnEvidenceRatherThanUserVotes()
+    {
+        var input = new GuardianInput
+        {
+            Now = TestData.Now, Config = TestData.Config(), GlobalProbe = TestData.OnlineProbe(),
+            Radio = TestData.RadioOn, Devices = Array.Empty<ManagedDevice>(),
+            Interfaces = Array.Empty<InterfaceRuntimeState>(), WifiAdapters = Array.Empty<WifiAdapterRuntimeState>(),
+        };
+        var action = new ConnectWifiAction { InterfaceGuid = TestData.AdapterA, Ssid = "Synthetic", ProfileName = "Synthetic", Reason = "test" };
+        var unknown = ActionConfidencePolicy.Assess(action, input);
+        var measured = ActionConfidencePolicy.Assess(action, input with { LinkQuality = new[] { new LinkQualityEstimate
+        { Adapter = TestData.AdapterA, Ssid = "Synthetic", Samples = 20, UpdatedAtUtc = TestData.Now } } });
+        Assert.True(measured.Confidence > unknown.Confidence);
+        input.Preferences.ExplicitChoices = 10000;
+        Assert.Equal(unknown.Confidence, ActionConfidencePolicy.Assess(action, input).Confidence);
+    }
+
+    [Fact]
     public async Task DatasetAndModelSurviveRestartAndDeleteRetrains()
     {
         var directory = Path.Combine(Path.GetTempPath(), "ng-survey-" + Guid.NewGuid().ToString("N"));

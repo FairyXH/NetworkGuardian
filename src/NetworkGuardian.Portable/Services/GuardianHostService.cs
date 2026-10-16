@@ -456,7 +456,8 @@ public sealed class GuardianHostService : IAsyncDisposable
                     _config.General.ManageInterfaceMetrics)
                 {
                     RememberTask(new ApplyInterfaceMetricsAction { MetricsByInterfaceId = desired,
-                        Reason = "路由看门狗纠正出口顺序", Confidence = interfaces.Any(i => i.Probe?.IsOnline == true) ? .9 : .4,
+                        Reason = "路由看门狗纠正出口顺序", Confidence = interfaces.Any(i => i.Probe is { IsOnline: true } p &&
+                            DateTimeOffset.UtcNow - p.TimestampUtc < TimeSpan.FromSeconds(30)) ? .9 : .4,
                         ConfidenceEvidence = "接口探测与实时路由；依据评分，非成功概率；结果需继续验证" });
                     var notes = await _interfaces.ApplyInterfaceMetricsAsync(desired, cancellationToken)
                         .ConfigureAwait(false);

@@ -25,8 +25,12 @@ public static class SurveyLearning
                 PreferencePolicy.Train(state.Preferences, new() { AtUtc = answer.AnswerContext.CapturedAt, Source = "survey",
                     Reliability = answer.Reliability, Chosen = chosen, Alternatives = alternatives });
                 foreach (var option in alternatives.Where(o => o.Confidence >= .25))
-                    NetworkBrain.Train(state.Brain, NetworkBrain.Features(option, true), option.Key == chosen.Key ? .75 : .35,
+                {
+                    var x = NetworkBrain.Features(option, true);
+                    var softTarget = option.Key == chosen.Key ? .75 : .35;
+                    NetworkBrain.Train(state.Brain, x, .85 * NetworkBrain.Teacher(x) + .15 * softTarget,
                         .008 * answer.Reliability, personal: true);
+                }
             }
         }
         else if (answer.Question.Template.Kind == "priority")
