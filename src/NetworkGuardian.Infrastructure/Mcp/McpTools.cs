@@ -80,7 +80,7 @@ public static class McpTools
             """{"jobId":{"type":"string"}}"""),
         new("training_examples", "分页读取服务器生成的数值场景和真实观测。默认仅返回未标注样例；连续投喂时保持 offset=0，最多 64 条。", true,
             """{"jobId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":64},"unlabeledOnly":{"type":"boolean"}}""", "jobId"),
-        new("model_distill", "独立蒸馏训练接口：create 用 requestId 幂等创建、teacher 标记教师；label 的 labels={样例id:{target:0..1,confidence:0..1,rationale:原因}}，每批最多64；start 后台训练/续训，pause 暂停，evaluate 验证，deploy 仅部署通过门槛且基线未变的候选，rollback 需 expectedHash=deployedHash，delete 删除未部署任务。create 可设 count=96..512、epochs=20..1000。任务断线继续，软件重启后 start 续训；无需外部 API 密钥。", false,
+        new("model_distill", "独立蒸馏训练接口：create 用 requestId 幂等创建、teacher 标记教师；label 的 labels={样例id:{target:0..1,confidence:0..1,rationale:原因}}，每批最多64；start 后台训练/续训，pause 暂停，evaluate 验证，deploy 仅部署通过门槛且基线未变的候选，rollback 需 expectedHash=deployedHash，delete 清理非运行且非当前部署的旧任务。create 可设 count=96..512、epochs=20..1000。任务断线继续，软件重启后 start 续训；无需外部 API 密钥。", false,
             """{"action":{"type":"string","enum":["create","label","start","pause","evaluate","deploy","rollback","delete"]},"jobId":{"type":"string"},"requestId":{"type":"string"},"teacher":{"type":"string"},"count":{"type":"integer","minimum":96,"maximum":512},"epochs":{"type":"integer","minimum":20,"maximum":1000},"labels":{"type":"object"},"expectedHash":{"type":"string"}}""", "action"),
     };
 }
