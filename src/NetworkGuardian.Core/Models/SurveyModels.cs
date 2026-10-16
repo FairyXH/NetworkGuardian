@@ -38,6 +38,7 @@ public sealed record SurveyAnswer
 
 public sealed class SurveyState
 {
+    public long Revision { get; set; }
     public List<SurveyAnswer> Answers { get; set; } = new();
     public Dictionary<string, double> SoftLabels { get; set; } = new();
     public long TotalAnswers { get; set; }

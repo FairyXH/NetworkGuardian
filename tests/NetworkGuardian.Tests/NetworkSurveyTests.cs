@@ -122,6 +122,36 @@ public sealed class NetworkSurveyTests
         finally { Directory.Delete(directory, true); }
     }
 
+    [Fact]
+    public async Task QualitySamplesDoNotRewriteDatasetAndInterruptedSaveCanRebuild()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "ng-survey-atomic-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var path = Path.Combine(directory, "history.json");
+            var store = new NetworkHistoryStore(path);
+            await store.LoadAsync(default);
+            store.RecordAnswer(NetworkQuestionBank.Evaluate(Question("priority-01", Context()), "latency", Context()));
+            await store.SaveAsync(default);
+            var earlierHistory = await File.ReadAllTextAsync(path);
+            var marker = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(store.SurveyPath, marker);
+            store.Record(TestData.AdapterA, "Synthetic", NetworkBand.Band5GHz, null, new()
+            { AtUtc = TestData.Now, GatewaySent = 4, GatewayReplies = 4 });
+            await store.SaveAsync(default);
+            Assert.Equal(marker, File.GetLastWriteTimeUtc(store.SurveyPath));
+            store.RecordAnswer(NetworkQuestionBank.Evaluate(Question("priority-01", Context()), "stability", Context()));
+            await store.SaveAsync(default);
+            await File.WriteAllTextAsync(path, earlierHistory);
+            var recovered = new NetworkHistoryStore(path);
+            await recovered.LoadAsync(default);
+            Assert.Equal(2, recovered.Survey.Answers.Count);
+            Assert.True(recovered.Brain.PersonalSteps >= 2);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     private static SurveyContext Context(double score = 90) => new()
     {
         CapturedAt = TestData.Now, InternetOnline = true,

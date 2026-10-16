@@ -4,7 +4,9 @@ public sealed class NetworkHistory
 {
     public List<LinkQualityHistory> Links { get; set; } = new();
     public PreferenceState Preferences { get; set; } = new();
+    [System.Text.Json.Serialization.JsonIgnore]
     public SurveyState Survey { get; set; } = new();
+    public long SurveyRevision { get; set; }
     public Policies.NetworkBrainModel? Brain { get; set; }
     public List<SuppressedWifiProfile> SuppressedProfiles { get; set; } = new();
 }
