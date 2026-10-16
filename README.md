@@ -2,11 +2,13 @@
 
 NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。它持续采集物理以太网、物理 Wi-Fi、IP、路由、无线电和真实外网可达性，在连接被确认失效后执行受限、可追踪的恢复动作。
 
-当前版本使用 C# / .NET 8，发布为 **win-x64 Native AOT 单文件 EXE**。发布文件约 12.97 MiB，目标电脑无需安装 .NET、Windows App SDK 或 Visual Studio。
+当前版本使用 C# / .NET 8，发布为 **win-x64 Native AOT 单文件 EXE**。发布文件约 13.12 MiB，目标电脑无需安装 .NET、Windows App SDK 或 Visual Studio。
 
 首次使用请阅读 [PDF 使用说明](docs/user-guide/NetworkGuardian-User-Guide.pdf)（[LaTeX 源码](docs/user-guide/NetworkGuardian-User-Guide.tex)），涵盖连接、保持禁用、质量报告、本地模型和 AI/MCP 接入。
 
-0.13.0 新增 38 个本机 HTTP MCP 工具，默认关闭，地址 `http://127.0.0.1:18765/mcp`。在“自动管理 → AI 工具接入 / MCP”开启或改端口；地址固定为 IPv4 回环，无鉴权。详见 [MCP 实现与验证](docs/mcp-server.md)。
+0.14.0 提供 41 个本机 HTTP MCP 工具，新增独立蒸馏、后台训练、检查点续训、验证部署和回滚。MCP 默认关闭，地址 `http://127.0.0.1:18765/mcp`。在“自动管理 → AI 工具接入 / MCP”开启或改端口；地址固定为 IPv4 回环，无鉴权。详见 [MCP 实现与验证](docs/mcp-server.md)。
+
+Agent 可导入项目的 [networkguardian Skill](skills/networkguardian/SKILL.md)，用一句“持续蒸馏一小时，通过验证就部署，中断后继续已有任务”运行教师标注和本地训练流程。整个文件夹复制到 Agent 的 skills 目录即可；`tools/package-agent-skill.ps1` 可生成可导入 ZIP。技能自带无第三方依赖的 MCP 客户端，详见 [训练协议](skills/networkguardian/references/training.md)。Skill 支持恢复任务，无法绕过 Agent 平台的会话期限或配额。
 
 > 核心原则：保持稳定连接；持续低质量时先验证替代网卡，再释放原连接。SSID 指定网卡是始终生效的硬约束。
 
@@ -14,20 +16,20 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 
 ![总览](docs/ui-dashboard.png)
 
-上图为历史版本截图，当前分组与操作步骤以 0.13.0 使用说明为准。
+上图为历史版本截图，当前分组与操作步骤以 0.14.0 使用说明为准。
 
 ## 当前版本
 
 | 项目 | 当前值 |
 | --- | --- |
-| 应用版本 | `0.13.0` |
+| 应用版本 | `0.14.0` |
 | 配置 Schema | `v15` |
 | 目标平台 | Windows 10/11 x64 |
 | 发布形式 | Native AOT 单 EXE，提权助手内置 |
-| 实测 EXE 大小 | 约 12.97 MiB |
+| 实测 EXE 大小 | 约 13.12 MiB |
 | 发布体积门禁 | 13.5 MiB（HTTP 传输与 AOT API 元数据） |
-| 常规测试 | 381 项 |
-| 发布验证 | 单 EXE / Native AOT / 官方 MCP 客户端 53 次隔离调用 / PDF 编译与版面检查 |
+| 常规测试 | 389 项 |
+| 发布验证 | 单 EXE / Native AOT / 官方 MCP 客户端 70 余次隔离调用 / Skill 客户端 / PDF 编译与版面检查 |
 
 ## 功能概览
 
@@ -48,7 +50,8 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 | 配置与日志 | JSON 原子写入、有效备份、损坏隔离、滚动日志和实时日志页 |
 | 保持禁用 | 无线/有线设备规则跨重启保存，优先于自动启用与故障修复 |
 | 中文质量报告 | 概览解释探测、丢包、延迟和建议，不虚构带宽或硬件诊断 |
-| HTTP MCP | 38 个工具，仅监听 127.0.0.1，固定可配置端口，无鉴权；写工具直接执行 |
+| HTTP MCP | 41 个工具，仅监听 127.0.0.1，固定可配置端口，无鉴权；写工具直接执行 |
+| Agent 蒸馏 | 独立教师标签、后台任务和原子检查点；冻结数据留出验证，通过门槛才部署，版本检查与回滚 |
 
 ## 系统要求
 
@@ -64,7 +67,7 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 2. 从托盘打开主窗口。
 3. 在“自动管理”页确认自动恢复、接口 Metric、探测端点和 Wi-Fi 策略。
 4. 在“网络凭据库”中添加需要自动使用的个人网、开放网或企业网。
-5. 点击“保存并应用”。设置页的修改在保存前只存在于工作副本。
+5. 设置修改会防抖自动保存；点击“保存并应用”可立即确认保存结果。
 
 首次运行默认创建：
 
