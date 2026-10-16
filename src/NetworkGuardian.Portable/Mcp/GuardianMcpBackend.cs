@@ -140,6 +140,7 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                     var node = Data(entry)!.AsObject();
                     node.Remove("passwordProtected");
                     node["hasPassword"] = !string.IsNullOrEmpty(entry.Password) || !string.IsNullOrEmpty(entry.PasswordProtected);
+                    node["passwordDecryptionFailed"] = entry.PasswordDecryptionFailed;
                     if (includeSecrets) node["password"] = entry.Password;
                     list.Add((JsonNode)node);
                 }
@@ -160,8 +161,8 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                 if (existing is not null) entries.Remove(existing);
                 entries.Add(credential);
                 await host.SaveWifiLibraryAsync(entries, token).ConfigureAwait(false);
-                return new JsonObject { ["success"] = true, ["id"] = credential.Id, ["ssid"] = credential.Ssid,
-                    ["note"] = "已保存应用；连接与实际外网可用性需要另行验证" };
+                return new JsonObject { ["success"] = true, ["saved"] = true, ["id"] = credential.Id, ["ssid"] = credential.Ssid,
+                    ["note"] = "已保存并尝试应用；不代表每张网卡配置成功或外网可用，请核对 credentials_apply 与日志" };
             case "credentials_delete":
                 var remaining = host.WifiLibraryEntries.ToList();
                 if (remaining.RemoveAll(e => e.Id == Text(args, "id")) == 0) throw new ArgumentException("凭据 id 不存在");
@@ -196,8 +197,11 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                 return new JsonObject { ["success"] = true, ["directory"] = GuardianPaths.Root };
             case "debug_logs":
                 var search = args["search"]?.GetValue<string>();
+                var category = args["category"]?.GetValue<string>();
+                var minimum = args["minimumLevel"] is { } level ? Enum.Parse<GuardianLogLevel>(level.GetValue<string>(), true) : GuardianLogLevel.Trace;
                 return new JsonObject { ["logs"] = Data(host.LogSink.Snapshot().Where(r => search is null ||
                     r.Message.Contains(search, StringComparison.OrdinalIgnoreCase) || r.Category.Contains(search, StringComparison.OrdinalIgnoreCase))
+                    .Where(r => r.Level >= minimum && (category is null || r.Category.Contains(category, StringComparison.OrdinalIgnoreCase)))
                     .TakeLast(args["limit"]?.GetValue<int>() ?? 100).ToArray()) };
             case "debug_clear_logs": host.LogSink.Clear(); return Done();
             case "debug_model": return new JsonObject { ["valid"] = NetworkBrain.Valid(host.Brain), ["model"] = Data(host.Brain) };
@@ -215,15 +219,18 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
         }
     }
 
-    private static void Merge(JsonObject target, JsonObject patch)
+    private static void Merge(JsonObject target, JsonObject patch, string path = "")
     {
         foreach (var (key, value) in patch)
         {
-            if (!target.ContainsKey(key)) throw new ArgumentException($"未知字段：{key}");
+            var dynamicKeys = path == "wifi.campusWifiAdapterAssignments";
+            if (!target.ContainsKey(key) && !dynamicKeys) throw new ArgumentException($"未知字段：{key}");
+            if (value is null && dynamicKeys) { target.Remove(key); continue; }
+            if (value is null && target[key] is JsonObject or JsonArray) throw new ArgumentException($"配置分组和数组不能设为 null：{key}");
             if (value is JsonObject child)
             {
                 if (target[key] is not JsonObject current) throw new ArgumentException($"字段类型不匹配：{key}");
-                Merge(current, child);
+                Merge(current, child, path.Length == 0 ? key : path + "." + key);
             }
             else target[key] = value?.DeepClone();
         }

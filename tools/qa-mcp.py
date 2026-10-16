@@ -9,6 +9,7 @@ import subprocess
 import time
 import uuid
 import urllib.request
+import httpx
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -20,7 +21,7 @@ def free_port():
         return sock.getsockname()[1]
 
 
-async def exercise(url, report):
+async def exercise(url, report, next_port):
     async with streamablehttp_client(url, timeout=120, terminate_on_close=False) as (read, write, _):
         async with ClientSession(read, write) as session:
             initialized = await session.initialize()
@@ -31,7 +32,8 @@ async def exercise(url, report):
 
             async def call(name, args=None, error=False):
                 result = await session.call_tool(name, args or {})
-                assert bool(result.isError) == error, (name, result.content)
+                if error is not None:
+                    assert bool(result.isError) == error, (name, result.content)
                 report["calls"].append({"tool": name, "expectedError": error})
                 return result.structuredContent or {}
 
@@ -48,6 +50,8 @@ async def exercise(url, report):
             assert config["quality"]["minimumGain"] == 24
             await call("config_patch", {"patch": {"quality": {"typo": True}}}, error=True)
             await call("config_patch", {"patch": {"mcp": {"port": 99999}}}, error=True)
+            await call("config_patch", {"patch": {"general": None}}, error=True)
+            await call("debug_logs", {"minimumLevel": "warning", "category": "MCP"})
             await call("config_reload")
             fake_ssid = "NG-MCP-QA-" + uuid.uuid4().hex[:10]
             await call("campus_set", {"ssid": fake_ssid, "enabled": True})
@@ -57,7 +61,19 @@ async def exercise(url, report):
                          and d["record"].get("netCfgInstanceId")), None)
             if wlan:
                 await call("wifi_bind", {"ssid": fake_ssid, "adapter": wlan["record"]["netCfgInstanceId"]})
+                await call("config_patch", {"patch": {"wifi": {"campusWifiAdapterAssignments": {
+                    fake_ssid + "-dictionary": wlan["record"]["netCfgInstanceId"]}}}})
+                await call("wifi_bind", {"ssid": fake_ssid + "-dictionary"})
                 await call("wifi_bind", {"ssid": fake_ssid})
+            scan = await call("wifi_scan", error=None)
+            assert scan.get("completed") is True
+            await call("connectivity_test")
+            await call("wifi_profile_delete", {"profile": fake_ssid})
+            await call("config_patch", {"patch": {"offlineCommands": [{"id": "qa-noop", "name": "MCP QA",
+                "enabled": True, "kind": "shell", "executablePath": "exit 0", "waitForExit": True,
+                "executionTimeoutSeconds": 5, "waitAfterRunSeconds": 0}]}})
+            command = await call("command_run", {"id": "qa-noop"})
+            assert command["started"] and command["exitCode"] == 0
             question = (await call("learning_question", {"next": True}))["question"]
             assert question and question["options"]
             await call("learning_answer", {"questionId": question["id"], "value": question["options"][0]["value"]})
@@ -76,8 +92,26 @@ async def exercise(url, report):
             await call("command_run", {"id": "qa-missing-command"}, error=True)
             await call("learning_choose", {"key": "qa-missing-option", "remember": True}, error=True)
             await call("debug_clear_logs")
-            await call("config_patch", {"patch": {"mcp": {"enabled": False}}})
-            report["selfDisableResponded"] = True
+            rebound = await call("config_patch", {"patch": {"mcp": {"port": next_port}}})
+            assert rebound["mcp"]["url"] == f"http://127.0.0.1:{next_port}/mcp"
+            report["selfRebindResponded"] = True
+
+
+async def finish_disable(url, report):
+    try:
+        async with streamablehttp_client(url, timeout=30, terminate_on_close=False) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                await session.list_tools()
+                result = await session.call_tool("config_patch", {"patch": {"mcp": {"enabled": False}}})
+                assert not result.isError
+                report["selfDisableResponded"] = True
+                report["calls"].append({"tool": "config_patch", "reboundPort": True})
+    except* httpx.ConnectError:
+        # The optional SDK GET/SSE poll may race with an explicitly stopped listener.
+        # Only accept this after the POST tool result was actually received.
+        if not report.get("selfDisableResponded"):
+            raise
 
 
 def main():
@@ -117,9 +151,13 @@ def main():
                     time.sleep(0.4)
             else:
                 raise TimeoutError("MCP listener did not become available")
-            asyncio.run(exercise(f"http://127.0.0.1:{port}/mcp", report))
+            next_port = free_port()
+            asyncio.run(exercise(f"http://127.0.0.1:{port}/mcp", report, next_port))
             with socket.socket() as sock:
-                assert sock.connect_ex(("127.0.0.1", port)) != 0, "Listener still active after disable"
+                assert sock.connect_ex(("127.0.0.1", port)) != 0, "Old listener still active after rebind"
+            asyncio.run(finish_disable(f"http://127.0.0.1:{next_port}/mcp", report))
+            with socket.socket() as sock:
+                assert sock.connect_ex(("127.0.0.1", next_port)) != 0, "Listener still active after disable"
             report["passed"] = True
             (root / "mcp-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
             print(json.dumps({"passed": True, "toolCount": report["toolCount"], "calls": len(report["calls"]),

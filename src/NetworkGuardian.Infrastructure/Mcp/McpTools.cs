@@ -71,7 +71,7 @@ public static class McpTools
         new("learning_reset", "重置本地答题、偏好和模型至内置种子。", false, "{}"),
         new("learning_export", "将问答和偏好数据导出到本机数据目录，返回两个文件路径。", false, "{}"),
         new("debug_logs", "按级别、分类和关键字查询内存日志，最多 500 条。不会记录 MCP 工具参数或密码。", true,
-            """{"limit":{"type":"integer","minimum":1,"maximum":500},"search":{"type":"string"}}"""),
+            """{"limit":{"type":"integer","minimum":1,"maximum":500},"search":{"type":"string"},"category":{"type":"string"},"minimumLevel":{"type":"string","enum":["trace","debug","information","warning","error","critical"]}}"""),
         new("debug_clear_logs", "清空内存日志缓冲，不删除日志文件。", false, "{}"),
         new("debug_bundle", "汇总版本、进程资源、探测、路由、设备、失败记录和设置；不包含凭据密码、命令参数或完整用户答题集。", true, "{}"),
         new("debug_model", "查看本地神经网络权重、有效性和训练次数，供离线诊断。", true, "{}"),
