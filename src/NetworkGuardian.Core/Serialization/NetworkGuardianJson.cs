@@ -4,6 +4,7 @@ using System.Text.Json.Serialization.Metadata;
 using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Helper;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Policies;
 
 namespace NetworkGuardian.Core.Serialization;
 
@@ -26,6 +27,8 @@ namespace NetworkGuardian.Core.Serialization;
 [JsonSerializable(typeof(GuardianConfig))]
 [JsonSerializable(typeof(NetworkHistory))]
 [JsonSerializable(typeof(PreferenceState))]
+[JsonSerializable(typeof(NetworkBrainModel))]
+[JsonSerializable(typeof(SurveyState))]
 [JsonSerializable(typeof(WifiCredentialLibrary))]
 [JsonSerializable(typeof(HelperRequest))]
 [JsonSerializable(typeof(HelperResponse))]
