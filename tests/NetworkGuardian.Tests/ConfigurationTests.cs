@@ -325,6 +325,10 @@ public sealed class JsonConfigStoreTests : IDisposable
     }
 }
 
+[CollectionDefinition("process-environment", DisableParallelization = true)]
+public sealed class ProcessEnvironmentCollection { }
+
+[Collection("process-environment")]
 public sealed class GuardianPathsTests
 {
     [Fact]
