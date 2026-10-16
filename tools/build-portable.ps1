@@ -12,7 +12,7 @@
 # The privileged helper is inside that executable (NetworkGuardian.exe --helper), so the package is
 # one binary: nothing has to sit next to it except the read-me.
 #
-# The size gate fails the build when the exe exceeds -MaxExeMb (default 12.0 MB).
+# The size gate fails the build when the exe exceeds -MaxExeMb (default 13.5 MB).
 #
 # The gate was 8 MB before the self-maintained wireless network library (802.1X/EAP accounts) landed.
 # Measured on this machine with the same toolchain, each step published on its own:
@@ -28,9 +28,9 @@
 param(
     [string]$Configuration = 'Release',
     [string]$OutputDir = 'release',
-    # 0.10.0 adds quality history, generated preference JSON and conflict-aware config merging.
-    # Measured native AOT output: 11.30 MB; retain a small explicit release budget.
-    [double]$MaxExeMb = 12.0,
+    # 0.13.0 adds loopback HTTP MCP and generated metadata for the public control surface.
+    # Measured native AOT output: 12.97 MiB; retain a small explicit release budget.
+    [double]$MaxExeMb = 13.5,
     [switch]$SkipTests,
     [switch]$Zip
 )

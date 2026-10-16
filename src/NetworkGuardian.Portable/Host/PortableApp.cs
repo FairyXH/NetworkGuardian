@@ -49,6 +49,10 @@ internal sealed class PortableApp
         _window?.RequestRefresh();
     }
 
+    private bool ApplyStartupSettings(GuardianConfig config) =>
+        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("NETWORKGUARDIAN_INSTANCE_SUFFIX")) ||
+        _startup.SetEnabled(config.Startup.RunAtLogon);
+
     private PortableApp(JsonConfigStore configStore, InMemoryLogSink logSink, RollingFileLoggerProvider fileLogger)
     {
         _configStore = configStore;
@@ -332,7 +336,7 @@ internal sealed class PortableApp
             ApplyLoggingSettings(config);
             await ConfigureMcpAsync(config).ConfigureAwait(false);
 
-            if (!_startup.SetEnabled(config.Startup.RunAtLogon))
+            if (!ApplyStartupSettings(config))
             {
                 _logger.LogWarning("The run-at-logon registration could not be updated");
             }
@@ -353,7 +357,7 @@ internal sealed class PortableApp
             update(config);
             await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
             ApplyLoggingSettings(config);
-            _startup.SetEnabled(config.Startup.RunAtLogon);
+            ApplyStartupSettings(config);
             await ConfigureMcpAsync(config).ConfigureAwait(false);
         }
         finally
@@ -375,7 +379,7 @@ internal sealed class PortableApp
         }
 
         ApplyLoggingSettings(config);
-        _startup.SetEnabled(config.Startup.RunAtLogon);
+        ApplyStartupSettings(config);
         await ConfigureMcpAsync(config).ConfigureAwait(false);
         return config;
         }
