@@ -98,10 +98,10 @@ internal static class Widgets
         return height;
     }
 
-    public static Rectangle Button(PageContext ctx, int x, int y, string label, Action onClick, bool primary = false, bool enabled = true)
+    public static Rectangle Button(PageContext ctx, int x, int y, string label, Action onClick, bool primary = false, bool enabled = true, bool confirm = true)
     {
         var rect = new Rectangle(x, y, MeasureButtonWidth(ctx, label), ctx.Scale(32));
-        ButtonAt(ctx, rect, label, onClick, primary, enabled);
+        ButtonAt(ctx, rect, label, onClick, primary, enabled, confirm);
         return rect;
     }
 

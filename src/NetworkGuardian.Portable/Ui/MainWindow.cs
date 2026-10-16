@@ -899,7 +899,7 @@ internal sealed class MainWindow
                 TextStyle.Nav);
 
             var target = page;
-            canvas.Hit(rect, () => ExecuteConfirmed($"打开{target.Label}", () => NavigateTo(target.Tag)), kind: "nav");
+            canvas.Hit(rect, () => NavigateTo(target.Tag), kind: "nav");
             y += itemHeight + Scale(2);
         }
 

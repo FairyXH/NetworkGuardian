@@ -187,7 +187,7 @@ internal sealed class PortableApp
             {
                 if (kind is TrayClickKind.LeftClick or TrayClickKind.LeftDoubleClick)
                 {
-                    _window?.ExecuteConfirmed("打开 NetworkGuardian", () => _window?.Show());
+                    _window?.Show();
                 }
             };
 
@@ -225,7 +225,8 @@ internal sealed class PortableApp
         }
 
         var item = BuildTrayMenu().FirstOrDefault(item => item.Id == command);
-        if (item is null || !_window.Confirm($"确定执行“{item.Text}”吗？")) return;
+        if (item is null) return;
+        if (command is "pause" or "reset" or "exit" && !_window.Confirm($"确定执行“{item.Text}”吗？")) return;
 
         switch (command)
         {
@@ -266,9 +267,6 @@ internal sealed class PortableApp
         }
 
         var closeToTray = _host?.Config.Startup.CloseToTray ?? false;
-        if (_window is { } window && !window.Confirm(closeToTray
-                ? "确定关闭主窗口并隐藏到托盘吗？"
-                : "确定退出 NetworkGuardian 吗？")) return;
         if (closeToTray && _tray is { IsVisible: true })
         {
             _logger.LogInformation("Main window closed; hiding to tray");
@@ -276,6 +274,7 @@ internal sealed class PortableApp
             return;
         }
 
+        if (_window is { } window && !window.Confirm("确定退出 NetworkGuardian 吗？")) return;
         _logger.LogInformation("Main window closed; shutting down");
         _ = ShutdownAndQuitAsync();
     }
