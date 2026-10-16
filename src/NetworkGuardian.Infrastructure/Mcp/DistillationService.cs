@@ -67,7 +67,7 @@ public sealed class DistillationService : IAsyncDisposable
         ["epochs"] = j.Epochs, ["examples"] = j.Examples.Count,
         ["labeled"] = j.Examples.Count(r => r.Target is not null), ["baseHash"] = j.BaseHash,
         ["candidateHash"] = BrainDistillation.Hash(j.Candidate), ["deployedHash"] = j.DeployedHash,
-        ["evaluation"] = j.Evaluation is null ? null : JsonNode.Parse(NetworkGuardianJson.Serialize(j))!["evaluation"]!.DeepClone(),
+        ["evaluation"] = j.Evaluation is null ? null : JsonNode.Parse(NetworkGuardianJson.Serialize(j.Evaluation)),
         ["error"] = j.Error,
     };
 
