@@ -218,7 +218,7 @@ internal sealed class SettingsPage : IPage
 
                         endpoints.RemoveAt(index);
                         MarkDirty();
-                    });
+                    }, confirm: false);
             });
         }
 
@@ -397,7 +397,7 @@ internal sealed class SettingsPage : IPage
 
                     config.OfflineCommands.Remove(command);
                     MarkDirty();
-                });
+                }, confirm: false);
             });
 
             y = DrawCard(ctx, area, y, $"离线命令 #{i + 1}", commandForm);

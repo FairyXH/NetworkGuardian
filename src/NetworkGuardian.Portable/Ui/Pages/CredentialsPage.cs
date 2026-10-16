@@ -320,7 +320,7 @@ internal sealed class CredentialsPage : IPage
                 entry.PasswordDecryptionFailed = false;
                 _revealed.Remove(entry.Id);
                 MarkDirty();
-            });
+            }, confirm: false);
         if (entry.IsEnterprise)
         {
             Widgets.Field(ctx, x + column + ctx.Scale(16), cy, column - ctx.Scale(150), "账号 / 身份", entry.Identity,
@@ -454,7 +454,7 @@ internal sealed class CredentialsPage : IPage
             entries.Remove(entry);
             MarkDirty();
             _status = "已删除该网络，点击“保存并应用”生效（系统里已写入的配置不会自动删除）";
-        });
+        }, confirm: false);
 
         // Removing the entry from the library and removing the profile from Windows are two different
         // things: the profile was written per interface, so the cleanup button walks every adapter.
@@ -479,7 +479,7 @@ internal sealed class CredentialsPage : IPage
                     _status = $"{profileName}：{result.Describe()}";
                 });
             },
-            enabled: !purging && !string.IsNullOrWhiteSpace(entry.EffectiveProfileName));
+            enabled: !purging && !string.IsNullOrWhiteSpace(entry.EffectiveProfileName), confirm: false);
 
         canvas.Text(
             entry.Kind == WifiCredentialKind.Open
