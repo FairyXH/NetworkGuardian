@@ -1,6 +1,7 @@
 using System.Drawing;
 using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Policies;
 using NetworkGuardian.Core.Serialization;
 using NetworkGuardian.Core.Wlan;
 
@@ -17,7 +18,7 @@ internal sealed class WirelessPage : IPage
 
     public string Title => "无线网卡";
 
-    public string Description => "按网卡分别扫描与评级；保留稳定连接，持续劣化时验证更优网卡；SSID 指定始终优先。";
+    public string Description => "按网卡扫描与评级；下方设备列表可设置保持禁用（支持无线和有线网卡），优先于自动启用与选网。";
 
     public int Render(PageContext ctx, Rectangle area)
     {
@@ -38,13 +39,13 @@ internal sealed class WirelessPage : IPage
                 await ctx.Host.RescanAllAsync(CancellationToken.None).ConfigureAwait(false);
                 _status = "全部无线网卡扫描完成";
             });
-        }, enabled: !scanningAll);
+        }, enabled: !scanningAll, confirm: false);
 
         Widgets.Button(ctx, scanAll.Right + ctx.Scale(8), y, "刷新设备", () =>
         {
             ctx.Host.RequestImmediateCycle();
             _status = "已请求刷新";
-        });
+        }, confirm: false);
 
         canvas.Text(
             _status,
@@ -73,14 +74,14 @@ internal sealed class WirelessPage : IPage
 
         // ---------- detected devices ----------
         var devices = ctx.Host.Devices;
-        var deviceHeight = ctx.Scale(16 + 24) + (devices.Count * ctx.Scale(46)) + ctx.Scale(16);
+        var deviceHeight = ctx.Scale(16 + 24) + (devices.Count * ctx.Scale(78)) + ctx.Scale(16);
         var devicesRect = new Rectangle(area.Left, y, area.Width, deviceHeight);
         canvas.Card(devicesRect);
 
         var dx = devicesRect.Left + ctx.Scale(16);
         var dy = devicesRect.Top + ctx.Scale(12);
         var dw = devicesRect.Width - ctx.Scale(32);
-        dy += Widgets.SectionTitle(ctx, dx, dy, dw, $"检测到的无线设备（含被过滤的虚拟网卡，共 {devices.Count} 个）");
+        dy += Widgets.SectionTitle(ctx, dx, dy, dw, $"检测到的网络设备（含被过滤的虚拟网卡，共 {devices.Count} 个）");
 
         if (devices.Count == 0)
         {
@@ -91,13 +92,15 @@ internal sealed class WirelessPage : IPage
         {
             var record = device.Record;
             var name = record.FriendlyName ?? record.DeviceDescription ?? record.DeviceInstanceId;
+            var keptDisabled = DeviceDisablePolicy.IsDisabled(ctx.Config, record.DeviceInstanceId);
             var statusText = record.IsPresent
                 ? device.IsEnabled ? "已启用" : $"未启用（problem {record.ProblemCode}）"
                 : "当前不存在";
+            if (keptDisabled) statusText += " · 保持禁用";
 
             canvas.Text(
                 $"{name}｜{statusText}｜{(device.Classification.IsPhysical ? "物理设备" : "已过滤")}｜{record.DeviceInstanceId}",
-                new Rectangle(dx, dy, dw - ctx.Scale(90), ctx.Scale(20)),
+                new Rectangle(dx, dy, dw - ctx.Scale(190), ctx.Scale(20)),
                 device.Classification.IsPhysical ? Palette.TextPrimary : Palette.TextSecondary,
                 TextStyle.Body);
 
@@ -105,17 +108,49 @@ internal sealed class WirelessPage : IPage
                 ctx,
                 dx,
                 dy + ctx.Scale(20),
-                dw - ctx.Scale(90),
+                dw - ctx.Scale(190),
                 $"规则：{device.Classification.Rule}　服务：{record.Service ?? "—"}　枚举器：{record.EnumeratorName ?? "—"}　mediaType：{record.PhysicalMediaType?.ToString() ?? "—"}");
 
-            Widgets.Mono(ctx, dx, dy + ctx.Scale(36), dw - ctx.Scale(90), $"原因：{device.Classification.Reason}");
+            Widgets.Mono(ctx, dx, dy + ctx.Scale(36), dw - ctx.Scale(190), $"原因：{device.Classification.Reason}");
 
             var deviceId = record.DeviceInstanceId;
-            var enableOperation = $"wireless-enable-{deviceId}";
+            var enableOperation = $"device-state-{deviceId}";
             var enabling = ctx.Window.IsOperationRunning(enableOperation);
-            var enableLabel = record.IsPresent && !device.IsEnabled ? "启用" : "查询状态";
+            var canManage = device.Classification.IsPhysical && device.Classification.Category is
+                DeviceCategory.PhysicalWifi or DeviceCategory.PhysicalEthernet;
+            var policyLabel = keptDisabled ? "取消禁用并启用" : "保持禁用";
+            var policyWidth = Widgets.MeasureButtonWidth(ctx, policyLabel);
+            Widgets.ButtonAt(ctx, new Rectangle(devicesRect.Right - ctx.Scale(16) - policyWidth, dy, policyWidth, ctx.Scale(30)),
+                enabling ? "处理中…" : policyLabel, () =>
+                {
+                    if (!ctx.Window.Confirm(keptDisabled
+                        ? $"确定取消“{name}”的保持禁用规则并启用该网卡吗？"
+                        : $"确定保持禁用“{name}”吗？该网卡的现有连接会断开；规则将保存并优先于自动启用，重启软件后仍有效。")) return;
+                    ctx.Window.RunBackground(enableOperation, $"正在{policyLabel}：{name}", async () =>
+                    {
+                        await ctx.Window.App.UpdateConfigAsync(config =>
+                        {
+                            config.DisabledDeviceInstanceIds.RemoveAll(id => string.Equals(id, deviceId, StringComparison.OrdinalIgnoreCase));
+                            if (!keptDisabled) config.DisabledDeviceInstanceIds.Add(deviceId);
+                        }).ConfigureAwait(false);
+                        if (!record.IsPresent)
+                        {
+                            _status = "已取消禁用规则；设备当前离线";
+                            ctx.Host.RequestImmediateCycle();
+                            return;
+                        }
+                        var result = keptDisabled
+                            ? await ctx.Host.EnableDeviceAsync(deviceId, CancellationToken.None).ConfigureAwait(false)
+                            : await ctx.Host.DisableDeviceAsync(deviceId, CancellationToken.None).ConfigureAwait(false);
+                        _status = result.Success ? $"{name}：{policyLabel}已完成"
+                            : $"规则已保存，但设备操作失败：{result.Outcome} {result.Detail} {result.Win32Message}";
+                        ctx.Host.RequestImmediateCycle();
+                    });
+                }, enabled: !enabling && canManage && (record.IsPresent || keptDisabled), confirm: false);
+
+            var enableLabel = record.IsPresent && !device.IsEnabled ? "启用" : "刷新状态";
             var buttonWidth = Widgets.MeasureButtonWidth(ctx, enableLabel);
-            var enableRect = new Rectangle(devicesRect.Right - ctx.Scale(16) - buttonWidth, dy + ctx.Scale(4), buttonWidth, ctx.Scale(30));
+            var enableRect = new Rectangle(devicesRect.Right - ctx.Scale(16) - buttonWidth, dy + ctx.Scale(36), buttonWidth, ctx.Scale(30));
 
             Widgets.ButtonAt(
                 ctx,
@@ -123,6 +158,12 @@ internal sealed class WirelessPage : IPage
                 enabling ? "处理中…" : enableLabel,
                 () =>
                 {
+                    if (device.IsEnabled)
+                    {
+                        ctx.Host.RequestImmediateCycle();
+                        _status = "已请求刷新设备状态";
+                        return;
+                    }
                     _status = $"正在请求启用 {name}（可能出现 UAC 提示）…";
                     ctx.Window.RunBackground(enableOperation, $"正在处理无线设备 {name}", async () =>
                     {
@@ -132,9 +173,9 @@ internal sealed class WirelessPage : IPage
                             : $"启用失败：{result.Outcome} {result.Detail} {result.Win32Message}";
                     });
                 },
-                enabled: !enabling && device.Classification.IsPhysical && record.IsPresent);
+                enabled: !enabling && canManage && record.IsPresent && !keptDisabled, confirm: !device.IsEnabled);
 
-            dy += ctx.Scale(46);
+            dy += ctx.Scale(78);
         }
 
         return devicesRect.Bottom - area.Top;
@@ -246,7 +287,7 @@ internal sealed class WirelessPage : IPage
                 var result = await ctx.Host.ScanAdapterAsync(guid, CancellationToken.None).ConfigureAwait(false);
                 _status = result.Failed ? $"扫描失败：{result.FailureReason}" : $"扫描完成：{result.Networks.Count} 个网络";
             });
-        }, enabled: !scanning);
+        }, enabled: !scanning, confirm: false);
 
         // ---------- saved profiles ----------
         canvas.Text("已保存的配置", new Rectangle(x, cy, width, ctx.Scale(20)), Palette.TextMuted, TextStyle.Caption);
