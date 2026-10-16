@@ -36,6 +36,8 @@ public sealed class WifiRadioController : IWifiRadioController, IDisposable
 
     public event EventHandler<WifiRadioSnapshot>? StateChanged;
 
+    public Func<Guid, bool>? CanEnableAdapter { get; set; }
+
     public Task<WifiRadioSnapshot> GetAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -94,7 +96,8 @@ public sealed class WifiRadioController : IWifiRadioController, IDisposable
             return SetSoftwareRadioState(true);
         }
 
-        var candidates = instances.Where(instance => !instance.IsOn).ToList();
+        var candidates = instances.Where(instance => !instance.IsOn &&
+            (CanEnableAdapter?.Invoke(instance.InterfaceGuid) ?? true)).ToList();
         if (candidates.Count == 0)
         {
             return new RadioOperationResult { Success = true, StateChanged = false };
@@ -189,7 +192,8 @@ public sealed class WifiRadioController : IWifiRadioController, IDisposable
         var instances = _native.ReadRadioInstances();
         if (instances.Count > 0)
         {
-            var off = instances.Where(instance => !instance.IsOn).ToList();
+            var off = instances.Where(instance => !instance.IsOn &&
+                (CanEnableAdapter?.Invoke(instance.InterfaceGuid) ?? true)).ToList();
             var hardwareOff = off.Where(instance => instance.IsHardwareOff).ToList();
 
             return new WifiRadioSnapshot

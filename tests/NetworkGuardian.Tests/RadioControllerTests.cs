@@ -65,6 +65,35 @@ public sealed class WlanRadioStateLayoutTests
 public sealed class WifiRadioControllerTests
 {
     [Fact]
+    public async Task KeptDisabledAdapter_IsNotEnabledOrReportedAsARadioFault()
+    {
+        var blocked = Guid.NewGuid();
+        var allowed = Guid.NewGuid();
+        var fake = new FakeRadioAccess(softwareOn: false, hardwareOn: true);
+        fake.Instances.Add(new RadioInstanceInfo(blocked, "Disabled USB", RadioDeviceState.SoftwareOff));
+        fake.Instances.Add(new RadioInstanceInfo(allowed, "Internal WLAN", RadioDeviceState.SoftwareOff));
+        using var controller = new WifiRadioController(access: fake) { CanEnableAdapter = id => id != blocked };
+
+        var result = await controller.SetEnabledAsync(true, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(new[] { allowed }, fake.RadioOnRequests);
+        Assert.Equal(RadioState.On, (await controller.GetAsync(CancellationToken.None)).State);
+    }
+
+    [Fact]
+    public async Task AllAdaptersKeptDisabled_DoNotTriggerRadioWrites()
+    {
+        var fake = new FakeRadioAccess(softwareOn: false, hardwareOn: true);
+        fake.Instances.Add(new RadioInstanceInfo(Guid.NewGuid(), "Disabled USB", RadioDeviceState.SoftwareOff));
+        using var controller = new WifiRadioController(access: fake) { CanEnableAdapter = _ => false };
+
+        Assert.False((await controller.SetEnabledAsync(true, CancellationToken.None)).StateChanged);
+        Assert.Empty(fake.RadioOnRequests);
+        Assert.Equal(0, fake.WriteCount);
+    }
+
+    [Fact]
     public async Task SoftwareRadioOff_IsReportedAsOff()
     {
         using var controller = new WifiRadioController(access: new FakeRadioAccess(softwareOn: false, hardwareOn: true));

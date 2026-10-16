@@ -58,6 +58,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private readonly SemaphoreSlim _cycleSignal = new(0, 1);
     private readonly SemaphoreSlim _bindingGate = new(1, 1);
+    private readonly Dictionary<string, DateTimeOffset> _disableRetryAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Random _jitter = new();
 
     /// <summary>
@@ -220,6 +221,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         {
             DenyList = _config.InterfaceDenyList,
         };
+        _radio.CanEnableAdapter = guid => !DeviceDisablePolicy.IsDisabled(_config, guid, _devicesSnapshot);
 
         _interfaces = new NetworkInterfaceProvider(
             guid => _deviceByNetCfgGuid.TryGetValue(guid, out var record) ? record : null,
@@ -620,6 +622,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     public async Task ApplyConfigAsync(GuardianConfig config, CancellationToken cancellationToken)
     {
         config.InterfaceDenyList ??= new List<string>();
+        config.DisabledDeviceInstanceIds ??= new List<string>();
         await _configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         _config = config;
         ApplyConfigToComponents(config);
@@ -792,6 +795,9 @@ public sealed class GuardianHostService : IAsyncDisposable
                 _forceEnumeration = false;
             }
 
+            // Explicit device rules remain active even when automatic recovery is paused/off.
+            await EnforceDisabledDevicesAsync(cancellationToken).ConfigureAwait(false);
+
             var probeDue = _forceProbe || now >= _nextProbeUtc;
             if (probeDue && now >= _resumeQuietUntilUtc)
             {
@@ -955,7 +961,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         var byAdapter = new Dictionary<Guid, ConnectivityProbeReport>();
         var byInterfaceId = new Dictionary<string, ConnectivityProbeReport>(StringComparer.Ordinal);
-        var interfaces = _interfaces.GetInterfaces();
+        var interfaces = _interfaces.GetInterfaces().Where(i => !IsDisabledInterface(i)).ToArray();
         Task<ConnectivityProbeReport>? globalTask = null;
 
         if (_config.Probe.PerInterfaceProbing)
@@ -1067,6 +1073,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         foreach (var adapter in _wifi.GetAdapters())
         {
+            if (DeviceDisablePolicy.IsDisabled(_config, adapter.InterfaceGuid, _devicesSnapshot)) continue;
             _deviceByNetCfgGuid.TryGetValue(adapter.InterfaceGuid, out var record);
 
             if (record is not null)
@@ -1143,6 +1150,7 @@ public sealed class GuardianHostService : IAsyncDisposable
 
         foreach (var state in interfaces)
         {
+            if (IsDisabledInterface(state)) continue;
             var probe = state.Kind switch
             {
                 InterfaceKind.Wifi when state.WlanInterfaceGuid is { } guid &&
@@ -1370,6 +1378,19 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     private async Task ExecuteActionAsync(GuardianAction action, CancellationToken cancellationToken)
     {
+        var blocked = action switch
+        {
+            EnableWifiDeviceAction a => DeviceDisablePolicy.IsDisabled(_config, a.DeviceInstanceId),
+            RestartWifiDeviceAction a => DeviceDisablePolicy.IsDisabled(_config, a.DeviceInstanceId),
+            ConnectWifiAction a => DeviceDisablePolicy.IsDisabled(_config, a.InterfaceGuid, _devicesSnapshot),
+            ScanAdapterAction a => DeviceDisablePolicy.IsDisabled(_config, a.InterfaceGuid, _devicesSnapshot),
+            _ => false,
+        };
+        if (blocked)
+        {
+            _logger.LogInformation("Skipped action for a device kept disabled: {Action}", action.Describe());
+            return;
+        }
         if (action is not NoAction and not WaitAction)
             RememberTask(action.Confidence is null ? action with { Confidence = .5, ConfidenceEvidence = "显式请求，尚无校准置信度；执行后需探测验证" } : action);
         try
@@ -1850,6 +1871,8 @@ public sealed class GuardianHostService : IAsyncDisposable
         try
         {
             _logger.LogInformation("Manual connect on {Adapter} to profile {Profile}", interfaceGuid, profileName);
+            if (DeviceDisablePolicy.IsDisabled(_config, interfaceGuid, _devicesSnapshot))
+                return WlanOperationResult.Fail("此网卡已设置保持禁用，请先取消禁用规则");
             var ssid = ResolveProfileSsid(interfaceGuid, profileName);
             if (!WifiBindingPolicy.Allows(_config.Wifi, ssid, interfaceGuid))
                 return WlanOperationResult.Fail("此 Wi-Fi 已指定其他网卡，请先修改或取消指定");
@@ -1892,6 +1915,9 @@ public sealed class GuardianHostService : IAsyncDisposable
         await _cycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (DeviceDisablePolicy.IsDisabled(_config, deviceInstanceId))
+                return new DeviceOperationResult { DeviceInstanceId = deviceInstanceId, Operation = "enable",
+                    Outcome = DeviceOperationOutcome.NotSupported, Detail = "请先取消此网卡的保持禁用规则" };
             var result = await _devices.EnableAsync(deviceInstanceId, cancellationToken).ConfigureAwait(false);
             _forceEnumeration = true;
             return result;
@@ -2009,6 +2035,58 @@ public sealed class GuardianHostService : IAsyncDisposable
             .OrderByDescending(s => s.SignalQuality)
             .ThenBy(s => s.Ssid, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    public async Task<DeviceOperationResult> DisableDeviceAsync(string deviceInstanceId, CancellationToken cancellationToken)
+    {
+        await _cycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var result = await _devices.DisableAsync(deviceInstanceId, cancellationToken).ConfigureAwait(false);
+            _disableRetryAt[deviceInstanceId] = DateTimeOffset.UtcNow.Add(result.Success
+                ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(5));
+            _forceEnumeration = true;
+            _forceProbe = true;
+            return result;
+        }
+        finally
+        {
+            _cycleGate.Release();
+            RequestImmediateCycle();
+        }
+    }
+
+    private bool IsDisabledInterface(InterfaceRuntimeState state) =>
+        DeviceDisablePolicy.IsDisabled(_config, state.DeviceInstanceId) ||
+        ((state.AdapterGuid ?? state.WlanInterfaceGuid) is { } guid &&
+            DeviceDisablePolicy.IsDisabled(_config, guid, _devicesSnapshot));
+
+    private async Task EnforceDisabledDevicesAsync(CancellationToken token)
+    {
+        var changed = false;
+        foreach (var device in _devicesSnapshot.Where(d => DeviceDisablePolicy.NeedsDisable(_config, d)))
+        {
+            var id = device.Record.DeviceInstanceId;
+            if (_disableRetryAt.TryGetValue(id, out var next) && DateTimeOffset.UtcNow < next) continue;
+            var result = await _devices.DisableAsync(id, token).ConfigureAwait(false);
+            _disableRetryAt[id] = DateTimeOffset.UtcNow.Add(result.Success
+                ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(5));
+            if (result.Success)
+            {
+                changed = true;
+                _logger.LogInformation("Kept network device disabled: {Device}", id);
+            }
+            else
+            {
+                _logger.LogWarning("保持禁用失败，将稍后重试: {Device} {Outcome} {Detail}", id, result.Outcome, result.Detail);
+            }
+        }
+        if (changed)
+        {
+            await RefreshEnumerationAsync(token).ConfigureAwait(false);
+            _lastEnumerationUtc = DateTimeOffset.UtcNow;
+            _forceProbe = true;
+        }
     }
 
     /// <summary>
@@ -2147,8 +2225,11 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     private Guid? SelectAutoConnectOwner(IReadOnlyList<WifiAdapterInfo> availableAdapters, string? ssid = null)
     {
+        availableAdapters = availableAdapters.Where(a =>
+            !DeviceDisablePolicy.IsDisabled(_config, a.InterfaceGuid, _devicesSnapshot)).ToArray();
         var physicalGuids = _devicesSnapshot
             .Where(device => device.Record.IsPresent && device.Classification.IsPhysical &&
+                             !DeviceDisablePolicy.IsDisabled(_config, device.Record.DeviceInstanceId) &&
                              device.Classification.Category == DeviceCategory.PhysicalWifi)
             .Select(device => device.Record.NetCfgInstanceId)
             .Where(value => Guid.TryParse(value, out _))
