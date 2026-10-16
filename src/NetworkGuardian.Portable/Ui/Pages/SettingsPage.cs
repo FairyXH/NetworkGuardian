@@ -30,9 +30,9 @@ internal sealed class SettingsPage : IPage
 
     public string Tag => "settings";
 
-    public string Label => "设置";
+    public string Label => "自动管理";
 
-    public string Title => "设置";
+    public string Title => "自动管理";
 
     public string Description => "所有改动都会自动写入 config.json 并立即生效；“保存并应用”可用于立即确认保存结果。";
 

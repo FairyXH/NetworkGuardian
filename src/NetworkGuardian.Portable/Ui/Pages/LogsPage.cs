@@ -29,9 +29,9 @@ internal sealed class LogsPage : IPage
 
     public string Tag => "logs";
 
-    public string Label => "日志";
+    public string Label => "诊断日志";
 
-    public string Title => "日志";
+    public string Title => "诊断日志";
 
     public string Description => "实时缓冲（最近若干条），可切换最小级别、分类与关键字过滤。完整日志按天滚动写入文件。";
 

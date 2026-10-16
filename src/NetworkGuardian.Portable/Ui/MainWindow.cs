@@ -844,7 +844,7 @@ internal sealed class MainWindow
         var testRect = new Rectangle(right - testWidth, buttonTop, testWidth, buttonHeight);
         Widgets.ButtonAt(pageContext, testRect, testLabel,
             () => RunBackground(testOperation, "正在执行连通性测试", () => _host.RunConnectivityTestAsync(CancellationToken.None), "连通性测试完成"),
-            enabled: !testing);
+            enabled: !testing, confirm: false);
 
         var pauseLabel = _host.IsPaused ? "恢复自动恢复" : "暂停自动恢复";
         var pauseWidth = Widgets.MeasureButtonWidth(pageContext, pauseLabel);
@@ -877,9 +877,24 @@ internal sealed class MainWindow
 
         var y = top + Scale(14);
         var itemHeight = Scale(38);
+        string? previousGroup = null;
 
         foreach (var page in _pages)
         {
+            var group = page.Tag switch
+            {
+                "dashboard" => "总览",
+                "wireless" or "ethernet" or "devices" or "credentials" => "网络管理",
+                _ => "策略与诊断",
+            };
+            if (group != previousGroup)
+            {
+                if (previousGroup is not null) y += Scale(8);
+                canvas.Text(group, new Rectangle(Scale(20), y, width - Scale(32), Scale(20)),
+                    Palette.TextMuted, TextStyle.Caption);
+                y += Scale(24);
+                previousGroup = group;
+            }
             var rect = new Rectangle(Scale(8), y, width - Scale(16), itemHeight);
             var active = ReferenceEquals(page, _page);
             var hovered = canvas.IsHovered(rect);
@@ -907,6 +922,7 @@ internal sealed class MainWindow
         var snapshot = _host.Snapshot;
         var infoY = client.Height - Scale(96);
         var infoWidth = width - Scale(24);
+        if (infoY < y + Scale(12)) return;
 
         canvas.Text("运行状态", new Rectangle(Scale(12), infoY, infoWidth, Scale(20)), Palette.TextMuted, TextStyle.Caption);
         canvas.Text(
