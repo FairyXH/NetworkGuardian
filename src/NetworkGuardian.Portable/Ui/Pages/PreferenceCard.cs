@@ -59,8 +59,8 @@ internal sealed class PreferenceCard
                 await ctx.Window.App.UpdateConfigAsync(c => c.Quality.LearningEnabled = true).ConfigureAwait(false);
                 host.NextSurveyQuestion();
             });
-        }, enabled: !ctx.Window.IsOperationRunning(operation));
-        var history = Widgets.Button(ctx, next.Right + ctx.Scale(8), cy, _showHistory ? "收起记录" : "查看记录", () => _showHistory = !_showHistory);
+        }, enabled: !ctx.Window.IsOperationRunning(operation), confirm: !enabled);
+        var history = Widgets.Button(ctx, next.Right + ctx.Scale(8), cy, _showHistory ? "收起记录" : "查看记录", () => _showHistory = !_showHistory, confirm: false);
         var export = Widgets.Button(ctx, history.Right + ctx.Scale(8), cy, "导出答题集", () => ctx.Window.RunBackground("survey-export", "正在导出本机答题集",
             () => host.ExportSurveyAsync(), "已导出到配置目录 network-survey-export.json"));
         Widgets.Button(ctx, export.Right + ctx.Scale(8), cy, "重置学习", () => ctx.Window.RunBackground("survey-reset", "正在重置答题集与模型",

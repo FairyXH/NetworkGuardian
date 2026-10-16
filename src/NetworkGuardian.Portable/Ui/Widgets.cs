@@ -132,7 +132,7 @@ internal static class Widgets
     }
 
     /// <summary>Toggle switch with a label on the left and the switch on the right.</summary>
-    public static int Toggle(PageContext ctx, int x, int y, int width, string label, bool value, Action onClick)
+    public static int Toggle(PageContext ctx, int x, int y, int width, string label, bool value, Action onClick, bool confirm = true)
     {
         var canvas = ctx.Canvas;
         var height = ctx.Scale(26);
@@ -147,7 +147,9 @@ internal static class Widgets
         var knobX = value ? switchRect.Right - knob - ctx.Scale(2) : switchRect.Left + ctx.Scale(2);
         canvas.FillRounded(new Rectangle(knobX, switchRect.Top + ctx.Scale(2), knob, knob), 8, hovered ? Palette.TextPrimary : Palette.TextSecondary);
 
-        canvas.Hit(switchRect, () => ctx.Window.ExecuteConfirmed($"{(value ? "关闭" : "开启")}：{label}", onClick), kind: "toggle");
+        canvas.Hit(switchRect, confirm
+            ? () => ctx.Window.ExecuteConfirmed($"{(value ? "关闭" : "开启")}：{label}", onClick)
+            : onClick, kind: "toggle");
         return Math.Max(height, canvas.MeasureWrappedHeight(label, labelWidth, TextStyle.Body)) + ctx.Scale(6);
     }
 
@@ -266,7 +268,7 @@ internal static class Widgets
     }
 
     /// <summary>Dropdown implemented as a native popup menu (no self-drawn popup window).</summary>
-    public static int Dropdown(PageContext ctx, int x, int y, int width, string label, IReadOnlyList<string> items, int selected, Action<int> onSelect)
+    public static int Dropdown(PageContext ctx, int x, int y, int width, string label, IReadOnlyList<string> items, int selected, Action<int> onSelect, bool confirm = true)
     {
         var canvas = ctx.Canvas;
         var consumed = string.IsNullOrEmpty(label) ? 0 : Caption(ctx, x, y, width, label);
@@ -283,7 +285,7 @@ internal static class Widgets
 
         // The popup is positioned with ClientToScreen, so it needs the client rectangle.
         var popupRect = canvas.ToClient(rect);
-        canvas.Hit(rect, () => ctx.Window.ShowPopupMenu(popupRect, items, selected, onSelect), kind: "field");
+        canvas.Hit(rect, () => ctx.Window.ShowPopupMenu(popupRect, items, selected, onSelect, confirm), kind: "field");
         return consumed + height + ctx.Scale(8);
     }
 

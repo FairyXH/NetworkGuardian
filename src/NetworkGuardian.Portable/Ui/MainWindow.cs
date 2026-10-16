@@ -356,7 +356,7 @@ internal sealed class MainWindow
 
     // ---------- dropdown ----------
 
-    public void ShowPopupMenu(Rectangle rect, IReadOnlyList<string> items, int selected, Action<int> onSelect)
+    public void ShowPopupMenu(Rectangle rect, IReadOnlyList<string> items, int selected, Action<int> onSelect, bool confirm = true)
     {
         CloseEditor(commit: true);
 
@@ -389,7 +389,8 @@ internal sealed class MainWindow
             if (chosen > 0)
             {
                 var index = chosen - 1;
-                ExecuteConfirmed($"选择：{items[index]}", () => onSelect(index));
+                if (confirm) ExecuteConfirmed($"选择：{items[index]}", () => onSelect(index));
+                else onSelect(index);
             }
         }
         finally
