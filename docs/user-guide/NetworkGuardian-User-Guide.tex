@@ -10,7 +10,7 @@
 \pagestyle{fancy}
 \fancyhf{}
 \fancyhead[L]{\small NetworkGuardian 使用说明}
-\fancyhead[R]{\small 0.13.0}
+\fancyhead[R]{\small 0.14.0}
 \fancyfoot[C]{\thepage}
 \newcommand{\ui}[1]{\textbf{“#1”}}
 \newcommand{\tool}[1]{\nolinkurl{#1}}
@@ -24,7 +24,7 @@
 \vspace{8mm}
 {\LARGE 使用说明\par}
 \vspace{5mm}
-{\large Windows 单文件版 · 0.13.0\par}
+{\large Windows 单文件版 · 0.14.0\par}
 \vspace{17mm}
 \begin{minipage}{0.82\textwidth}
 这份说明从第一次打开软件开始，介绍如何查看网络是否正常、连接无线网络、指定网卡、保持禁用设备、理解本地模型，以及让 AI 通过本机 MCP 服务器使用软件。
@@ -32,7 +32,7 @@
 不需要先懂路由、无线驱动或机器学习。高级参数与工具名称放在后半部分；首次使用可先阅读第 1--4 节。
 \end{minipage}
 \vfill
-{\large 2026 年 10 月 16 日\par}
+{\large 2026 年 10 月 17 日\par}
 \vspace{5mm}
 {\small 文档与对应 LaTeX 源码随项目维护；界面名称以本版本为准。\par}
 \end{titlepage}
@@ -294,6 +294,41 @@ asyncio.run(main())
 \tool{GET /mcp} 返回 405 是本实现不提供服务端 SSE 流的正常结果，不是“服务没有启动”。
 \tool{GET /health} 可查询监听状态。MCP 连接仍应填写完整的 \tool{/mcp} 地址。
 
+\section{让 Agent 蒸馏和续训模型}
+\subsection{导入 Skill，再用一句话开始}
+项目的 \tool{skills/networkguardian} 文件夹是可直接复制的 Agent Skill，也可以使用发布的 Skill ZIP。
+解压后把整个 \tool{networkguardian} 文件夹放入 Agent 的技能目录；Codex 默认使用 \tool{~/.codex/skills/}。
+在软件中开启 MCP，并让 Agent 连接本机地址。修改过端口时，同步修改客户端地址。
+
+可以直接告诉 Agent：
+\begin{guidebox}{简短提示示例}
+使用 \tool{$networkguardian}，持续蒸馏网络模型一小时，通过验证就部署，中断后继续已有任务。
+\end{guidebox}
+Skill 包含任务恢复、标注、验证、部署和网络调试操作方法。没有原生 MCP 连接器时，附带的 \tool{ng_mcp.py} 可通过 Python 标准库调用服务器。
+Skill 不包含 API 密钥；执行任务的 Agent 自身可以充当教师，无须再配置另一模型。
+
+\subsection{蒸馏过程中发生什么}
+\begin{enumerate}
+\item Agent 查询已有任务。新建时使用稳定的 requestId，重试不会重复创建同一任务。
+\item 软件提供数值场景，默认 160 条，标明合成假设或近期实际聚合观测。Agent 结合网络知识给出效用标签、把握程度和简短理由。
+\item 所有样例标注完毕后启动后台训练。数据集冻结；留出样例不参与梯度训练，教师标签会与内置专家规则混合。
+\item 软件每 5 个训练轮次保存检查点。Agent 断开连接时后台继续；软件退出后重新启动，再调用 start 续训。
+\item 完成后比较候选与原模型的留出误差，并用另一组专家场景检查退化。通过门槛后才允许部署，保留原模型用于回滚。
+\end{enumerate}
+
+\subsection{哪些结果可以相信}
+这里训练的是网络效用评分神经网络，不会训练 Agent 自己的大语言模型。
+验证 MAE 是与教师或专家评分的平均差异，不是实际联网成功率，也不能说明用户偏好一定更准确。
+没有新的现场观测时，Agent 应明确说明这一批是在补充网络知识。
+
+部署要求留出 MAE 不高于 0.20，较原模型至少改善 0.0005；专家场景 MAE 不高于 0.12，退化不超过 0.015。
+如果训练期间用户答题已更新当前模型，部署会拒绝覆盖新数据，应从最新模型重新创建任务。
+回滚也检查版本，避免丢弃部署后的新学习。保持禁用、SSID 指定和选网保护门槛仍优先。
+
+Skill 默认长期任务最多运行一小时、12 批次，连续两批没有改善就停止；可以在提示中调整预算。
+Agent 平台的配额、会话期限或退出仍可能中断 Agent，Skill 不能保证会话永不中断，但已保存任务和训练进度可恢复。
+删除用户回答会按保留问答从内置种子重建模型；重置学习也会清除已部署模型效果。
+
 \section{常见问题与调试顺序}
 \subsection{界面没有看到网卡，或扫描为空}
 先在网卡管理检查是否保持禁用、驱动是否工作，再刷新设备。
@@ -337,6 +372,7 @@ asyncio.run(main())
 \tool{network-history.json} & 质量历史、偏好参数和权威模型状态。\\
 \tool{network-brain.json} & 可查看的模型权重副本。\\
 \tool{network-survey.json} & 答题集与上下文。\\
+\tool{distillation/} & 蒸馏任务、教师标签、训练检查点、验证与回滚模型。\\
 \tool{Logs} & 按设置滚动写入的文件日志。\\
 \bottomrule
 \end{tabularx}
@@ -347,7 +383,7 @@ asyncio.run(main())
 导出的问答、日志和配置可能含 SSID、设备名称或用户自己填写的命令参数，交给他人排查前按实际需要检查内容。
 
 \section{文档与开发验证说明}
-本说明对应 0.13.0 的功能。项目提供单元测试和隔离配置的 MCP 检查脚本，后者通过官方 Python MCP 客户端连接真实单文件成品。
+本说明对应 0.14.0 的功能。项目提供单元测试和隔离配置的 MCP 检查脚本，后者通过官方 Python MCP 客户端连接真实单文件成品。
 隔离检查验证查询、配置、答题与凭据流程，不为了测试而禁用用户正在使用的真实网卡。
 硬件驱动、校园认证服务和 UAC 的实际结果仍以当前电脑的返回与后续探测为准。
 
@@ -404,6 +440,9 @@ asyncio.run(main())
 \tool{debug_bundle} & 查 & 版本、资源、探测、路由、设备和模型状态汇总。\\
 \tool{debug_model} & 查 & 网络权重、有效性与训练计数。\\
 \tool{debug_decision} & 查 & 最近实际决策和任务，不重新驱动决策引擎。\\
+\tool{training_status} & 查 & 已保存的训练任务、进度、验证误差与模型哈希。\\
+\tool{training_examples} & 查 & 分页读取样例，默认只返回未标注项。\\
+\tool{model_distill} & 写 & 创建、标注、后台训练、暂停、验证、部署、回滚和删除任务。\\
 \bottomrule
 \end{longtable}\endgroup
 \end{document}

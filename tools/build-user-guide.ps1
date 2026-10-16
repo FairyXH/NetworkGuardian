@@ -2,7 +2,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $guideRepo = Split-Path -Parent $PSScriptRoot
 $guideSource = Join-Path $guideRepo 'docs\user-guide\NetworkGuardian-User-Guide.tex'
-$guideBuild = Join-Path $guideRepo 'artifacts\manual-0.13.0'
+$guideBuild = Join-Path $guideRepo 'artifacts\manual-0.14.0'
 $guideTarget = Join-Path $guideRepo 'docs\user-guide\NetworkGuardian-User-Guide.pdf'
 New-Item -ItemType Directory -Path $guideBuild -Force | Out-Null
 $guideConsole = Join-Path $guideBuild 'compile-console.log'
