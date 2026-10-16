@@ -76,6 +76,12 @@ public static class McpTools
         new("debug_bundle", "汇总版本、进程资源、探测、路由、设备、失败记录和设置；不包含凭据密码、命令参数或完整用户答题集。", true, "{}"),
         new("debug_model", "查看本地神经网络权重、有效性和训练次数，供离线诊断。", true, "{}"),
         new("debug_decision", "返回最近实际决策说明、任务与策略。只读，不重新驱动引擎或下发网络动作。", true, "{}"),
+        new("training_status", "读取持久化蒸馏任务、后台训练进度、验证门槛结果和当前模型哈希；不传 jobId 列出全部任务。", true,
+            """{"jobId":{"type":"string"}}"""),
+        new("training_examples", "分页读取服务器生成的数值场景和真实观测。默认仅返回未标注样例；连续投喂时保持 offset=0，最多 64 条。", true,
+            """{"jobId":{"type":"string"},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":64},"unlabeledOnly":{"type":"boolean"}}""", "jobId"),
+        new("model_distill", "独立蒸馏训练接口：create 用 requestId 幂等创建、teacher 标记教师；label 的 labels={样例id:{target:0..1,confidence:0..1,rationale:原因}}，每批最多64；start 后台训练/续训，pause 暂停，evaluate 验证，deploy 仅部署通过门槛且基线未变的候选，rollback 需 expectedHash=deployedHash，delete 删除未部署任务。create 可设 count=96..512、epochs=20..1000。任务断线继续，软件重启后 start 续训；无需外部 API 密钥。", false,
+            """{"action":{"type":"string","enum":["create","label","start","pause","evaluate","deploy","rollback","delete"]},"jobId":{"type":"string"},"requestId":{"type":"string"},"teacher":{"type":"string"},"count":{"type":"integer","minimum":96,"maximum":512},"epochs":{"type":"integer","minimum":20,"maximum":1000},"labels":{"type":"object"},"expectedHash":{"type":"string"}}""", "action"),
     };
 }
 

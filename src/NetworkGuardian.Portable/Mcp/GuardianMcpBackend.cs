@@ -44,6 +44,9 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
     {
         switch (name)
         {
+            case "training_status": return await host.Training.InvokeAsync("status", args).ConfigureAwait(false);
+            case "training_examples": return await host.Training.InvokeAsync("examples", args).ConfigureAwait(false);
+            case "model_distill": return await host.Training.InvokeAsync(Text(args, "action"), args, CaptureTrainingExamples()).ConfigureAwait(false);
             case "guardian_status": return new JsonObject { ["snapshot"] = Data(host.Snapshot), ["mcp"] = app.McpStatus };
             case "quality_report": return new JsonObject { ["report"] = Data(NetworkQualityReporter.Build(host.Snapshot,
                 host.LinkQuality, host.Config, host.Brain, DateTimeOffset.UtcNow)), ["measurements"] = Data(host.LinkQuality.ToArray()) };
@@ -218,6 +221,26 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                         ["quality"] = Data(host.LinkQuality.ToArray()), ["modelValid"] = NetworkBrain.Valid(host.Brain),
                         ["personalSteps"] = host.Brain.PersonalSteps, ["npcap"] = host.NpcapStatus.Detail };
             default: throw new ArgumentException("Unknown tool");
+        }
+    }
+
+    private IEnumerable<DistillationExample> CaptureTrainingExamples()
+    {
+        var snapshot = host.Snapshot;
+        foreach (var quality in host.LinkQuality)
+        {
+            var age = DateTimeOffset.UtcNow - quality.UpdatedAtUtc;
+            if (!quality.IsMeasured || age < TimeSpan.Zero || age > TimeSpan.FromMinutes(5)) continue;
+            var adapter = snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == quality.Adapter &&
+                a.IsConnected && a.CurrentSsid == quality.Ssid && a.Connection?.Band == quality.Band);
+            var probe = snapshot.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == quality.Adapter)?.Probe;
+            if (adapter is null || probe is null || (quality.TcpFailure is null && quality.GatewayLoss is null)) continue;
+            var features = new[] { quality.Score / 100, quality.TcpFailure ?? quality.GatewayLoss ?? .1,
+                Math.Min(1, (quality.LatencyMs ?? 100) / 500), Math.Min(1, quality.JitterMs / 100),
+                adapter.SignalQuality / 100d, quality.Confidence, probe.IsOnline ? 1d : 0, .5 };
+            if (features.Any(x => !double.IsFinite(x) || x < 0 || x > 1)) continue;
+            yield return new() { Id = BrainDistillation.ExampleId(features), Features = features,
+                Source = "observed-aggregate", ObservedAtUtc = quality.UpdatedAtUtc };
         }
     }
 

@@ -7,6 +7,7 @@ using NetworkGuardian.Core.Policies;
 using NetworkGuardian.Core.Wlan;
 using NetworkGuardian.Infrastructure.Configuration;
 using NetworkGuardian.Infrastructure.Logging;
+using NetworkGuardian.Infrastructure.Mcp;
 using NetworkGuardian.Infrastructure.Processes;
 using NetworkGuardian.Windows.Connectivity;
 using NetworkGuardian.Windows.Devices;
@@ -77,6 +78,19 @@ public sealed class GuardianHostService : IAsyncDisposable
     public PreferenceState Preferences => _history.Preferences;
     public SurveyState Survey => _history.Survey;
     public NetworkBrainModel Brain => _history.Brain;
+    private readonly object _trainingGate = new();
+    private DistillationService? _training;
+    public DistillationService Training
+    {
+        get
+        {
+            lock (_trainingGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _training ??= new(Path.Combine(GuardianPaths.Root, "distillation"), () => Brain, _history.ReplaceBrainAsync);
+            }
+        }
+    }
     private readonly System.Collections.Concurrent.ConcurrentQueue<(DateTimeOffset At, GuardianAction Action)> _recentTasks = new();
     public IReadOnlyList<(DateTimeOffset At, GuardianAction Action)> RecentTasks => _recentTasks.Reverse().ToArray();
     private void RememberTask(GuardianAction action)
@@ -2437,6 +2451,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 await Task.WhenAny(_routeWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
             }
             if (_qualityLoop is not null) await _qualityLoop.ConfigureAwait(false);
+            if (_training is not null) await _training.DisposeAsync().ConfigureAwait(false);
             await _history.SaveAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
