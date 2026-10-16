@@ -28,8 +28,8 @@
 param(
     [string]$Configuration = 'Release',
     [string]$OutputDir = 'release',
-    # 0.13.0 adds loopback HTTP MCP and generated metadata for the public control surface.
-    # Measured native AOT output: 12.97 MiB; retain a small explicit release budget.
+    # Loopback HTTP MCP and durable training jobs include generated public API metadata.
+    # Measured 0.14.0 native AOT output: 13.12 MiB; retain the existing release budget.
     [double]$MaxExeMb = 13.5,
     [switch]$SkipTests,
     [switch]$Zip
