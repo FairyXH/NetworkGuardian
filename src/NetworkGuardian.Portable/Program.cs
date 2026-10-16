@@ -14,8 +14,9 @@ internal static class Pages
     {
         new DashboardPage(),
         new WirelessPage(),
-        new CredentialsPage(),
         new EthernetPage(),
+        new DevicesPage(),
+        new CredentialsPage(),
         new SettingsPage(),
         new LogsPage(),
     };
