@@ -1,6 +1,8 @@
 # NetworkGuardian 文档索引
 
-当前交付形态是 **Native AOT 单文件便携版**（`release\NetworkGuardian.exe`，8.24 MB，自绘 Win32 UI，提权助手已内置；`release\` 为发布目录，已在 `.gitignore` 内）。
+当前用户入口：[PDF 使用说明](user-guide/NetworkGuardian-User-Guide.pdf) · [LaTeX 源码](user-guide/NetworkGuardian-User-Guide.tex) · [MCP 服务器与验证](mcp-server.md)。
+
+当前交付为 0.13.0 **Native AOT 单文件便携版**，约 12.97 MiB，提权助手内置。下方历史记录与截图用于回溯，不代表当前全部界面。
 `docs\session-log-2026-09-17.md` 与其中的界面截图描述的是已被取代的 WinUI 3 版本，仅作历史参考。
 
 | 文件 | 内容 | 适用场景 |

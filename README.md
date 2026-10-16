@@ -2,7 +2,11 @@
 
 NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。它持续采集物理以太网、物理 Wi-Fi、IP、路由、无线电和真实外网可达性，在连接被确认失效后执行受限、可追踪的恢复动作。
 
-当前版本使用 C# / .NET 8，发布为 **win-x64 Native AOT 单文件 EXE**。发布文件约 11.89 MiB，目标电脑无需安装 .NET、Windows App SDK 或 Visual Studio。
+当前版本使用 C# / .NET 8，发布为 **win-x64 Native AOT 单文件 EXE**。发布文件约 12.97 MiB，目标电脑无需安装 .NET、Windows App SDK 或 Visual Studio。
+
+首次使用请阅读 [PDF 使用说明](docs/user-guide/NetworkGuardian-User-Guide.pdf)（[LaTeX 源码](docs/user-guide/NetworkGuardian-User-Guide.tex)），涵盖连接、保持禁用、质量报告、本地模型和 AI/MCP 接入。
+
+0.13.0 新增 38 个本机 HTTP MCP 工具，默认关闭，地址 `http://127.0.0.1:18765/mcp`。在“自动管理 → AI 工具接入 / MCP”开启或改端口；地址固定为 IPv4 回环，无鉴权。详见 [MCP 实现与验证](docs/mcp-server.md)。
 
 > 核心原则：保持稳定连接；持续低质量时先验证替代网卡，再释放原连接。SSID 指定网卡是始终生效的硬约束。
 
@@ -14,14 +18,14 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 
 | 项目 | 当前值 |
 | --- | --- |
-| 应用版本 | `0.11.0` |
+| 应用版本 | `0.13.0` |
 | 配置 Schema | `v15` |
 | 目标平台 | Windows 10/11 x64 |
 | 发布形式 | Native AOT 单 EXE，提权助手内置 |
-| 实测 EXE 大小 | 约 11.89 MiB |
-| 发布体积门禁 | 12.0 MiB |
-| 常规测试 | 325 项 |
-| 发布验证 | 单 EXE / Native AOT 启动 / 隔离配置 / 界面检查 |
+| 实测 EXE 大小 | 约 12.97 MiB |
+| 发布体积门禁 | 13.5 MiB（HTTP 传输与 AOT API 元数据） |
+| 常规测试 | 381 项 |
+| 发布验证 | 单 EXE / Native AOT / 官方 MCP 客户端 53 次隔离调用 / PDF 编译与版面检查 |
 
 ## 功能概览
 
@@ -40,6 +44,9 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 | Wi-Fi 凭据库 | DPAPI 加密个人网和 802.1X/EAP 凭据；个人网临时连接，企业网按需生成 Profile |
 | 校园网认证 | 外网失败或认证页拦截时运行已配置的认证客户端/命令，带超时、限流和验证 |
 | 配置与日志 | JSON 原子写入、有效备份、损坏隔离、滚动日志和实时日志页 |
+| 保持禁用 | 无线/有线设备规则跨重启保存，优先于自动启用与故障修复 |
+| 中文质量报告 | 概览解释探测、丢包、延迟和建议，不虚构带宽或硬件诊断 |
+| HTTP MCP | 38 个工具，仅监听 127.0.0.1，固定可配置端口，无鉴权；写工具直接执行 |
 
 ## 系统要求
 
@@ -53,7 +60,7 @@ NetworkGuardian 是面向 Windows 10/11 的网络监测与自动恢复工具。�
 
 1. 运行 `release\NetworkGuardian.exe`。
 2. 从托盘打开主窗口。
-3. 在“设置”页确认自动恢复、接口 Metric、探测端点和 Wi-Fi 策略。
+3. 在“自动管理”页确认自动恢复、接口 Metric、探测端点和 Wi-Fi 策略。
 4. 在“网络凭据库”中添加需要自动使用的个人网、开放网或企业网。
 5. 点击“保存并应用”。设置页的修改在保存前只存在于工作副本。
 
