@@ -74,8 +74,15 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                     var scan = await host.ScanAdapterAsync(Adapter(args), token).ConfigureAwait(false);
                     return new JsonObject { ["success"] = !scan.Failed, ["scan"] = Data(scan) };
                 }
-                await host.RescanAllAsync(token).ConfigureAwait(false);
-                return new JsonObject { ["adapters"] = Data(host.Snapshot.WifiAdapters.ToArray()), ["completed"] = true };
+                var scans = new JsonArray();
+                var scansOk = host.Snapshot.WifiAdapters.Count > 0;
+                foreach (var adapter in host.Snapshot.WifiAdapters)
+                {
+                    var result = await host.ScanAdapterAsync(adapter.InterfaceGuid, token).ConfigureAwait(false);
+                    scansOk &= !result.Failed;
+                    scans.Add(Data(result));
+                }
+                return new JsonObject { ["success"] = scansOk, ["scans"] = scans, ["completed"] = true };
             case "wifi_connect": return Data(await host.ConnectAsync(Adapter(args), Text(args, "profile"), token).ConfigureAwait(false));
             case "wifi_disconnect": return Data(await host.DisconnectAsync(Adapter(args), token).ConfigureAwait(false));
             case "wifi_bind":

@@ -82,7 +82,8 @@ public sealed class McpDispatcher(IMcpToolBackend backend, string version)
                 _ => false,
             };
             if (!valid) throw new ArgumentException($"Invalid type for {name}; expected {type}");
-            if (type == "string" && string.IsNullOrWhiteSpace(value!.GetValue<string>())) throw new ArgumentException($"Empty argument: {name}");
+            if (type == "string" && tool.Required.Contains(name) && string.IsNullOrWhiteSpace(value!.GetValue<string>()))
+                throw new ArgumentException($"Empty argument: {name}");
             if (rule["enum"] is JsonArray choices && !choices.Any(c => JsonNode.DeepEquals(c, value)))
                 throw new ArgumentException($"Invalid value for {name}");
             if (type == "integer" && ((rule["minimum"] is { } min && value!.GetValue<int>() < min.GetValue<int>()) ||
