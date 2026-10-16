@@ -112,7 +112,7 @@ internal static class Widgets
     }
 
     /// <summary>Button drawn at an exact rectangle (used when buttons are laid out from the right edge).</summary>
-    public static void ButtonAt(PageContext ctx, Rectangle rect, string label, Action onClick, bool primary = false, bool enabled = true)
+    public static void ButtonAt(PageContext ctx, Rectangle rect, string label, Action onClick, bool primary = false, bool enabled = true, bool confirm = true)
     {
         var canvas = ctx.Canvas;
         var hovered = canvas.IsHovered(rect) && enabled;
@@ -127,7 +127,7 @@ internal static class Widgets
 
         if (enabled)
         {
-            canvas.Hit(rect, onClick, kind: "button");
+            canvas.Hit(rect, confirm ? () => ctx.Window.ExecuteConfirmed(label, onClick) : onClick, kind: "button");
         }
     }
 
@@ -147,7 +147,7 @@ internal static class Widgets
         var knobX = value ? switchRect.Right - knob - ctx.Scale(2) : switchRect.Left + ctx.Scale(2);
         canvas.FillRounded(new Rectangle(knobX, switchRect.Top + ctx.Scale(2), knob, knob), 8, hovered ? Palette.TextPrimary : Palette.TextSecondary);
 
-        canvas.Hit(switchRect, onClick, kind: "toggle");
+        canvas.Hit(switchRect, () => ctx.Window.ExecuteConfirmed($"{(value ? "关闭" : "开启")}：{label}", onClick), kind: "toggle");
         return Math.Max(height, canvas.MeasureWrappedHeight(label, labelWidth, TextStyle.Body)) + ctx.Scale(6);
     }
 
@@ -222,8 +222,8 @@ internal static class Widgets
 
         if (!readOnly)
         {
-            DrawStepButton(ctx, minus, "-", () => onDelta(-1));
-            DrawStepButton(ctx, plus, "+", () => onDelta(1));
+            DrawStepButton(ctx, minus, "-", $"减少：{label}", () => onDelta(-1));
+            DrawStepButton(ctx, plus, "+", $"增加：{label}", () => onDelta(1));
             if (onCommit is not null)
             {
                 var valueRect = new Rectangle(minus.Right, rect.Top, plus.Left - minus.Right, rect.Height);
@@ -235,13 +235,13 @@ internal static class Widgets
         return consumed + height + ctx.Scale(8);
     }
 
-    private static void DrawStepButton(PageContext ctx, Rectangle rect, string glyph, Action onClick)
+    private static void DrawStepButton(PageContext ctx, Rectangle rect, string glyph, string operation, Action onClick)
     {
         var canvas = ctx.Canvas;
         var hovered = canvas.IsHovered(rect);
         canvas.FillRounded(rect, 5, hovered ? Palette.ButtonHover : Palette.SubtleBackground);
         canvas.Text(glyph, rect, Palette.TextPrimary, TextStyle.Button, TextAlign.Center);
-        canvas.Hit(rect, onClick, kind: "button");
+        canvas.Hit(rect, () => ctx.Window.ExecuteConfirmed(operation, onClick), kind: "button");
     }
 
     /// <summary>Standalone numeric row (used inside hand laid out blocks).</summary>

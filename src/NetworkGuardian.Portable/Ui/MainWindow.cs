@@ -59,6 +59,7 @@ internal sealed class MainWindow
     private int _toastTicks;
     private string? _toast;
     private int _activityFrame;
+    private bool _confirming;
     private readonly ConcurrentDictionary<string, string> _operations = new(StringComparer.Ordinal);
 
     public MainWindow(PortableApp app, GuardianHostService host, IReadOnlyList<IPage> pages, string startPage)
@@ -182,8 +183,27 @@ internal sealed class MainWindow
         Invalidate();
     }
 
-    public bool Confirm(string message, string caption = "请确认") =>
-        MessageBoxW(_hwnd, message, caption, MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) == IDYES;
+    public bool Confirm(string message, string caption = "请确认")
+    {
+        if (_confirming) return false;
+        _confirming = true;
+        try
+        {
+            const uint okCancel = 0x00000001;
+            const int idOk = 1;
+            return MessageBoxW(_hwnd, message, caption,
+                okCancel | MB_ICONWARNING | MB_DEFBUTTON2) == idOk;
+        }
+        finally
+        {
+            _confirming = false;
+        }
+    }
+
+    public void ExecuteConfirmed(string operation, Action action)
+    {
+        if (Confirm($"确定执行“{operation}”吗？")) action();
+    }
 
     public void ShowWarning(string message, string caption) =>
         MessageBoxW(_hwnd, message, caption, MB_OK | MB_ICONWARNING);
@@ -368,7 +388,8 @@ internal sealed class MainWindow
 
             if (chosen > 0)
             {
-                onSelect(chosen - 1);
+                var index = chosen - 1;
+                ExecuteConfirmed($"选择：{items[index]}", () => onSelect(index));
             }
         }
         finally
@@ -878,7 +899,7 @@ internal sealed class MainWindow
                 TextStyle.Nav);
 
             var target = page;
-            canvas.Hit(rect, () => NavigateTo(target.Tag), kind: "nav");
+            canvas.Hit(rect, () => ExecuteConfirmed($"打开{target.Label}", () => NavigateTo(target.Tag)), kind: "nav");
             y += itemHeight + Scale(2);
         }
 
