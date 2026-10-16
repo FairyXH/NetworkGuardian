@@ -25,6 +25,33 @@ public sealed class NetworkHistoryStore
     public string BrainPath => Path.Combine(Path.GetDirectoryName(_path)!, "network-brain.json");
     public string SurveyPath => Path.Combine(Path.GetDirectoryName(_path)!, "network-survey.json");
 
+    public async Task ReplaceBrainAsync(string expectedHash, NetworkBrainModel replacement)
+    {
+        if (!NetworkBrain.Valid(replacement)) throw new ArgumentException("Invalid brain model");
+        await _writeGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            lock (_gate)
+            {
+                if (BrainDistillation.Hash(_state.Brain!) != expectedHash)
+                    throw new InvalidOperationException("当前模型已变化，请基于最新模型创建训练任务；未覆盖新学习数据。");
+                var previous = _state.Brain;
+                _state.Brain = BrainDistillation.Clone(replacement);
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+                    File.WriteAllText(_path + ".tmp", NetworkGuardianJson.Serialize(_state));
+                    if (File.Exists(_path)) File.Replace(_path + ".tmp", _path, _path + ".bak");
+                    else File.Move(_path + ".tmp", _path);
+                }
+                catch { _state.Brain = previous; throw; }
+                PublishLearning();
+            }
+        }
+        finally { _writeGate.Release(); }
+        // network-history.json is authoritative; the cache is refreshed by the next regular save.
+    }
+
     private void PublishLearning()
     {
         Volatile.Write(ref _survey, new SurveyState { Answers = _state.Survey.Answers.ToList(),
