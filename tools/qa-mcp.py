@@ -10,6 +10,8 @@ import time
 import uuid
 import urllib.request
 import httpx
+import importlib.util
+import sys
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -28,7 +30,7 @@ async def exercise(url, report, next_port):
             tools = (await session.list_tools()).tools
             report["version"] = initialized.serverInfo.version
             report["toolCount"] = len(tools)
-            assert len(tools) >= 38
+            assert len(tools) == 41
 
             async def call(name, args=None, error=False):
                 result = await session.call_tool(name, args or {})
@@ -82,6 +84,50 @@ async def exercise(url, report, next_port):
             await call("learning_export")
             await call("learning_delete_answer", {"questionId": question["id"]})
             await call("learning_reset")
+            initial_model = (await call("training_status"))["currentModelHash"]
+            job_request = {"action": "create", "requestId": "qa-" + uuid.uuid4().hex,
+                           "teacher": "isolated-qa-expert-not-LLM", "count": 160, "epochs": 300}
+            job = await call("model_distill", job_request)
+            job_id = job["jobId"]
+            assert (await call("model_distill", job_request))["jobId"] == job_id
+            while True:
+                page = await call("training_examples", {"jobId": job_id, "limit": 64})
+                if not page["examples"]:
+                    break
+                labels = {}
+                for example in page["examples"]:
+                    x = example["features"]
+                    target = max(.02, min(.98, (.5*x[0] + .2*x[6] + .15*(1-x[2]) + .1*x[7] + .05*x[4])
+                                         * (1-.8*x[1]) * (.25+.75*x[6])))
+                    labels[example["id"]] = {"target": target, "confidence": 1, "rationale": "deterministic QA expert"}
+                await call("model_distill", {"action": "label", "jobId": job_id, "labels": labels})
+            await call("model_distill", {"action": "start", "jobId": job_id})
+            deadline = time.monotonic() + 60
+            while True:
+                trained = await call("training_status", {"jobId": job_id})
+                if trained["state"] != "running":
+                    break
+                assert time.monotonic() < deadline, "Background training stalled"
+                await asyncio.sleep(.3)
+            assert trained["state"] == "ready" and trained["epoch"] == 300
+            assert trained["evaluation"]["passed"], trained
+            await call("model_distill", {"action": "evaluate", "jobId": job_id})
+            deployed = await call("model_distill", {"action": "deploy", "jobId": job_id})
+            assert deployed["state"] == "deployed"
+            await call("model_distill", {"action": "rollback", "jobId": job_id, "expectedHash": deployed["deployedHash"]})
+            assert (await call("training_status"))["currentModelHash"] == initial_model
+            report["distillation"] = {"jobId": job_id, "evaluation": trained["evaluation"], "rollbackVerified": True}
+            # Exercise the Skill's stdlib client against the same actual AOT server.
+            sys.dont_write_bytecode = True
+            helper = Path(__file__).resolve().parent.parent / "skills/networkguardian/scripts/ng_mcp.py"
+            spec = importlib.util.spec_from_file_location("ng_skill", helper)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            client = module.Client(url)
+            client.initialize()
+            assert client.call("training_status")["currentModelHash"] == initial_model
+            report["skillClientVerified"] = True
+            await call("model_distill", {"action": "delete", "jobId": job_id})
             entry = await call("credentials_upsert", {"entry": {"ssid": fake_ssid, "enabled": False,
                                     "kind": 2, "security": 1}, "password": ""})
             await call("credentials_list", {"includeSecrets": True})
