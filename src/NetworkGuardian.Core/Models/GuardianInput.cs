@@ -26,6 +26,7 @@ public sealed record GuardianInput
 
     public IReadOnlyList<LinkQualityEstimate> LinkQuality { get; init; } = Array.Empty<LinkQualityEstimate>();
     public PreferenceState Preferences { get; init; } = new();
+    public Policies.NetworkBrainModel? Brain { get; init; }
 
     public LocationPermissionSnapshot Location { get; init; } = new() { ObservedAtUtc = default };
 

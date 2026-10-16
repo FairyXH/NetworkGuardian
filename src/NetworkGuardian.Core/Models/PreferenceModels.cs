@@ -27,6 +27,7 @@ public sealed record PreferenceFeedback
 {
     public DateTimeOffset AtUtc { get; init; }
     public string Source { get; init; } = "explicit";
+    public double Reliability { get; init; } = 1;
     public required PreferenceOption Chosen { get; init; }
     public IReadOnlyList<PreferenceOption> Alternatives { get; init; } = Array.Empty<PreferenceOption>();
 }

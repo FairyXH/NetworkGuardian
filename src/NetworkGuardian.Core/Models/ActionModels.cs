@@ -7,6 +7,8 @@ namespace NetworkGuardian.Core.Models;
 public abstract record GuardianAction
 {
     public required string Reason { get; init; }
+    public double? Confidence { get; init; }
+    public string ConfidenceEvidence { get; init; } = "";
 
     /// <summary>Earliest moment at which this action may run.</summary>
     public DateTimeOffset? NotBeforeUtc { get; init; }

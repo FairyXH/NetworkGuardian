@@ -37,11 +37,11 @@ public static class PreferencePolicy
             var delta = chosen.Keys.Union(other.Keys).ToDictionary(key => key,
                 key => chosen.GetValueOrDefault(key) - other.GetValueOrDefault(key), StringComparer.Ordinal);
             var probability = Sigmoid(delta.Sum(p => state.Weights.GetValueOrDefault(p.Key) * p.Value));
-            var rate = (feedback.Source == "explicit" ? .2 : .04) / Math.Max(1, alternatives.Length);
+            var rate = (feedback.Source == "explicit" ? .2 : .04) * Math.Clamp(feedback.Reliability, 0, 1) / Math.Max(1, alternatives.Length);
             foreach (var pair in delta)
                 state.Weights[pair.Key] = Math.Clamp(state.Weights.GetValueOrDefault(pair.Key) + rate * (1 - probability) * pair.Value, -4, 4);
         }
-        if (alternatives.Length > 0 && feedback.Source == "explicit") state.ExplicitChoices++;
+        if (alternatives.Length > 0 && feedback.Source is "explicit" or "survey" && feedback.Reliability >= .4) state.ExplicitChoices++;
         state.Feedback.Add(feedback);
         if (state.Feedback.Count > 500) state.Feedback.RemoveRange(0, state.Feedback.Count - 500);
         if (state.Weights.Count > 4096)

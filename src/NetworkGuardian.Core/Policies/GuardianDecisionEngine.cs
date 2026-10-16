@@ -505,6 +505,7 @@ public sealed class GuardianDecisionEngine
                     Delay = TimeSpan.FromSeconds(config.Recovery.DeviceEnableSettleSeconds),
                     Reason = "waiting for the re-enabled Wi-Fi device to register its WLAN interface",
                 });
+                for (var index = 0; index < actions.Count; index++) actions[index] = ActionConfidencePolicy.Assess(actions[index], input);
                 return BuildDecision(now, actions, notes, connectivity);
             }
         }
@@ -522,6 +523,7 @@ public sealed class GuardianDecisionEngine
                 Delay = TimeSpan.FromSeconds(Math.Max(6, config.Recovery.DeviceEnableSettleSeconds * 2)),
                 Reason = "waiting for the restarted Wi-Fi device to come back",
             });
+            for (var index = 0; index < actions.Count; index++) actions[index] = ActionConfidencePolicy.Assess(actions[index], input);
             return BuildDecision(now, actions, notes, connectivity);
         }
 
@@ -1094,6 +1096,10 @@ public sealed class GuardianDecisionEngine
                 candidates = candidates.Select(c =>
                 {
                     var bonus = PreferencePolicy.Bonus(input.Preferences, PreferencePolicy.Option(c, input.LinkQuality, now), now);
+                    var option = PreferencePolicy.Option(c, input.LinkQuality, now);
+                    if (input.Brain is { } brain && option.Quality >= 50 && option.Confidence >= .25)
+                        bonus = Math.Clamp(bonus + (NetworkBrain.Predict(brain, NetworkBrain.Features(option, true)) - .5) *
+                            4 * option.Confidence, -4, 4);
                     return c with { Score = c.Score + bonus, ScoreReason = c.ScoreReason + $", learnedPreference={bonus:F1}" };
                 }).OrderByDescending(c => c.Score).ToList();
             reconnectNeeded.Add(new AdapterCandidateSet(adapter.InterfaceGuid, candidates));
@@ -1208,6 +1214,7 @@ public sealed class GuardianDecisionEngine
             });
         }
 
+        for (var index = 0; index < actions.Count; index++) actions[index] = ActionConfidencePolicy.Assess(actions[index], input);
         return BuildDecision(now, actions, notes, connectivity);
     }
 

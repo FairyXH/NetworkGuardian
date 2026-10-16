@@ -260,14 +260,18 @@ internal sealed class DashboardPage : IPage
         // ---------- 本轮计划的动作 ----------
         var actions = snapshot.PendingActions.Count == 0
             ? "无（当前不需要恢复动作）"
-            : string.Join(Environment.NewLine, snapshot.PendingActions.Select(a => a.Describe()));
+            : string.Join(Environment.NewLine, snapshot.PendingActions.Select(a =>
+                $"{a.Describe()}\n置信度 {a.Confidence?.ToString("P0") ?? "待评估"} · {a.ConfidenceEvidence}"));
+        if (ctx.Host.RecentTasks.Count > 0)
+            actions += "\n\n最近下发的任务（不等于已验证成功）：\n" + string.Join("\n", ctx.Host.RecentTasks.Select(t =>
+                $"{t.At:HH:mm:ss} · {t.Action.Describe()}\n置信度 {t.Action.Confidence?.ToString("P0") ?? "待评估"} · {t.Action.ConfidenceEvidence}"));
         var actionsHeight = Math.Max(ctx.Scale(20), canvas.MeasureWrappedHeight(actions, area.Width - ctx.Scale(32), TextStyle.Mono));
         var actionsRect = new Rectangle(area.Left, y, area.Width, actionsHeight + ctx.Scale(16 + 22 + 14));
         canvas.Card(actionsRect);
 
         var ax = actionsRect.Left + ctx.Scale(16);
         var ay = actionsRect.Top + ctx.Scale(14);
-        ay += Widgets.SectionTitle(ctx, ax, ay, actionsRect.Width - ctx.Scale(32), "本轮计划的动作");
+        ay += Widgets.SectionTitle(ctx, ax, ay, actionsRect.Width - ctx.Scale(32), "网络管家任务 · 置信度为依据评分，非成功概率");
         Widgets.Mono(ctx, ax, ay, actionsRect.Width - ctx.Scale(32), actions);
 
         y = actionsRect.Bottom + gap;

@@ -89,14 +89,20 @@ public static class NetworkQuestionBank
             reliability *= .4;
             evidence = "答题时网络状态已变化，本条样本降权";
         }
-        if (question.Template.Kind == "stable" && live?.Quality is { IsMeasured: true } quality)
+        if (question.Template.Kind == "stable" && question.Template.Id != "stable-08" &&
+            live?.Quality is { IsMeasured: true } quality && context.CapturedAt - quality.UpdatedAtUtc < TimeSpan.FromMinutes(5))
         {
             // Negative questions reverse yes/no semantics.
-            var negative = question.Template.Id is "stable-02" or "stable-03" or "stable-08";
+            var negative = question.Template.Id is "stable-02" or "stable-03";
             var reportsStable = value == (negative ? "no" : "yes");
             var agrees = reportsStable == (quality.Score >= 65);
             reliability = value == "unknown" ? .15 : agrees ? .75 : .2;
             evidence = agrees ? "回答与近期接口质量采样一致" : "回答与近期接口质量采样有冲突，保留回答但降低权重";
+            if (quality.Score is > 40 and < 75)
+            {
+                reliability = .45;
+                evidence = "探测结果处于中间区间，暂不能确认或否定主观感受";
+            }
         }
         return new() { Question = question, Value = value, AnswerContext = context, Reliability = reliability, Evidence = evidence };
     }

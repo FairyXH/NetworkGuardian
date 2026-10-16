@@ -33,4 +33,4 @@ if (args.Length > 1)
 var path = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 await File.WriteAllTextAsync(path, NetworkGuardianJson.Serialize(model));
-Console.WriteLine($"8-8-1 utility model; synthetic expert teacher; {model.TrainingSteps} steps; held-out teacher MAE={mae:F4}; {path}");
+Console.WriteLine($"8-8-1 utility model; {model.TrainingSteps} total steps; expert pretraining MAE before distillation={mae:F4}; {path}");

@@ -74,6 +74,76 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly NetworkHistoryStore _history = new(Path.Combine(GuardianPaths.Root, "network-history.json"));
     public IReadOnlyList<LinkQualityEstimate> LinkQuality => _history.Snapshot;
     public PreferenceState Preferences => _history.Preferences;
+    public SurveyState Survey => _history.Survey;
+    public NetworkBrainModel Brain => _history.Brain;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(DateTimeOffset At, GuardianAction Action)> _recentTasks = new();
+    public IReadOnlyList<(DateTimeOffset At, GuardianAction Action)> RecentTasks => _recentTasks.Reverse().ToArray();
+    private void RememberTask(GuardianAction action)
+    {
+        _recentTasks.Enqueue((DateTimeOffset.Now, action));
+        while (_recentTasks.Count > 6) _recentTasks.TryDequeue(out _);
+    }
+    private readonly object _surveyGate = new();
+    private NetworkSurveyQuestion? _surveyQuestion;
+    public NetworkSurveyQuestion? SurveyQuestion { get { lock (_surveyGate) return _surveyQuestion; } }
+
+    private SurveyContext CaptureSurveyContext()
+    {
+        var snapshot = Snapshot;
+        return new()
+        {
+            CapturedAt = DateTimeOffset.Now, InternetOnline = snapshot.GlobalProbe.IsOnline,
+            AutomaticRecovery = _config.General.AutomaticRecovery,
+            Bindings = new(_config.Wifi.CampusWifiAdapterAssignments),
+            VisibleSsids = snapshot.WifiAdapters.SelectMany(a => a.LastScan?.Networks.Select(n => n.Ssid) ?? Array.Empty<string>()).Distinct().Take(64).ToArray(),
+            Links = snapshot.WifiAdapters.Select(a => new SurveyLink
+            {
+                Adapter = a.InterfaceGuid,
+                AdapterName = snapshot.WifiDevices.FirstOrDefault(d => d.Record.DeviceInstanceId == a.DeviceInstanceId)?.Record.FriendlyName ?? a.Description,
+                Ssid = a.CurrentSsid ?? "", Connected = a.IsConnected, Signal = a.SignalQuality, Band = a.Connection?.Band ?? NetworkBand.Unknown,
+                Online = snapshot.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == a.InterfaceGuid)?.Probe?.IsOnline == true,
+                CampusConfigured = _config.Wifi.CampusNetworkSsids.Contains(a.CurrentSsid ?? ""),
+                Quality = LinkQuality.FirstOrDefault(q => q.Adapter == a.InterfaceGuid && q.Ssid == a.CurrentSsid && q.Band == a.Connection?.Band &&
+                    DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5)),
+            }).ToArray(),
+        };
+    }
+
+    public void NextSurveyQuestion(bool force = true)
+    {
+        if (!_config.Quality.LearningEnabled) return;
+        lock (_surveyGate)
+        {
+            if (!force && (_surveyQuestion is not null || !_config.Quality.PreferenceQuestionsEnabled)) return;
+            _surveyQuestion = NetworkQuestionBank.Next(CaptureSurveyContext(), _surveyQuestion?.Template.Id, Random.Shared);
+        }
+    }
+
+    public async Task AnswerSurveyAsync(string questionId, string value)
+    {
+        lock (_surveyGate)
+        {
+            if (!_config.Quality.LearningEnabled) throw new InvalidOperationException("本地学习已关闭");
+            if (_surveyQuestion is null || _surveyQuestion.Id != questionId)
+                throw new InvalidOperationException("题目已更新，请回答当前题目");
+            var answer = NetworkQuestionBank.Evaluate(_surveyQuestion, value, CaptureSurveyContext());
+            _history.RecordAnswer(answer);
+            _surveyQuestion = NetworkQuestionBank.Next(CaptureSurveyContext(), _surveyQuestion.Template.Id, Random.Shared);
+        }
+        await _history.SaveAsync(CancellationToken.None).ConfigureAwait(false);
+        RequestImmediateCycle();
+    }
+
+    public async Task RemoveSurveyAnswerAsync(string id)
+    {
+        _history.RemoveAnswer(id);
+        await _history.SaveAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
+    public async Task ExportSurveyAsync()
+    {
+        await File.WriteAllTextAsync(Path.Combine(GuardianPaths.Root, "network-survey-export.json"), _history.ExportAnswers()).ConfigureAwait(false);
+    }
     private PreferenceQuestion? _preferenceQuestion;
     public PreferenceQuestion? PreferenceQuestion => Volatile.Read(ref _preferenceQuestion);
     private sealed record TemporaryPreference(Guid Adapter, string Ssid, DateTimeOffset Until);
@@ -335,6 +405,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _qualityLoop = Task.Run(() => QualityLoopAsync(_cts.Token), CancellationToken.None);
 
         _logger.LogInformation("Guardian host started (config {Path})", _configStore.ConfigPath);
+        NextSurveyQuestion(force: false);
     }
 
     /// <summary>Signals the monitor loop to re-evaluate immediately.</summary>
@@ -384,6 +455,9 @@ public sealed class GuardianHostService : IAsyncDisposable
                 if (drifted && !IsPaused && _config.General.AutomaticRecovery &&
                     _config.General.ManageInterfaceMetrics)
                 {
+                    RememberTask(new ApplyInterfaceMetricsAction { MetricsByInterfaceId = desired,
+                        Reason = "路由看门狗纠正出口顺序", Confidence = interfaces.Any(i => i.Probe?.IsOnline == true) ? .9 : .4,
+                        ConfidenceEvidence = "接口探测与实时路由；依据评分，非成功概率；结果需继续验证" });
                     var notes = await _interfaces.ApplyInterfaceMetricsAsync(desired, cancellationToken)
                         .ConfigureAwait(false);
                     foreach (var note in notes)
@@ -747,6 +821,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 EapCatalog = _eapCatalog,
                 LinkQuality = _config.Quality.Enabled ? LinkQuality : Array.Empty<LinkQualityEstimate>(),
                 Preferences = Preferences,
+                Brain = Brain,
             };
 
             _manualScanRequested = false;
@@ -1133,6 +1208,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                         finally { gate.Release(); }
                     })).ConfigureAwait(false);
                     RefreshPreferenceQuestion();
+                    NextSurveyQuestion(force: false);
                     await _history.SaveAsync(token).ConfigureAwait(false);
                     RequestImmediateCycle();
                 }
@@ -1293,6 +1369,8 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     private async Task ExecuteActionAsync(GuardianAction action, CancellationToken cancellationToken)
     {
+        if (action is not NoAction and not WaitAction)
+            RememberTask(action.Confidence is null ? action with { Confidence = .5, ConfidenceEvidence = "显式请求，尚无校准置信度；执行后需探测验证" } : action);
         try
         {
             switch (action)

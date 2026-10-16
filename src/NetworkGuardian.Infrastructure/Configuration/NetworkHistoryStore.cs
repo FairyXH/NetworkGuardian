@@ -13,10 +13,43 @@ public sealed class NetworkHistoryStore
     private NetworkHistory _state = new();
     private IReadOnlyList<LinkQualityEstimate> _snapshot = Array.Empty<LinkQualityEstimate>();
     private PreferenceState _preferences = new();
-    public NetworkHistoryStore(string path) => _path = path;
+    private SurveyState _survey = new();
+    private NetworkBrainModel _brain = NetworkBrain.Seed();
+    public NetworkHistoryStore(string path) { _path = path; _state.Brain = _brain; }
     public IReadOnlyList<LinkQualityEstimate> Snapshot => Volatile.Read(ref _snapshot);
     public string? LoadIssue { get; private set; }
     public PreferenceState Preferences => Volatile.Read(ref _preferences);
+    public SurveyState Survey => Volatile.Read(ref _survey);
+    public NetworkBrainModel Brain => Volatile.Read(ref _brain);
+    public string BrainPath => Path.Combine(Path.GetDirectoryName(_path)!, "network-brain.json");
+
+    private void PublishLearning()
+    {
+        Volatile.Write(ref _survey, new SurveyState { Answers = _state.Survey.Answers.ToList(),
+            SoftLabels = new(_state.Survey.SoftLabels), TotalAnswers = _state.Survey.TotalAnswers });
+        Volatile.Write(ref _brain, NetworkGuardianJson.Deserialize<NetworkBrainModel>(NetworkGuardianJson.Serialize(_state.Brain!))!);
+        PublishPreferences();
+    }
+
+    public void RecordAnswer(SurveyAnswer answer)
+    {
+        lock (_gate) { SurveyLearning.Record(_state, answer); PublishLearning(); }
+    }
+
+    public void RemoveAnswer(string id)
+    {
+        lock (_gate)
+        {
+            var retained = _state.Survey.Answers.Where(a => a.Question.Id != id).ToArray();
+            var manual = _state.Preferences.Feedback.Where(f => f.Source != "survey").ToArray();
+            _state.Preferences = new(); _state.Survey = new(); _state.Brain = NetworkBrain.Seed();
+            foreach (var feedback in manual) PreferencePolicy.Train(_state.Preferences, feedback);
+            foreach (var answer in retained) SurveyLearning.Record(_state, answer);
+            PublishLearning();
+        }
+    }
+
+    public string ExportAnswers() { lock (_gate) return NetworkGuardianJson.Serialize(_state.Survey); }
 
     public IReadOnlyList<SuppressedWifiProfile> SuppressedProfiles
     {
@@ -55,7 +88,7 @@ public sealed class NetworkHistoryStore
 
     public void ResetPreferences()
     {
-        lock (_gate) { _state.Preferences = new(); PublishPreferences(); }
+        lock (_gate) { _state.Preferences = new(); _state.Survey = new(); _state.Brain = NetworkBrain.Seed(); PublishLearning(); }
     }
 
     public void RemovePreference(DateTimeOffset at)
@@ -84,6 +117,9 @@ public sealed class NetworkHistoryStore
 
     public async Task LoadAsync(CancellationToken token)
     {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        if (!File.Exists(BrainPath))
+            await File.WriteAllTextAsync(BrainPath, NetworkGuardianJson.Serialize(_brain), token).ConfigureAwait(false);
         if (!File.Exists(_path)) return;
         foreach (var path in new[] { _path, _path + ".bak" })
         {
@@ -94,11 +130,14 @@ public sealed class NetworkHistoryStore
                 lock (_gate)
                 {
                     _state = state;
+                    _state.Survey ??= new();
+                    if (_state.Survey.Answers is null || _state.Survey.SoftLabels is null) _state.Survey = new();
+                    if (!NetworkBrain.Valid(_state.Brain)) _state.Brain = NetworkBrain.Seed();
                     _state.SuppressedProfiles ??= new();
                     _state.Preferences ??= new();
                     if (_state.Preferences.Weights is null || _state.Preferences.Feedback is null || _state.Preferences.QuestionContexts is null)
                         _state.Preferences = new();
-                    PublishPreferences();
+                    PublishLearning();
                     Trim();
                     Publish(DateTimeOffset.UtcNow);
                 }
@@ -112,8 +151,9 @@ public sealed class NetworkHistoryStore
         lock (_gate)
         {
             _state = new();
+            _state.Brain = NetworkBrain.Seed();
             Publish(DateTimeOffset.UtcNow);
-            PublishPreferences();
+            PublishLearning();
         }
     }
 
@@ -158,6 +198,11 @@ public sealed class NetworkHistoryStore
             await File.WriteAllTextAsync(_path + ".tmp", json, token).ConfigureAwait(false);
             if (File.Exists(_path)) File.Replace(_path + ".tmp", _path, _path + ".bak");
             else File.Move(_path + ".tmp", _path);
+            string brain;
+            lock (_gate) brain = NetworkGuardianJson.Serialize(_state.Brain!);
+            await File.WriteAllTextAsync(BrainPath + ".tmp", brain, token).ConfigureAwait(false);
+            if (File.Exists(BrainPath)) File.Replace(BrainPath + ".tmp", BrainPath, BrainPath + ".bak");
+            else File.Move(BrainPath + ".tmp", BrainPath);
         }
         finally { _writeGate.Release(); }
     }
