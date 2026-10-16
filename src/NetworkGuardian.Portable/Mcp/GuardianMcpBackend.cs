@@ -235,6 +235,8 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                 a.IsConnected && a.CurrentSsid == quality.Ssid && a.Connection?.Band == quality.Band);
             var probe = snapshot.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == quality.Adapter)?.Probe;
             if (adapter is null || probe is null || (quality.TcpFailure is null && quality.GatewayLoss is null)) continue;
+            var probeAge = DateTimeOffset.UtcNow - probe.TimestampUtc;
+            if (probeAge < TimeSpan.Zero || probeAge > TimeSpan.FromMinutes(5)) continue;
             var features = new[] { quality.Score / 100, quality.TcpFailure ?? quality.GatewayLoss ?? .1,
                 Math.Min(1, (quality.LatencyMs ?? 100) / 500), Math.Min(1, quality.JitterMs / 100),
                 adapter.SignalQuality / 100d, quality.Confidence, probe.IsOnline ? 1d : 0, .5 };

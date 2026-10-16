@@ -101,7 +101,9 @@ public sealed class DistillationService : IAsyncDisposable
                     BaseHash = BrainDistillation.Hash(baseline), Epochs = epochs };
                 job.Candidate.Provenance = $"mcp-distillation:{job.Id}";
                 var measured = (observations ?? Array.Empty<DistillationExample>()).Take(64).ToArray();
-                job.Examples = measured.Concat(BrainDistillation.Synthetic(count, Random.Shared.Next())).DistinctBy(r => r.Id).Take(count).ToList();
+                var pool = measured.Concat(BrainDistillation.Synthetic(count * 8, Random.Shared.Next())).DistinctBy(r => r.Id).ToArray();
+                job.Examples = pool.Where(BrainDistillation.IsValidation).Take(Math.Max(16, count / 5))
+                    .Concat(pool.Where(r => !BrainDistillation.IsValidation(r)).Take(count - Math.Max(16, count / 5))).ToList();
                 Save(job); _jobs.Add(job.Id, job);
                 return Summary(job);
             }
