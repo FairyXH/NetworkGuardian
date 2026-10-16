@@ -1843,6 +1843,40 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     // ---------- Manual operations used by the UI ----------
 
+    public async Task<RadioOperationResult> SetRadioAsync(bool enabled, CancellationToken token)
+    {
+        await _cycleGate.WaitAsync(token).ConfigureAwait(false);
+        try { return await _radio.SetEnabledAsync(enabled, token).ConfigureAwait(false); }
+        finally { _cycleGate.Release(); RequestImmediateCycle(); }
+    }
+
+    public async Task<DeviceOperationResult> RestartDeviceAsync(string id, CancellationToken token)
+    {
+        await _cycleGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            if (DeviceDisablePolicy.IsDisabled(_config, id))
+                return new DeviceOperationResult { DeviceInstanceId = id, Operation = "restart",
+                    Outcome = DeviceOperationOutcome.NotSupported, Detail = "请先取消保持禁用规则" };
+            return await _devices.RestartAsync(id, token).ConfigureAwait(false);
+        }
+        finally { _cycleGate.Release(); RequestImmediateCycle(); }
+    }
+
+    public async Task<CommandExecutionResult> RunConfiguredCommandAsync(string id, CancellationToken token)
+    {
+        var command = id == "campus-auth" ? _config.CampusAuth.ToCommandDefinition()
+            : _config.OfflineCommands.FirstOrDefault(c => c.Id == id);
+        if (command is null || !command.Enabled) throw new ArgumentException("命令不存在或未启用");
+        var action = new RunExternalCommandAction { Reason = "MCP 显式请求", CommandId = command.Id,
+            CommandName = command.Name, ExecutablePath = command.ExecutablePath, Kind = command.Kind, IsCampusAuth = id == "campus-auth" };
+        RememberTask(action with { Confidence = .5, ConfidenceEvidence = "外部显式请求，启动或退出结果不代表外网已恢复" });
+        var result = await _commands.RunAsync(command, action.Reason, token).ConfigureAwait(false);
+        if (result.Started) _engine.NotifyCommandStarted(action, DateTimeOffset.UtcNow);
+        RequestImmediateCycle();
+        return result;
+    }
+
     public async Task<AdapterScanSnapshot> ScanAdapterAsync(Guid interfaceGuid, CancellationToken cancellationToken)
     {
         await _cycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -1876,8 +1910,22 @@ public sealed class GuardianHostService : IAsyncDisposable
             var ssid = ResolveProfileSsid(interfaceGuid, profileName);
             if (!WifiBindingPolicy.Allows(_config.Wifi, ssid, interfaceGuid))
                 return WlanOperationResult.Fail("此 Wi-Fi 已指定其他网卡，请先修改或取消指定");
-            var result = await _wifi.ConnectAsync(interfaceGuid, profileName, null, cancellationToken)
-                .ConfigureAwait(false);
+            var entry = _vault.Find(ssid) ?? _vault.FindByProfile(profileName);
+            WlanOperationResult result;
+            if (entry is { Enabled: true })
+            {
+                var action = new ConnectWifiAction { InterfaceGuid = interfaceGuid, ProfileName = entry.EffectiveProfileName,
+                    Ssid = entry.Ssid, UsesLibraryCredential = true, RequiresEap = entry.IsEnterprise,
+                    Security = entry.Security, Reason = "显式连接凭据库网络" };
+                if (entry.IsEnterprise)
+                {
+                    var prepared = await EnsureLibraryProfileAsync(action, cancellationToken).ConfigureAwait(false);
+                    if (!prepared.Success) return WlanOperationResult.Fail(prepared.Failure ?? "凭据应用失败");
+                    result = await _wifi.ConnectAsync(interfaceGuid, entry.EffectiveProfileName, null, cancellationToken).ConfigureAwait(false);
+                }
+                else result = await _wifi.ConnectTemporaryAsync(interfaceGuid, entry, null, cancellationToken).ConfigureAwait(false);
+            }
+            else result = await _wifi.ConnectAsync(interfaceGuid, profileName, null, cancellationToken).ConfigureAwait(false);
             _engine.NotifyConnectResult(interfaceGuid, profileName, result.Success, result.Failure, DateTimeOffset.UtcNow);
             if (result.Success && _config.Quality.LearningEnabled && Snapshot.GlobalProbe.IsStableOnline)
             {

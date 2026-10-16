@@ -32,6 +32,18 @@ namespace NetworkGuardian.Core.Serialization;
 [JsonSerializable(typeof(WifiCredentialLibrary))]
 [JsonSerializable(typeof(HelperRequest))]
 [JsonSerializable(typeof(HelperResponse))]
+[JsonSerializable(typeof(GuardianSnapshot))]
+[JsonSerializable(typeof(ManagedDevice[]))]
+[JsonSerializable(typeof(WifiAdapterRuntimeState[]))]
+[JsonSerializable(typeof(LinkQualityEstimate[]))]
+[JsonSerializable(typeof(PreferenceOption[]))]
+[JsonSerializable(typeof(NetworkQualityReport))]
+[JsonSerializable(typeof(NetworkSurveyQuestion))]
+[JsonSerializable(typeof(DeviceOperationResult))]
+[JsonSerializable(typeof(NetworkGuardian.Core.Abstractions.WlanOperationResult))]
+[JsonSerializable(typeof(NetworkGuardian.Core.Abstractions.RadioOperationResult))]
+[JsonSerializable(typeof(NetworkGuardian.Core.Abstractions.CommandExecutionResult))]
+[JsonSerializable(typeof(Logging.LogRecord[]))]
 public sealed partial class NetworkGuardianJsonContext : JsonSerializerContext
 {
 }
