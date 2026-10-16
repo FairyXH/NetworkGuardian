@@ -46,6 +46,8 @@ public sealed class ConfigValidator
         config.Wifi.SsidAllowList ??= new List<string>();
         config.Wifi.CampusNetworkSsids ??= new List<string>();
         config.Quality ??= new QualitySettings();
+        config.Mcp ??= new McpSettings();
+        config.Mcp.Port = Clamp(config.Mcp.Port, 1, 65535, "mcp.port", issues);
         config.Quality.SampleIntervalSeconds = Clamp(config.Quality.SampleIntervalSeconds, 15, 3600, "quality.sampleIntervalSeconds", issues);
         config.Quality.MinimumSamples = Clamp(config.Quality.MinimumSamples, 5, 40, "quality.minimumSamples", issues);
         config.Quality.MinimumGain = Clamp(config.Quality.MinimumGain, 10, 60, "quality.minimumGain", issues);

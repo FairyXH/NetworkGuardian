@@ -29,6 +29,8 @@ public sealed class GuardianConfig
 
     public QualitySettings Quality { get; set; } = new();
 
+    public McpSettings Mcp { get; set; } = new();
+
     public EthernetSettings Ethernet { get; set; } = new();
 
     public CampusAuthSettings CampusAuth { get; set; } = new();
@@ -52,6 +54,12 @@ public sealed class GuardianConfig
         ProbeEndpoints = ProbeEndpointSettings.CreateDefaults(),
         OfflineCommands = new List<CommandDefinition>(),
     };
+}
+
+public sealed class McpSettings
+{
+    public bool Enabled { get; set; }
+    public int Port { get; set; } = 18765;
 }
 
 public enum ConnectionCutMode
