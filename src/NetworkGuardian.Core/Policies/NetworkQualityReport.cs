@@ -21,6 +21,12 @@ public static class NetworkQualityReporter
                 : "目前未能验证外网可用；这不一定是无线网卡本身的问题。";
         var findings = new List<string>();
         var outlet = snapshot.Interfaces.FirstOrDefault(i => i.IsDefaultRoute);
+        var outletFailed = current && probe.IsOnline && outlet?.Probe is { AttemptCount: > 0, IsOnline: false } outletProbe &&
+            Fresh(outletProbe.TimestampUtc, now);
+        if (outletFailed)
+            summary = "已探测到可用网络，但当前出口未通过外网验证，实际使用可能仍受影响。";
+        else if (current && probe.IsOnline && snapshot.OutletMatchesPolicy == false)
+            summary += "当前出口与管理策略不一致，需要核对路由。";
         if (outlet is not null)
             findings.Add($"当前出口是“{outlet.Name}”（{(outlet.Kind == InterfaceKind.Ethernet ? "有线网络" : outlet.Kind == InterfaceKind.Wifi ? "无线网络" : "其他网络接口")}）。" +
                 (outlet.Kind == InterfaceKind.Ethernet ? "已连通不等于质量优秀；有线网络目前没有与 Wi-Fi 同样的持续质量评分。" : ""));
@@ -75,7 +81,8 @@ public static class NetworkQualityReporter
             findings.Add(text);
         }
         if (snapshot.WifiAdapters.Count == 0) findings.Add("当前没有参与管理的无线连接；已保持禁用的网卡不参与此次评价。");
-        var advice = !current ? "等待新一轮连通性探测和质量采样，再决定是否需要调整网络。"
+        var advice = outletFailed ? "先核对当前外网出口及路由；有备用网络可用，不代表当前出口已经恢复。"
+            : !current ? "等待新一轮连通性探测和质量采样，再决定是否需要调整网络。"
             : !probe.IsOnline ? "先等待复查；若持续无法上网，请检查校园网认证、路由器及宽带出口。"
             : rated.Any(q => q.GatewayLoss is >= .05 || q.TcpFailure is >= .05)
                 ? "保留当前可用出口，优先排查上述不稳定的无线连接；不要仅凭一次测量或信号强度更换网卡。"
@@ -85,7 +92,7 @@ public static class NetworkQualityReporter
         var evidence = $"基于本机近期探测生成；未测量下载带宽，不能据此判断网速上限。" +
             (config.Quality.Enabled && config.Quality.LearningEnabled && config.Quality.ApplyLearnedPreferences
                 ? $"本地模型已进行 {brain.PersonalSteps} 次个人更新，可有限参与选网评分。"
-                : "学习或偏好应用已关闭，模型不参与选网评分。") +
+                : "质量评估、学习或偏好应用已关闭，模型不参与选网评分。") +
             "评价文字由实测数据和解释规则生成，不是神经网络自由生成的诊断。";
         return new(summary, findings, advice, evidence);
     }

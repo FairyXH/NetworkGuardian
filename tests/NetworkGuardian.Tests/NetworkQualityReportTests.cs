@@ -79,6 +79,17 @@ public sealed class NetworkQualityReportTests
     }
 
     [Fact]
+    public void WorkingBackup_DoesNotHideFailureOfActualOutlet()
+    {
+        var report = Report(Snapshot() with { Interfaces = new[]
+        {
+            TestData.EthernetInterface(probe: TestData.OfflineProbe()) with { IsDefaultRoute = true },
+        } });
+        Assert.Contains("当前出口未通过外网验证", report.Summary);
+        Assert.Contains("不代表当前出口已经恢复", report.Advice);
+    }
+
+    [Fact]
     public void WiredConnectivity_IsNotPresentedAsMeasuredQuality()
     {
         var report = Report(Snapshot() with { Interfaces = new[] { TestData.EthernetInterface() with { IsDefaultRoute = true } },
