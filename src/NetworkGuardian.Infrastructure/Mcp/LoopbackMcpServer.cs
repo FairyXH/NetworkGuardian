@@ -35,6 +35,8 @@ public sealed class LoopbackMcpServer(McpDispatcher dispatcher) : IAsyncDisposab
             _listener?.Stop();
             if (_acceptTask is not null) await _acceptTask.ConfigureAwait(false);
             _acceptStop?.Dispose();
+            _acceptStop = null;
+            _acceptTask = null;
             _listener = null;
             BoundPort = null;
             LastError = null;
@@ -86,19 +88,20 @@ public sealed class LoopbackMcpServer(McpDispatcher dispatcher) : IAsyncDisposab
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(shutdown);
         timeout.CancelAfter(TimeSpan.FromMinutes(3));
         var token = timeout.Token;
-        await using var stream = new BufferedStream(client.GetStream(), 8192);
+        await using var stream = client.GetStream();
+        await using var input = new BufferedStream(stream, 8192);
         try
         {
             using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             readTimeout.CancelAfter(TimeSpan.FromSeconds(15));
-            var requestLine = await ReadLineAsync(stream, readTimeout.Token).ConfigureAwait(false);
+            var requestLine = await ReadLineAsync(input, readTimeout.Token).ConfigureAwait(false);
             var parts = requestLine.Split(' ');
             if (parts.Length != 3 || parts[2] != "HTTP/1.1") { await ReplyAsync(stream, 400, null, token); return; }
             var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var total = requestLine.Length;
             while (true)
             {
-                var line = await ReadLineAsync(stream, readTimeout.Token).ConfigureAwait(false);
+                var line = await ReadLineAsync(input, readTimeout.Token).ConfigureAwait(false);
                 if (line.Length == 0) break;
                 total += line.Length;
                 if (total > 16384) throw new InvalidDataException("Headers too large");
@@ -123,7 +126,7 @@ public sealed class LoopbackMcpServer(McpDispatcher dispatcher) : IAsyncDisposab
             { await ReplyAsync(stream, 415, null, token); return; }
             if (headers.TryGetValue("Expect", out var expect) && expect.Equals("100-continue", StringComparison.OrdinalIgnoreCase))
             { await stream.WriteAsync("HTTP/1.1 100 Continue\r\n\r\n"u8.ToArray(), token); await stream.FlushAsync(token); }
-            var body = await ReadBodyAsync(stream, headers, readTimeout.Token).ConfigureAwait(false);
+            var body = await ReadBodyAsync(input, headers, readTimeout.Token).ConfigureAwait(false);
             Interlocked.Increment(ref _requests);
             var response = await dispatcher.DispatchAsync(Encoding.UTF8.GetString(body), token).ConfigureAwait(false);
             await ReplyAsync(stream, response is null ? 202 : 200, response, token).ConfigureAwait(false);
