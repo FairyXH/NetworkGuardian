@@ -33,8 +33,11 @@ public sealed class DistillationService : IAsyncDisposable
                         Path.GetFileName(file) != loaded.Id + ".json" || !NetworkBrain.Valid(loaded.Baseline) ||
                         !NetworkBrain.Valid(loaded.Candidate) || loaded.Examples is null || loaded.Examples.Count > 512 ||
                         loaded.Examples.Any(r => r.Features is not { Length: 8 } || r.Features.Any(x => !double.IsFinite(x) || x < 0 || x > 1) ||
-                            r.Id != BrainDistillation.ExampleId(r.Features) || r.Target is { } t && (!double.IsFinite(t) || t < 0 || t > 1)) ||
+                            r.Id != BrainDistillation.ExampleId(r.Features) || !double.IsFinite(r.Confidence) || r.Confidence < 0 || r.Confidence > 1 ||
+                            r.Target is { } t && (!double.IsFinite(t) || t < 0 || t > 1)) ||
                         loaded.Examples.Select(r => r.Id).Distinct().Count() != loaded.Examples.Count ||
+                        loaded.State is not ("labeling" or "running" or "paused" or "failed" or "ready" or "deploying" or "deployed" or "rolling_back" or "rolled_back") ||
+                        loaded.Rollback is not null && !NetworkBrain.Valid(loaded.Rollback) ||
                         loaded.Epoch < 0 || loaded.Epochs < 20 || loaded.Epochs > 1000 || loaded.Epoch > loaded.Epochs ||
                         loaded.BaseHash != BrainDistillation.Hash(loaded.Baseline)) continue;
                     job = loaded; break;
@@ -124,8 +127,8 @@ public sealed class DistillationService : IAsyncDisposable
                         var row = selected.Examples.FirstOrDefault(r => r.Id == id) ?? throw new ArgumentException("未知样例 id");
                         var label = value as JsonObject ?? throw new ArgumentException("标签必须是对象");
                         if (label.Any(p => p.Key is not ("target" or "confidence" or "rationale"))) throw new ArgumentException("标签含未知字段");
-                        var target = label["target"]?.GetValue<double>() ?? double.NaN;
-                        var confidence = label["confidence"]?.GetValue<double>() ?? double.NaN;
+                        var target = Number(label["target"]);
+                        var confidence = Number(label["confidence"]);
                         var rationale = Required(label, "rationale", 500);
                         if (!double.IsFinite(target) || target < 0 || target > 1 || !double.IsFinite(confidence) || confidence < 0 || confidence > 1)
                             throw new ArgumentException("target/confidence 必须是 0..1 有限数值");
@@ -185,6 +188,8 @@ public sealed class DistillationService : IAsyncDisposable
     }
 
     private DistillationJob Get(string id) => _jobs.GetValueOrDefault(id) ?? throw new ArgumentException("训练 jobId 不存在");
+    private static double Number(JsonNode? value) => double.TryParse(value?.ToJsonString(),
+        System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var number) ? number : double.NaN;
     private static string Required(JsonObject args, string key, int max)
     {
         var value = args[key]?.GetValue<string>();
