@@ -2043,8 +2043,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         try
         {
             var result = await _devices.DisableAsync(deviceInstanceId, cancellationToken).ConfigureAwait(false);
-            _disableRetryAt[deviceInstanceId] = DateTimeOffset.UtcNow.Add(result.Success
-                ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(5));
+            _disableRetryAt[deviceInstanceId] = DateTimeOffset.UtcNow.Add(DisableRetryDelay(result));
             _forceEnumeration = true;
             _forceProbe = true;
             return result;
@@ -2061,6 +2060,10 @@ public sealed class GuardianHostService : IAsyncDisposable
         ((state.AdapterGuid ?? state.WlanInterfaceGuid) is { } guid &&
             DeviceDisablePolicy.IsDisabled(_config, guid, _devicesSnapshot));
 
+    private static TimeSpan DisableRetryDelay(DeviceOperationResult result) =>
+        result.Outcome == DeviceOperationOutcome.RebootRequired ? TimeSpan.FromMinutes(30)
+            : result.Success ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(5);
+
     private async Task EnforceDisabledDevicesAsync(CancellationToken token)
     {
         var changed = false;
@@ -2069,8 +2072,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             var id = device.Record.DeviceInstanceId;
             if (_disableRetryAt.TryGetValue(id, out var next) && DateTimeOffset.UtcNow < next) continue;
             var result = await _devices.DisableAsync(id, token).ConfigureAwait(false);
-            _disableRetryAt[id] = DateTimeOffset.UtcNow.Add(result.Success
-                ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(5));
+            _disableRetryAt[id] = DateTimeOffset.UtcNow.Add(DisableRetryDelay(result));
             if (result.Success)
             {
                 changed = true;

@@ -112,6 +112,19 @@ public sealed class DeviceDisablePolicyTests
     }
 
     [Fact]
+    public void Normalization_RepairsNullAndDeduplicatesDeviceRules()
+    {
+        var config = TestData.Config(c => c.DisabledDeviceInstanceIds = null!);
+        new ConfigValidator().Normalize(config);
+        Assert.Empty(config.DisabledDeviceInstanceIds);
+        config.DisabledDeviceInstanceIds.AddRange(new[] { " ", DeviceId, DeviceId.ToLowerInvariant(), $" {DeviceId} " });
+
+        new ConfigValidator().Normalize(config);
+
+        Assert.Equal(DeviceId, Assert.Single(config.DisabledDeviceInstanceIds));
+    }
+
+    [Fact]
     public void OldConfig_DefaultsToNoDisabledDevices()
     {
         var old = ConfigJson.Deserialize("{\"version\":15}")!;

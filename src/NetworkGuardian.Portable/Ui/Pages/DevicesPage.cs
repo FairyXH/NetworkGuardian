@@ -32,7 +32,8 @@ internal sealed class DevicesPage : IPage
         var dx = devicesRect.Left + ctx.Scale(16);
         var dy = devicesRect.Top + ctx.Scale(12);
         var dw = devicesRect.Width - ctx.Scale(32);
-        dy += Widgets.SectionTitle(ctx, dx, dy, dw, $"检测到的网络设备（含被过滤的虚拟网卡，共 {devices.Length} 个）");
+        dy += Widgets.SectionTitle(ctx, dx, dy, dw,
+            $"{(_showVirtual ? "全部网络设备" : "物理网卡")}（{devices.Length} 个）");
 
         if (devices.Length == 0)
         {
@@ -93,7 +94,8 @@ internal sealed class DevicesPage : IPage
                         var result = keptDisabled
                             ? await ctx.Host.EnableDeviceAsync(deviceId, CancellationToken.None).ConfigureAwait(false)
                             : await ctx.Host.DisableDeviceAsync(deviceId, CancellationToken.None).ConfigureAwait(false);
-                        _status = result.Success ? $"{name}：{policyLabel}已完成"
+                        _status = result.Outcome == DeviceOperationOutcome.RebootRequired ? $"{name}：规则已保存，Windows 要求重启后完成设备操作"
+                            : result.Success ? $"{name}：{policyLabel}已完成"
                             : $"规则已保存，但设备操作失败：{result.Outcome} {result.Detail} {result.Win32Message}";
                         ctx.Host.RequestImmediateCycle();
                     });
