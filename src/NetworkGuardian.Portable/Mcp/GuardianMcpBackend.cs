@@ -141,6 +141,8 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
                     node.Remove("passwordProtected");
                     node["hasPassword"] = !string.IsNullOrEmpty(entry.Password) || !string.IsNullOrEmpty(entry.PasswordProtected);
                     node["passwordDecryptionFailed"] = entry.PasswordDecryptionFailed;
+                    node["hasProfileXmlOverride"] = !string.IsNullOrEmpty(entry.ProfileXmlOverride);
+                    if (!includeSecrets) node.Remove("profileXmlOverride");
                     if (includeSecrets) node["password"] = entry.Password;
                     list.Add((JsonNode)node);
                 }
