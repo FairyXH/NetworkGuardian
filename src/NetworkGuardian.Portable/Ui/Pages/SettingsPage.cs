@@ -97,7 +97,7 @@ internal sealed class SettingsPage : IPage
             save.Right + ctx.Scale(8) + Widgets.MeasureButtonWidth(ctx, "重新加载") + ctx.Scale(8),
             y,
             "打开日志目录",
-            () => ctx.Host.OpenLogFolder());
+            () => ctx.Host.OpenLogFolder(), confirm: false);
 
         canvas.Text(
             _status + (_dirty ? "（有未保存的改动）" : string.Empty),

@@ -33,6 +33,9 @@ public sealed class ConfigValidator
         config.Logging ??= new LoggingSettings();
         config.OfflineCommands ??= new List<CommandDefinition>();
         config.InterfaceDenyList ??= new List<string>();
+        config.DisabledDeviceInstanceIds = (config.DisabledDeviceInstanceIds ?? new List<string>())
+            .Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         config.ConnectionMigration.ProcessPatterns ??= new List<string>();
         config.ConnectionMigration.ProcessPatterns = config.ConnectionMigration.ProcessPatterns
             .Where(pattern => !string.IsNullOrWhiteSpace(pattern))

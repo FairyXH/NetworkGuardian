@@ -126,7 +126,7 @@ internal sealed class CredentialsPage : IPage
 
         var pickerWidth = Math.Min(area.Width - ctx.Scale(280), ctx.Scale(620));
         Widgets.Dropdown(ctx, area.Left, y, pickerWidth, "从周围网络添加（自动识别安全类型）",
-            suggestionLabels, _selectedSuggestion, value => _selectedSuggestion = value);
+            suggestionLabels, _selectedSuggestion, value => _selectedSuggestion = value, confirm: false);
         Widgets.Button(ctx, area.Left + pickerWidth + ctx.Scale(8), y + ctx.Scale(20), "添加所选网络", () =>
         {
             if (suggestions.Count == 0)
