@@ -107,6 +107,16 @@ internal sealed class SettingsPage : IPage
 
         y += ctx.Scale(44);
 
+        var mcp = new Form(ctx, this);
+        mcp.Toggle("启用本机 HTTP MCP 服务器（无鉴权）", config.Mcp.Enabled, v => config.Mcp.Enabled = v);
+        mcp.Number("固定端口", config.Mcp.Port, 1, 65535, v => config.Mcp.Port = v);
+        mcp.Note($"仅监听 127.0.0.1 · 地址 http://127.0.0.1:{config.Mcp.Port}/mcp");
+        var mcpStatus = ctx.Window.App.McpStatus;
+        mcp.Note(mcpStatus["listening"]?.GetValue<bool>() == true ? $"正在监听：{mcpStatus["url"]}"
+            : mcpStatus["error"]?.GetValue<string>() ?? "服务未监听");
+        mcp.Note("AI 写工具直接执行；启用、禁用网卡仍可能请求 Windows 提权。端口变更后请更新 AI 客户端地址。");
+        y = DrawCard(ctx, area, y, "AI 工具接入 / MCP", mcp);
+
         // ---------- 常规 ----------
         var general = new Form(ctx, this);
         general.Toggle("启用自动网络恢复", config.General.AutomaticRecovery, v => config.General.AutomaticRecovery = v);

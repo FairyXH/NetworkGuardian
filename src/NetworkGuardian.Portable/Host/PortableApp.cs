@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Logging;
 using NetworkGuardian.Core.Configuration;
+using System.Text.Json.Nodes;
+using NetworkGuardian.Infrastructure.Mcp;
+using NetworkGuardian.Portable.Mcp;
 using NetworkGuardian.Core.Logging;
 using NetworkGuardian.Core.Models;
 using NetworkGuardian.Infrastructure.Configuration;
@@ -30,6 +33,21 @@ internal sealed class PortableApp
     private MainWindow? _window;
     private TrayIcon? _tray;
     private bool _shuttingDown;
+    private LoopbackMcpServer? _mcp;
+
+    public JsonObject McpStatus => new() { ["listening"] = _mcp?.IsListening == true,
+        ["url"] = _mcp?.BoundPort is { } port ? $"http://127.0.0.1:{port}/mcp" : null,
+        ["error"] = _mcp?.LastError, ["requests"] = _mcp?.Requests ?? 0 };
+
+    private async Task ConfigureMcpAsync(GuardianConfig config)
+    {
+        if (_host is null) return;
+        _mcp ??= new LoopbackMcpServer(new McpDispatcher(new GuardianMcpBackend(this, _host),
+            typeof(PortableApp).Assembly.GetName().Version?.ToString() ?? "unknown"));
+        await _mcp.ConfigureAsync(config.Mcp.Enabled, config.Mcp.Port).ConfigureAwait(false);
+        if (_mcp.LastError is { } error) _logger.LogWarning("MCP: {Error}", error);
+        _window?.RequestRefresh();
+    }
 
     private PortableApp(JsonConfigStore configStore, InMemoryLogSink logSink, RollingFileLoggerProvider fileLogger)
     {
@@ -123,6 +141,7 @@ internal sealed class PortableApp
         try
         {
             _host.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+            ConfigureMcpAsync(_host.Config).GetAwaiter().GetResult();
             if (!_host.NpcapStatus.IsAvailable)
             {
                 _window.ShowWarning(
@@ -311,6 +330,7 @@ internal sealed class PortableApp
             }
             await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
             ApplyLoggingSettings(config);
+            await ConfigureMcpAsync(config).ConfigureAwait(false);
 
             if (!_startup.SetEnabled(config.Startup.RunAtLogon))
             {
@@ -333,6 +353,8 @@ internal sealed class PortableApp
             update(config);
             await _host.ApplyConfigAsync(config, CancellationToken.None).ConfigureAwait(false);
             ApplyLoggingSettings(config);
+            _startup.SetEnabled(config.Startup.RunAtLogon);
+            await ConfigureMcpAsync(config).ConfigureAwait(false);
         }
         finally
         {
@@ -353,6 +375,8 @@ internal sealed class PortableApp
         }
 
         ApplyLoggingSettings(config);
+        _startup.SetEnabled(config.Startup.RunAtLogon);
+        await ConfigureMcpAsync(config).ConfigureAwait(false);
         return config;
         }
         finally { _configApplyGate.Release(); }
@@ -391,6 +415,11 @@ internal sealed class PortableApp
 
         try
         {
+            if (_mcp is not null)
+            {
+                await _mcp.DisposeAsync().ConfigureAwait(false);
+                _mcp = null;
+            }
             _tray?.Dispose();
             _tray = null;
 
