@@ -1,0 +1,11 @@
+interface:
+  display_name: "NetworkGuardian 网络管家"
+  short_description: "通过本机 MCP 管理网络、诊断连接并完成可恢复的模型蒸馏、验证与部署"
+  default_prompt: "使用 $networkguardian，持续蒸馏网络模型一小时，通过验证就部署，中断后继续已有任务。"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "networkguardian"
+      description: "NetworkGuardian 本机 HTTP MCP；软件中开启，端口可修改"
+      transport: "streamable_http"
+      url: "http://127.0.0.1:18765/mcp"
