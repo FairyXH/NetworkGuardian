@@ -140,7 +140,7 @@ internal sealed class SettingsPage : IPage
         // ---------- 出口切换连接迁移 ----------
         var migration = new Form(ctx, this);
         migration.Choice(
-            "切换出口时切断原网卡的已有连接（仅 IPv4 TCP）",
+            "仅 TCP 清理模式（WFP / 重启时忽略）",
             ConnectionCutModeLabels,
             (int)config.ConnectionMigration.Mode,
             v => config.ConnectionMigration.Mode = (ConnectionCutMode)v);
@@ -158,14 +158,15 @@ internal sealed class SettingsPage : IPage
         migration.Number("WFP 最长阻断（秒）", config.ConnectionMigration.WfpMaxBlockSeconds,
             config.ConnectionMigration.WfpBlockSeconds, 120, v => config.ConnectionMigration.WfpMaxBlockSeconds = v);
         migration.Text(
-            "进程匹配列表（每行一个，支持 * 和 ?）",
+            "仅 TCP 模式的进程匹配（WFP / 重启时忽略）",
             Join(config.ConnectionMigration.ProcessPatterns),
             v => config.ConnectionMigration.ProcessPatterns = Split(v),
             multiline: true);
-        migration.Note("仅清理 TCP 时使用上方模式和进程列表。WFP 与重启网卡二选一，均覆盖旧出口所有进程，不使用该列表。" +
-                       "WFP 需要管理员权限，无需安装驱动；默认阻断 5 秒，原 TCP 连接或明确绑定旧地址的 UDP 端点尚在则延长，最多 60 秒。" +
-                       "UDP 通配绑定无法可靠归属网卡，端点存在不代表仍在通信，也不保证应用自动重连。退出、暂停、更改配置或旧出口恢复时释放动态规则；规则不跨重启保留。" +
-                       "重启网卡会影响整块旧网卡。进程匹配支持文件名、完整路径、* 和 ?，例如 yysls.exe、baidu\\*.exe。");
+        migration.Note("WFP 与重启网卡互斥，作用于旧出口所有进程；WFP 需要管理员权限，无需安装驱动。");
+        migration.Note("原 TCP 连接或明确绑定旧地址的 UDP 端点尚在则延长阻断，到最长时间后释放。");
+        migration.Note("UDP 通配绑定无法可靠归属网卡，端点存在不代表仍在通信，不保证应用自动重连。");
+        migration.Note("退出、暂停、更改配置或旧出口恢复时释放动态规则；规则不跨重启保留。");
+        migration.Note("重启网卡影响整块旧网卡。TCP 进程匹配支持文件名、路径、* 和 ?，如 yysls.exe、baidu\\*.exe。");
         y = DrawCard(ctx, area, y, "出口切换连接迁移", migration);
 
         // ---------- Internet 探测 ----------
