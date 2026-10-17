@@ -27,6 +27,7 @@
 | [质量与偏好](quality-preferences.md) | 质量采样、SSID 强绑定、组合分配、早期偏好策略与性能设计 |
 | [问答与网络模型](network-brain.md) | 60 道题、回答可信度、8→8→1 种子模型、数据与置信度 |
 | [质量评价报告](quality-report.md) | 自然语言解释的测量依据和限制 |
+| [WFP 出口切换阻断](wfp-migration.md) | 用户态 TCP/UDP 临时阻断、与重启网卡互斥、动态规则清理及验证范围 |
 | [保持禁用与侧栏](device-disable-and-navigation.md) | 0.12.0 引入的设备规则、功能分类和确认范围 |
 | [MCP 服务器](mcp-server.md) | 当前 41 个工具、HTTP 行为、隔离验证和专用蒸馏接口 |
 | [Agent Skill](../skills/networkguardian/SKILL.md) | 可导入 Agent 的网络操作和长期训练流程 |
