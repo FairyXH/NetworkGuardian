@@ -1,11 +1,67 @@
 using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Windows.Network;
 using Xunit;
+using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using NetworkGuardian.Core.Helper;
+using NetworkGuardian.Windows.Devices;
 
 namespace NetworkGuardian.Tests;
 
 public sealed class TcpConnectionMigratorTests
 {
+    [Theory]
+    [InlineData(5u, 0u, false)]
+    [InlineData(11u, 42u, false)]
+    [InlineData(12u, 42u, false)]
+    [InlineData(2u, 42u, false)]
+    [InlineData(5u, 42u, true)]
+    [InlineData(8u, 42u, true)]
+    public void CleanupExcludesUnownedAndCompletedConnections(uint state, uint pid, bool expected) =>
+        Assert.Equal(expected, TcpConnectionMigrator.IsLiveOwnedConnection(state, pid));
+
+    [Fact]
+    public void ElevatedCleanupContractRoundTripsWithAotMetadata()
+    {
+        var original = new HelperRequest { Operation = HelperOperations.CloseStaleTcp,
+            OldLocalAddresses = new[] { "192.0.2.10" },
+            ConnectionMigration = new() { Mode = ConnectionCutMode.AllowList, ProcessPatterns = new() { "test.exe" } } };
+        var parsed = HelperProtocol.DeserializeRequest(HelperProtocol.SerializeRequest(original));
+        Assert.NotNull(parsed);
+        Assert.Equal(original.OldLocalAddresses, parsed.OldLocalAddresses);
+        Assert.Equal(ConnectionCutMode.AllowList, parsed.ConnectionMigration!.Mode);
+        Assert.Equal("test.exe", Assert.Single(parsed.ConnectionMigration.ProcessPatterns));
+        var response = HelperProtocol.DeserializeResponse(HelperProtocol.SerializeResponse(new() { ClosedConnections = 2 }));
+        Assert.Equal(2, response!.ClosedConnections);
+    }
+
+    [ElevatedFact]
+    public async Task NativeDeleteClosesOnlyTheTestOwnedLoopbackConnection()
+    {
+        Assert.Equal(24, Marshal.SizeOf<TcpConnectionMigrator.TcpOwnerPidRow>());
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var server = await listener.AcceptTcpClientAsync();
+        var endpoint = (IPEndPoint)client.Client.LocalEndPoint!;
+        var port = unchecked((ushort)IPAddress.HostToNetworkOrder((short)endpoint.Port));
+        var row = Assert.Single(TcpConnectionMigrator.ReadRows(), r =>
+            r.ProcessId == (uint)Environment.ProcessId && r.LocalPort == port && r.State == 5);
+        Assert.Equal(0u, TcpConnectionMigrator.DeleteConnection(row));
+        Assert.DoesNotContain(TcpConnectionMigrator.ReadRows(), r =>
+            r.ProcessId == row.ProcessId && r.LocalPort == row.LocalPort && r.RemotePort == row.RemotePort && r.State == 5);
+    }
+
+    private sealed class ElevatedFactAttribute : FactAttribute
+    {
+        public ElevatedFactAttribute()
+        {
+            if (!HelperClient.IsProcessElevated()) Skip = "Native TCP deletion requires an elevated test process.";
+        }
+    }
+
     [Theory]
     [InlineData("yysls.exe", @"D:\Games\yysls.exe", "yysls.exe", true)]
     [InlineData("helper.exe", @"C:\Apps\baidu\helper.exe", @"baidu\*.exe", true)]

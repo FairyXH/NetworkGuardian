@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Helper;
 using NetworkGuardian.Windows.Devices;
+using System.ComponentModel;
 
 namespace NetworkGuardian.Windows.Network;
 
@@ -38,6 +39,12 @@ public sealed class TcpConnectionMigrator
                 return (await Task.Run(() => Close(oldLocalAddresses, settings, cancellationToken), cancellationToken)
                     .ConfigureAwait(false)).Closed;
             if (DateTimeOffset.UtcNow < _retryElevationAfter) return 0;
+            var addressSet = oldLocalAddresses
+                .Where(value => IsEligibleOldAddress(value, out _))
+                .Select(value => BitConverter.ToUInt32(IPAddress.Parse(value).GetAddressBytes())).ToHashSet();
+            if (!ReadRows().Any(row => addressSet.Contains(row.LocalAddress) && IsLiveOwnedConnection(row.State, row.ProcessId) &&
+                ShouldClose(ReadProcessIdentity(row.ProcessId).Name, ReadProcessIdentity(row.ProcessId).Path,
+                    settings.Mode, settings.ProcessPatterns))) return 0;
             var response = await new HelperClient().SendAsync(new HelperRequest
             {
                 Operation = HelperOperations.CloseStaleTcp,
@@ -94,15 +101,7 @@ public sealed class TcpConnectionMigrator
                 continue;
             }
 
-            var delete = new TcpRow
-            {
-                State = DeleteTcb,
-                LocalAddress = row.LocalAddress,
-                LocalPort = row.LocalPort,
-                RemoteAddress = row.RemoteAddress,
-                RemotePort = row.RemotePort,
-            };
-            var result = SetTcpEntry(ref delete);
+            var result = DeleteConnection(row);
             if (result == 0)
             {
                 closed++;
@@ -129,6 +128,13 @@ public sealed class TcpConnectionMigrator
 
     internal static bool IsLiveOwnedConnection(uint state, uint processId) =>
         processId != 0 && state is >= 3 and <= 10;
+
+    internal static uint DeleteConnection(TcpOwnerPidRow row)
+    {
+        var delete = new TcpRow { State = DeleteTcb, LocalAddress = row.LocalAddress,
+            LocalPort = row.LocalPort, RemoteAddress = row.RemoteAddress, RemotePort = row.RemotePort };
+        return SetTcpEntry(ref delete);
+    }
 
     private static bool IsSameConnection(TcpOwnerPidRow first, TcpOwnerPidRow second) =>
         first.ProcessId == second.ProcessId && IsLiveOwnedConnection(second.State, second.ProcessId) &&
@@ -211,10 +217,11 @@ public sealed class TcpConnectionMigrator
         }
     }
 
-    private static IReadOnlyList<TcpOwnerPidRow> ReadRows()
+    internal static IReadOnlyList<TcpOwnerPidRow> ReadRows()
     {
         var size = 0;
-        _ = GetExtendedTcpTable(IntPtr.Zero, ref size, false, AfInet, OwnerPidAll, 0);
+        var initial = GetExtendedTcpTable(IntPtr.Zero, ref size, false, AfInet, OwnerPidAll, 0);
+        if (initial is not 0 and not 122) throw new Win32Exception((int)initial);
         if (size <= sizeof(uint))
         {
             return Array.Empty<TcpOwnerPidRow>();
@@ -226,7 +233,7 @@ public sealed class TcpConnectionMigrator
             var result = GetExtendedTcpTable(buffer, ref size, false, AfInet, OwnerPidAll, 0);
             if (result != 0)
             {
-                return Array.Empty<TcpOwnerPidRow>();
+                throw new Win32Exception((int)result, "Could not read TCP connection table.");
             }
 
             var count = Marshal.ReadInt32(buffer);
@@ -247,7 +254,7 @@ public sealed class TcpConnectionMigrator
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct TcpOwnerPidRow
+    internal struct TcpOwnerPidRow
     {
         public uint State;
         public uint LocalAddress;
