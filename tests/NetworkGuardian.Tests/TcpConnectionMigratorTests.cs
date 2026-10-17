@@ -6,11 +6,28 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using NetworkGuardian.Core.Helper;
 using NetworkGuardian.Windows.Devices;
+using NetworkGuardian.Core.Models;
 
 namespace NetworkGuardian.Tests;
 
 public sealed class TcpConnectionMigratorTests
 {
+    [Fact]
+    public void CleanupRechecksPhysicalOwnershipAndRejectsAnOutletThatBecameActiveAgain()
+    {
+        var ethernet = TestData.EthernetInterface();
+        var wifi = TestData.WifiInterface(TestData.AdapterA) with { IsPhysicalDevice = true };
+        var route = new DefaultRouteInfo { AddressFamily = 2, InterfaceIndex = 2,
+            NextHop = "10.20.30.1", InterfaceLuid = 2001 };
+        var oldAddresses = ethernet.Ipv4Addresses.ToArray();
+        Assert.True(TcpConnectionMigrator.AreSupersededPhysicalAddresses(oldAddresses, new[] { ethernet, wifi }, route));
+        Assert.False(TcpConnectionMigrator.AreSupersededPhysicalAddresses(oldAddresses, new[] { ethernet, wifi },
+            route with { InterfaceLuid = 1001 }));
+        Assert.False(TcpConnectionMigrator.AreSupersededPhysicalAddresses(oldAddresses,
+            new[] { ethernet with { IsPhysicalDevice = false }, wifi }, route));
+        Assert.False(TcpConnectionMigrator.AreSupersededPhysicalAddresses(oldAddresses, new[] { ethernet, wifi }, null));
+    }
+
     [Theory]
     [InlineData(5u, 0u, false)]
     [InlineData(11u, 42u, false)]

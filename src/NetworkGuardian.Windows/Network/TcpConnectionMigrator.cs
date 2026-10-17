@@ -8,6 +8,8 @@ using NetworkGuardian.Core.Configuration;
 using NetworkGuardian.Core.Helper;
 using NetworkGuardian.Windows.Devices;
 using System.ComponentModel;
+using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Policies;
 
 namespace NetworkGuardian.Windows.Network;
 
@@ -35,6 +37,11 @@ public sealed class TcpConnectionMigrator
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (!AreSupersededPhysicalAddresses(oldLocalAddresses))
+            {
+                _logger.LogDebug("Skipping TCP cleanup: the old interface/address is no longer superseded");
+                return 0;
+            }
             if (HelperClient.IsProcessElevated())
                 return (await Task.Run(() => Close(oldLocalAddresses, settings, cancellationToken), cancellationToken)
                     .ConfigureAwait(false)).Closed;
@@ -128,6 +135,26 @@ public sealed class TcpConnectionMigrator
 
     internal static bool IsLiveOwnedConnection(uint state, uint processId) =>
         processId != 0 && state is >= 3 and <= 10;
+
+    internal static bool AreSupersededPhysicalAddresses(IReadOnlyCollection<string> addresses)
+    {
+        var devices = new PnpDeviceInventory().Enumerate().Where(d => Guid.TryParse(d.NetCfgInstanceId, out _))
+            .GroupBy(d => Guid.Parse(d.NetCfgInstanceId!)).ToDictionary(g => g.Key, g => g.First());
+        var provider = new NetworkInterfaceProvider(guid => devices.GetValueOrDefault(guid));
+        return AreSupersededPhysicalAddresses(addresses, provider.GetInterfaces(),
+            DefaultRouteSelector.Order(provider.GetDefaultRoutes()).FirstOrDefault());
+    }
+
+    internal static bool AreSupersededPhysicalAddresses(IReadOnlyCollection<string> addresses,
+        IReadOnlyList<InterfaceRuntimeState> interfaces, DefaultRouteInfo? outlet)
+    {
+        if (outlet is null || addresses.Count is 0 or > 16) return false;
+        var eligible = interfaces.Where(i => i.IsPhysicalDevice == true &&
+            i.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi &&
+            !DefaultRouteSelector.MatchesInterface(outlet, i))
+            .SelectMany(i => i.Ipv4Addresses).ToHashSet(StringComparer.Ordinal);
+        return addresses.All(address => IsEligibleOldAddress(address, out _) && eligible.Contains(address));
+    }
 
     internal static uint DeleteConnection(TcpOwnerPidRow row)
     {
