@@ -63,7 +63,7 @@ public sealed record ScannedNetwork
 
     public bool Connectable { get; init; }
 
-    /// <summary>True when this adapter is currently associated with exactly this SSID.</summary>
+    /// <summary>Association with this SSID at scan time; use MatchesConnection for live state.</summary>
     public bool IsCurrentConnection { get; init; }
 
     public DateTimeOffset ObservedAtUtc { get; init; }
@@ -71,6 +71,11 @@ public sealed record ScannedNetwork
     public IReadOnlyList<WifiBssEntry> BssEntries { get; init; } = Array.Empty<WifiBssEntry>();
 
     public string Key => SnapshotKey(InterfaceGuid, Ssid);
+
+    /// <summary>Matches a live association independently of the cached scan-time flag.</summary>
+    public bool MatchesConnection(WifiConnectionInfo? connection) =>
+        connection?.IsConnected == true && connection.InterfaceGuid == InterfaceGuid &&
+        string.Equals(connection.Ssid, Ssid, StringComparison.Ordinal);
 
     public static string SnapshotKey(Guid interfaceGuid, string ssid) => $"{interfaceGuid:N}|{ssid}";
 }

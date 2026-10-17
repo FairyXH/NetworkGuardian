@@ -210,7 +210,14 @@ internal sealed class WirelessPage : IPage
         }
 
         // ---------- scanned networks ----------
-        canvas.Text("扫描到的网络（仅列出，可手动连接已保存的）", new Rectangle(x, cy, width, ctx.Scale(20)), Palette.TextMuted, TextStyle.Caption);
+        var scanAge = adapter.LastScan?.CompletedAtUtc is { } scannedAt
+            ? TimeSpan.FromSeconds(Math.Max(0, (DateTimeOffset.UtcNow - scannedAt).TotalSeconds))
+            : (TimeSpan?)null;
+        var scanAgeText = scanAge is not { } age ? "尚未扫描"
+            : age.TotalHours >= 1 ? $"{(int)age.TotalHours} 小时 {(int)age.Minutes} 分钟前"
+            : age.TotalMinutes >= 1 ? $"{(int)age.TotalMinutes} 分钟前"
+            : "不足 1 分钟前";
+        canvas.Text($"扫描结果（{scanAgeText}；绿色为当前 SSID，信号为扫描时数值）", new Rectangle(x, cy, width, ctx.Scale(20)), Palette.TextMuted, TextStyle.Caption);
         cy += ctx.Scale(22);
 
         var networks = adapter.LastScan?.Networks ?? Array.Empty<ScannedNetwork>();
@@ -245,6 +252,7 @@ internal sealed class WirelessPage : IPage
 
             foreach (var network in networks)
             {
+                var isCurrentConnection = adapter.IsConnected && network.MatchesConnection(connection);
                 var columnX = x;
                 var stateCell = network.HasProfile ? network.ProfileName ?? network.Ssid : "无配置（忽略）";
                 if (WifiProfileInspector.IsEnterpriseSecurity(network.Security))
@@ -279,7 +287,7 @@ internal sealed class WirelessPage : IPage
                 for (var i = 0; i < cells.Length; i++)
                 {
                     canvas.Text(cells[i], new Rectangle(columnX, cy, columns[i] - ctx.Scale(6), ctx.Scale(20)),
-                        network.IsCurrentConnection ? Palette.Good : Palette.TextPrimary, TextStyle.Body);
+                        isCurrentConnection ? Palette.Good : Palette.TextPrimary, TextStyle.Body);
                     columnX += columns[i];
                 }
 
@@ -296,7 +304,7 @@ internal sealed class WirelessPage : IPage
                 var assignmentLabel = assignedHere ? "本卡专用 ▾" : hasAssignment ? "已指定网卡 ▾" : "指定网卡 ▾";
                 var assignmentWidth = Widgets.MeasureButtonWidth(ctx, assignmentLabel);
                 var campusRight = card.Right - ctx.Scale(16) - assignmentWidth - ctx.Scale(6) -
-                                  (network.HasProfile && network.Connectable && !network.IsCurrentConnection
+                                  (network.HasProfile && network.Connectable && !isCurrentConnection
                                       ? connectWidth + ctx.Scale(6)
                                       : 0);
                 var campusRect = new Rectangle(campusRight - campusWidth, actionY, campusWidth, ctx.Scale(26));
@@ -349,7 +357,7 @@ internal sealed class WirelessPage : IPage
                     }, enabled: !ctx.Window.IsOperationRunning(assignmentOperation), confirm: false);
                 }
 
-                if (network.HasProfile && network.Connectable && !network.IsCurrentConnection)
+                if (network.HasProfile && network.Connectable && !isCurrentConnection)
                 {
                     var connectRect = new Rectangle(card.Right - ctx.Scale(16) - connectWidth, actionY, connectWidth, ctx.Scale(26));
                     var profileName = network.ProfileName ?? network.Ssid;
