@@ -32,6 +32,9 @@ public sealed record HelperRequest
     public string[] OldLocalAddresses { get; init; } = Array.Empty<string>();
 
     public ConnectionMigrationSettings? ConnectionMigration { get; init; }
+
+    /// <summary>PID reuse guard for a WFP lease owned by the requesting application.</summary>
+    public long OwnerProcessStartTimeUtcTicks { get; init; }
 }
 
 public sealed record HelperResponse
@@ -80,11 +83,12 @@ public static class HelperOperations
     public const string Disable = "disable";
     public const string Restart = "restart";
     public const string CloseStaleTcp = "close-stale-tcp";
+    public const string BlockStaleOutlet = "block-stale-outlet";
 }
 
 public static class HelperProtocol
 {
-    public const int Version = 3;
+    public const int Version = 4;
 
     /// <summary>Same source generated policy as the configuration document.</summary>
     public static JsonSerializerOptions Json => NetworkGuardianJson.Options;

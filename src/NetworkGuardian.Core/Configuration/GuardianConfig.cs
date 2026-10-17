@@ -82,6 +82,14 @@ public sealed class ConnectionMigrationSettings
     /// </summary>
     public bool RestartOldAdapterOnSwitch { get; set; }
 
+    /// <summary>Temporarily block TCP/UDP on the superseded physical outlet using dynamic WFP filters.</summary>
+    public bool WfpBlockOnSwitch { get; set; }
+
+    public int WfpBlockSeconds { get; set; } = 5;
+
+    /// <summary>Hard lease limit even when an application keeps its old UDP socket open.</summary>
+    public int WfpMaxBlockSeconds { get; set; } = 60;
+
     /// <summary>
     /// Executable file-name or full-path wildcard patterns. Allow-list mode closes matching
     /// processes; deny-list mode closes every process except matches.

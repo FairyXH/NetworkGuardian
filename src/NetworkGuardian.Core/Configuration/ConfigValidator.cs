@@ -37,6 +37,15 @@ public sealed class ConfigValidator
             .Where(id => !string.IsNullOrWhiteSpace(id)).Select(id => id.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         config.ConnectionMigration.ProcessPatterns ??= new List<string>();
+        if (config.ConnectionMigration.RestartOldAdapterOnSwitch && config.ConnectionMigration.WfpBlockOnSwitch)
+        {
+            config.ConnectionMigration.WfpBlockOnSwitch = false;
+            issues.Add("connectionMigration: adapter restart and WFP are mutually exclusive; kept adapter restart.");
+        }
+        config.ConnectionMigration.WfpBlockSeconds = Clamp(config.ConnectionMigration.WfpBlockSeconds,
+            1, 30, "connectionMigration.wfpBlockSeconds", issues);
+        config.ConnectionMigration.WfpMaxBlockSeconds = Clamp(config.ConnectionMigration.WfpMaxBlockSeconds,
+            config.ConnectionMigration.WfpBlockSeconds, 120, "connectionMigration.wfpMaxBlockSeconds", issues);
         config.ConnectionMigration.ProcessPatterns = config.ConnectionMigration.ProcessPatterns
             .Where(pattern => !string.IsNullOrWhiteSpace(pattern))
             .Select(pattern => pattern.Trim())
