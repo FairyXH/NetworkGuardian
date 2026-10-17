@@ -111,6 +111,13 @@ public sealed class TcpConnectionMigrator
             var result = DeleteConnection(row);
             if (result == 0)
             {
+                if (ReadRows().Any(current => IsSameConnection(row, current)))
+                {
+                    failed++;
+                    _logger.LogWarning("TCP delete accepted but connection remains present for {Process} ({Pid})",
+                        identity.Name, row.ProcessId);
+                    continue;
+                }
                 closed++;
                 _logger.LogInformation("Closed stale TCP connection for {Process} ({Pid}) on {Address}",
                     identity.Name, row.ProcessId, new IPAddress(BitConverter.GetBytes(row.LocalAddress)));
