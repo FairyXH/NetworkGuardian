@@ -5,6 +5,8 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NetworkGuardian.Core.Configuration;
+using NetworkGuardian.Core.Helper;
+using NetworkGuardian.Windows.Devices;
 
 namespace NetworkGuardian.Windows.Network;
 
@@ -15,25 +17,54 @@ public sealed class TcpConnectionMigrator
     private const int OwnerPidAll = 5;
     private const uint DeleteTcb = 12;
     private readonly ILogger<TcpConnectionMigrator> _logger;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private DateTimeOffset _retryElevationAfter;
 
     public TcpConnectionMigrator(ILogger<TcpConnectionMigrator>? logger = null)
     {
         _logger = logger ?? NullLogger<TcpConnectionMigrator>.Instance;
     }
 
-    public Task<int> CloseAsync(
+    public async Task<int> CloseAsync(
         IReadOnlyCollection<string> oldLocalAddresses,
         ConnectionMigrationSettings settings,
-        CancellationToken cancellationToken) => Task.Run(() => Close(oldLocalAddresses, settings, cancellationToken), cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        if (settings.Mode == ConnectionCutMode.Disabled || oldLocalAddresses.Count == 0) return 0;
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (HelperClient.IsProcessElevated())
+                return (await Task.Run(() => Close(oldLocalAddresses, settings, cancellationToken), cancellationToken)
+                    .ConfigureAwait(false)).Closed;
+            if (DateTimeOffset.UtcNow < _retryElevationAfter) return 0;
+            var response = await new HelperClient().SendAsync(new HelperRequest
+            {
+                Operation = HelperOperations.CloseStaleTcp,
+                OldLocalAddresses = oldLocalAddresses.ToArray(),
+                ConnectionMigration = settings,
+                RequestedBy = Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            }, TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+            if (!response.Success)
+            {
+                // A rejected UAC prompt must not be repeated on every outlet fluctuation.
+                _retryElevationAfter = DateTimeOffset.UtcNow.AddMinutes(5);
+                _logger.LogWarning("Elevated TCP cleanup failed: {Detail}; retry deferred for five minutes",
+                    response.Detail ?? response.Message);
+            }
+            return response.ClosedConnections;
+        }
+        finally { _gate.Release(); }
+    }
 
-    private int Close(
+    internal (int Closed, int Failed) Close(
         IReadOnlyCollection<string> oldLocalAddresses,
         ConnectionMigrationSettings settings,
         CancellationToken cancellationToken)
     {
         if (settings.Mode == ConnectionCutMode.Disabled || oldLocalAddresses.Count == 0)
         {
-            return 0;
+            return (0, 0);
         }
 
         var oldAddresses = oldLocalAddresses
@@ -43,15 +74,16 @@ public sealed class TcpConnectionMigrator
             .ToHashSet();
         if (oldAddresses.Count == 0)
         {
-            return 0;
+            return (0, 0);
         }
 
         var rows = ReadRows();
         var closed = 0;
+        var failed = 0;
         foreach (var row in rows)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!oldAddresses.Contains(row.LocalAddress) || row.State is 1 or 2 or DeleteTcb)
+            if (!oldAddresses.Contains(row.LocalAddress) || !IsLiveOwnedConnection(row.State, row.ProcessId))
             {
                 continue;
             }
@@ -79,13 +111,29 @@ public sealed class TcpConnectionMigrator
             }
             else
             {
+                // The connection may have disappeared between enumeration and deletion.
+                if (!ReadRows().Any(current => IsSameConnection(row, current)))
+                {
+                    _logger.LogDebug("TCP connection disappeared before cleanup ({Pid}, result={Error})", row.ProcessId, result);
+                    continue;
+                }
+                failed++;
                 _logger.LogWarning("Could not close stale TCP connection for {Process} ({Pid}); Win32={Error}",
                     identity.Name, row.ProcessId, result);
+                if (result is 5 or 317) break;
             }
         }
 
-        return closed;
+        return (closed, failed);
     }
+
+    internal static bool IsLiveOwnedConnection(uint state, uint processId) =>
+        processId != 0 && state is >= 3 and <= 10;
+
+    private static bool IsSameConnection(TcpOwnerPidRow first, TcpOwnerPidRow second) =>
+        first.ProcessId == second.ProcessId && IsLiveOwnedConnection(second.State, second.ProcessId) &&
+        first.LocalAddress == second.LocalAddress && first.LocalPort == second.LocalPort &&
+        first.RemoteAddress == second.RemoteAddress && first.RemotePort == second.RemotePort;
 
     internal static bool IsEligibleOldAddress(string value, out IPAddress? address)
     {

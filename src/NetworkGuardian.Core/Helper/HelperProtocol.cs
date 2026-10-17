@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NetworkGuardian.Core.Serialization;
+using NetworkGuardian.Core.Configuration;
 
 namespace NetworkGuardian.Core.Helper;
 
@@ -27,6 +28,10 @@ public sealed record HelperRequest
     public string? RequestedBy { get; init; }
 
     public DateTimeOffset RequestedAtUtc { get; init; } = DateTimeOffset.UtcNow;
+
+    public string[] OldLocalAddresses { get; init; } = Array.Empty<string>();
+
+    public ConnectionMigrationSettings? ConnectionMigration { get; init; }
 }
 
 public sealed record HelperResponse
@@ -34,6 +39,8 @@ public sealed record HelperResponse
     public int ProtocolVersion { get; init; } = HelperProtocol.Version;
 
     public bool Success { get; init; }
+
+    public int ClosedConnections { get; init; }
 
     public string Operation { get; init; } = string.Empty;
 
@@ -72,11 +79,12 @@ public static class HelperOperations
     public const string Enable = "enable";
     public const string Disable = "disable";
     public const string Restart = "restart";
+    public const string CloseStaleTcp = "close-stale-tcp";
 }
 
 public static class HelperProtocol
 {
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>Same source generated policy as the configuration document.</summary>
     public static JsonSerializerOptions Json => NetworkGuardianJson.Options;

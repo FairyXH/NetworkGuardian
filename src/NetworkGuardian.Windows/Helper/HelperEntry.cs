@@ -6,6 +6,7 @@ using NetworkGuardian.Core.Models;
 using NetworkGuardian.Core.Policies;
 using NetworkGuardian.Windows.Devices;
 using NetworkGuardian.Windows.Privileges;
+using NetworkGuardian.Windows.Network;
 
 namespace NetworkGuardian.Windows.Helper;
 
@@ -135,6 +136,32 @@ public static class HelperEntry
 
         DeviceOperationResult result;
 
+        if (request.Operation == HelperOperations.CloseStaleTcp)
+        {
+            var settings = request.ConnectionMigration;
+            var addresses = request.OldLocalAddresses;
+            if (settings is null || !Enum.IsDefined(settings.Mode) || settings.RestartOldAdapterOnSwitch ||
+                addresses is null || addresses.Length is 0 or > 16 ||
+                addresses.Any(address => !TcpConnectionMigrator.IsEligibleOldAddress(address, out _)))
+                return TcpResponse(request, false, 0, "Invalid TCP cleanup request.");
+
+            var devices = inventory.Enumerate().Where(d => Guid.TryParse(d.NetCfgInstanceId, out _))
+                .GroupBy(d => Guid.Parse(d.NetCfgInstanceId!)).ToDictionary(g => g.Key, g => g.First());
+            var provider = new NetworkInterfaceProvider(guid => devices.GetValueOrDefault(guid));
+            var interfaces = provider.GetInterfaces();
+            var outlet = DefaultRouteSelector.Order(provider.GetDefaultRoutes()).FirstOrDefault();
+            // Revalidate after elevation: never tear down the outlet that became active again.
+            var eligible = interfaces.Where(i => i.IsPhysicalDevice == true &&
+                i.Kind is InterfaceKind.Ethernet or InterfaceKind.Wifi &&
+                (outlet is null || !DefaultRouteSelector.MatchesInterface(outlet, i)))
+                .SelectMany(i => i.Ipv4Addresses).ToHashSet(StringComparer.Ordinal);
+            if (addresses.Any(address => !eligible.Contains(address)))
+                return TcpResponse(request, false, 0, "Old addresses no longer belong to a superseded physical interface.");
+            var cleanup = new TcpConnectionMigrator().Close(addresses, settings, CancellationToken.None);
+            return TcpResponse(request, cleanup.Failed == 0, cleanup.Closed,
+                $"Closed={cleanup.Closed}; failed={cleanup.Failed}. Completion does not prove application reconnection.");
+        }
+
         switch (request.Operation)
         {
             case HelperOperations.QueryStatus:
@@ -184,6 +211,14 @@ public static class HelperEntry
             HelperVersion = HelperVersion,
         };
     }
+
+    private static HelperResponse TcpResponse(HelperRequest request, bool success, int closed, string detail) => new()
+    {
+        Success = success, Operation = request.Operation, CorrelationId = request.CorrelationId,
+        DeviceInstanceId = request.DeviceInstanceId, HelperElevated = true, HelperVersion = HelperVersion,
+        ClosedConnections = closed, Detail = detail,
+        Outcome = success ? nameof(DeviceOperationOutcome.Succeeded) : nameof(DeviceOperationOutcome.Failed),
+    };
 
     private static void WriteResponse(string path, HelperResponse response)
     {
