@@ -74,6 +74,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private Task? _radioWatchdog;
     private Task? _routeWatchdog;
     private Task? _qualityLoop;
+    private Task? _tcpMigration;
     private readonly NetworkHistoryStore _history = new(Path.Combine(GuardianPaths.Root, "network-history.json"));
     public IReadOnlyList<LinkQualityEstimate> LinkQuality => _history.Snapshot;
     public PreferenceState Preferences => _history.Preferences;
@@ -569,12 +570,26 @@ public sealed class GuardianHostService : IAsyncDisposable
             }
             else if (_config.ConnectionMigration.Mode != ConnectionCutMode.Disabled && oldAddresses.Count > 0)
             {
-                var closed = await _tcpConnections.CloseAsync(
-                        oldAddresses, _config.ConnectionMigration, cancellationToken)
-                    .ConfigureAwait(false);
-                _logger.LogInformation(
-                    "出口连接迁移: {Previous} -> {Current}; 旧地址={Addresses}; 已关闭 {Count} 条 TCP 连接",
-                    previousId ?? "startup", actualId, string.Join(",", oldAddresses), closed);
+                if (_tcpMigration is null || _tcpMigration.IsCompleted)
+                {
+                    var migration = _config.ConnectionMigration;
+                    _tcpMigration = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var closed = await _tcpConnections.CloseAsync(oldAddresses, migration, cancellationToken)
+                                .ConfigureAwait(false);
+                            _logger.LogInformation("TCP migration {Previous} -> {Current}: closed {Count} connections",
+                                previousId ?? "startup", actualId, closed);
+                        }
+                        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+                        catch (Exception ex) { _logger.LogWarning(ex, "TCP migration failed"); }
+                    }, CancellationToken.None);
+                }
+                else
+                {
+                    _logger.LogDebug("TCP migration still pending; skipping superseded outlet transition");
+                }
             }
         }
         else if (actualId is not null && !string.IsNullOrWhiteSpace(actualInterface?.PrimaryIpv4Address))
@@ -2457,6 +2472,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 await Task.WhenAny(_routeWatchdog, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
             }
             if (_qualityLoop is not null) await _qualityLoop.ConfigureAwait(false);
+            if (_tcpMigration is not null) await _tcpMigration.ConfigureAwait(false);
             if (_training is not null) await _training.DisposeAsync().ConfigureAwait(false);
             await _history.SaveAsync(CancellationToken.None).ConfigureAwait(false);
         }
