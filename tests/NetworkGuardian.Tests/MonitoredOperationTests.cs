@@ -36,6 +36,24 @@ public sealed class MonitoredOperationTests
     }
 
     [Fact]
+    public async Task CancellationStopsRecoveryAndObservation()
+    {
+        using var lifetime = new CancellationTokenSource();
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => MonitoredOperation.RunAsync(
+            async token =>
+            {
+                try { await Task.Delay(Timeout.Infinite, token); }
+                finally { drained.SetResult(); }
+            }, _ =>
+            {
+                lifetime.Cancel();
+                return Task.CompletedTask;
+            }, TimeSpan.FromMilliseconds(10), lifetime.Token).WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.True(drained.Task.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public async Task RecoveryFailureIsPropagated()
     {
         await Assert.ThrowsAsync<InvalidOperationException>(() => MonitoredOperation.RunAsync(

@@ -46,9 +46,13 @@ public sealed class InterfaceProbeStabilityTests
 
         Assert.False(offline.IsStableOnline);
         Assert.False(online.IsStableOnline);
+        var wifi = TestData.WifiInterface(TestData.AdapterA, probe: TestData.OnlineProbe());
+        var adapters = new[] { TestData.ConnectedAdapter(TestData.AdapterA, "WiFi", "WiFi", 80) };
+        AssertWifiLeads(online, wifi, adapters);
         var recovered = tracker.Apply(TestData.OnlineProbe() with { IsAuthoritative = true },
             settings, now.AddSeconds(8));
         Assert.True(recovered.IsStableOnline);
+        AssertEthernetLeads(recovered, wifi, adapters);
     }
 
     [Fact]
