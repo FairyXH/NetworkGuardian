@@ -39,6 +39,7 @@
 | [0.14.0 交付](release-0.14.0.md) | 当前模型训练接口、Skill、389 项测试与最终产物哈希 |
 | [0.13.0 交付](release-0.13.0.md) | 首次本机 HTTP MCP 与使用说明交付；数字对应当时版本 |
 | [2026-10-16 运行检查](runtime-check-2026-10-16.md) | 当时真实运行数据中的模型更新证据 |
+| [2026-10-18 稳定性修复](stability-fixes-2026-10-18.md) | 恢复期间探测、路由写入与 TCP 提权清理的候选修复及验证范围 |
 | [小体积改造方案](portable-small-build-plan.md) | 早期 UI/AOT 选型与体积实验，保留历史依据 |
 
 仓库已删除的早期 session-log 和 EAP 专题不再作为当前文档入口；需要回溯时从 Git 历史查阅。例如 `git log --all -- docs/eap-credential-library.md`。历史 UI 截图用于了解旧版外观，当前侧栏和行为以用户说明、代码及实测为准。
