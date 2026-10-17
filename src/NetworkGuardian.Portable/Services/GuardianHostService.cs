@@ -46,6 +46,8 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly WifiRadioController _radio;
     private readonly NetworkInterfaceProvider _interfaces;
     private readonly TcpConnectionMigrator _tcpConnections;
+    private readonly WfpConnectionMigrator _wfpConnections;
+    private IReadOnlyCollection<string> _observedOutletWfpAddresses = Array.Empty<string>();
     private readonly ConnectivityProbe _probe;
     private readonly NpcapProbeVerifier _npcap;
     private readonly PhysicalDeviceManager _devices;
@@ -244,6 +246,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             () => _wifi.GetAdapters().Select(a => a.InterfaceGuid).ToList(),
             loggerFactory.CreateLogger<NetworkInterfaceProvider>());
         _tcpConnections = new TcpConnectionMigrator(loggerFactory.CreateLogger<TcpConnectionMigrator>());
+        _wfpConnections = new WfpConnectionMigrator(loggerFactory.CreateLogger<WfpConnectionMigrator>());
 
         _engine = new GuardianDecisionEngine(_config, loggerFactory.CreateLogger<GuardianDecisionEngine>());
 
@@ -509,6 +512,10 @@ public sealed class GuardianHostService : IAsyncDisposable
         var actualId = actualInterface?.Id;
         var now = DateTimeOffset.UtcNow;
 
+        if (!_config.ConnectionMigration.WfpBlockOnSwitch || _config.ConnectionMigration.RestartOldAdapterOnSwitch ||
+            IsPaused || !_config.General.AutomaticRecovery)
+            _wfpConnections.Cancel();
+
         if (actualId is not null && !string.Equals(actualId, _observedOutletInterfaceId,
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -527,6 +534,10 @@ public sealed class GuardianHostService : IAsyncDisposable
             var previousDeviceInstanceId = _observedOutletDeviceInstanceId;
             var previousName = _observedOutletName;
             var previousWasPhysical = _observedOutletWasPhysical;
+            var previousWfpAddresses = _observedOutletWfpAddresses;
+            _observedOutletWfpAddresses = actualInterface is null ? Array.Empty<string>()
+                : actualInterface.Ipv4Addresses.Concat(actualInterface.Ipv6Addresses).ToArray();
+            _wfpConnections.Cancel();
             _observedOutletInterfaceId = actualId;
             _observedOutletAddresses = string.IsNullOrWhiteSpace(actualInterface?.PrimaryIpv4Address)
                 ? Array.Empty<string>()
@@ -568,6 +579,16 @@ public sealed class GuardianHostService : IAsyncDisposable
                         previousId, previousWasPhysical, previousDeviceInstanceId ?? "-", sameDevice, cooldown);
                 }
             }
+            else if (_config.ConnectionMigration.WfpBlockOnSwitch)
+            {
+                if (!IsPaused && _config.General.AutomaticRecovery && previousId is not null && previousWasPhysical &&
+                    !string.IsNullOrWhiteSpace(previousDeviceInstanceId))
+                {
+                    _wfpConnections.Start(previousDeviceInstanceId, previousWfpAddresses,
+                        _config.ConnectionMigration, cancellationToken);
+                    _logger.LogInformation("WFP migration scheduled {Previous} -> {Current}; dynamic TCP/UDP block", previousId, actualId);
+                }
+            }
             else if (_config.ConnectionMigration.Mode != ConnectionCutMode.Disabled && oldAddresses.Count > 0)
             {
                 if (_tcpMigration is null || _tcpMigration.IsCompleted)
@@ -598,6 +619,7 @@ public sealed class GuardianHostService : IAsyncDisposable
             _observedOutletDeviceInstanceId = actualInterface.DeviceInstanceId;
             _observedOutletName = actualInterface.Name;
             _observedOutletWasPhysical = actualInterface.IsPhysicalDevice == true;
+            _observedOutletWfpAddresses = actualInterface.Ipv4Addresses.Concat(actualInterface.Ipv6Addresses).ToArray();
         }
 
         _snapshot = _snapshot with
@@ -618,6 +640,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     public void SetPaused(bool paused)
     {
         IsPaused = paused;
+        if (paused) _wfpConnections.Cancel();
         _logger.LogInformation("Automatic recovery {State}", paused ? "paused" : "resumed");
         Notification?.Invoke(this, paused
             ? "已暂停自动恢复"
@@ -641,6 +664,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         config.DisabledDeviceInstanceIds ??= new List<string>();
         await _configStore.SaveAsync(config, cancellationToken).ConfigureAwait(false);
         _config = config;
+        _wfpConnections.Cancel();
         ApplyConfigToComponents(config);
         await SynchronizeBoundProfilesAsync(cancellationToken).ConfigureAwait(false);
         RequestImmediateCycle();
@@ -2485,6 +2509,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _radio.StateChanged -= OnRadioStateChanged;
         _engine.RecoveryActionPerformed -= OnRecoveryActionPerformed;
 
+        await _wfpConnections.DisposeAsync().ConfigureAwait(false);
         _deviceNotifications.Dispose();
         _wifi.Dispose();
         _radio.Dispose();

@@ -144,18 +144,28 @@ internal sealed class SettingsPage : IPage
             ConnectionCutModeLabels,
             (int)config.ConnectionMigration.Mode,
             v => config.ConnectionMigration.Mode = (ConnectionCutMode)v);
-        migration.Toggle(
-            "切换网络时重启原物理网卡，切断其全部 TCP / UDP 连接",
-            config.ConnectionMigration.RestartOldAdapterOnSwitch,
-            v => config.ConnectionMigration.RestartOldAdapterOnSwitch = v);
+        migration.Choice(
+            "出口切换处理方式（互斥）",
+            new[] { "仅清理 IPv4 TCP（按上方模式）", "WFP 临时阻断旧出口 TCP / UDP", "重启旧物理网卡" },
+            config.ConnectionMigration.RestartOldAdapterOnSwitch ? 2 : config.ConnectionMigration.WfpBlockOnSwitch ? 1 : 0,
+            v =>
+            {
+                config.ConnectionMigration.RestartOldAdapterOnSwitch = v == 2;
+                config.ConnectionMigration.WfpBlockOnSwitch = v == 1;
+            });
+        migration.Number("WFP 最短阻断（秒）", config.ConnectionMigration.WfpBlockSeconds, 1, 30,
+            v => config.ConnectionMigration.WfpBlockSeconds = v);
+        migration.Number("WFP 最长阻断（秒）", config.ConnectionMigration.WfpMaxBlockSeconds,
+            config.ConnectionMigration.WfpBlockSeconds, 120, v => config.ConnectionMigration.WfpMaxBlockSeconds = v);
         migration.Text(
             "进程匹配列表（每行一个，支持 * 和 ?）",
             Join(config.ConnectionMigration.ProcessPatterns),
             v => config.ConnectionMigration.ProcessPatterns = Split(v),
             multiline: true);
-        migration.Note("上方“全部 / 白名单 / 黑名单”只能切断 IPv4 TCP，不能切断 UDP。开启“重启原物理网卡”后，" +
-                       "上方模式和进程列表均无效；程序将在新出口生效后通过管理员助手重启旧网卡，从而切断该网卡上的全部 TCP / UDP。" +
-                       "匹配列表支持进程文件名、完整路径、* 和 ?，例如 yysls.exe、baidu\\*.exe。");
+        migration.Note("仅清理 TCP 时使用上方模式和进程列表。WFP 与重启网卡二选一，均覆盖旧出口所有进程，不使用该列表。" +
+                       "WFP 需要管理员权限，无需安装驱动；默认阻断 5 秒，原 TCP 连接或明确绑定旧地址的 UDP 端点尚在则延长，最多 60 秒。" +
+                       "UDP 通配绑定无法可靠归属网卡，端点存在不代表仍在通信，也不保证应用自动重连。退出、暂停、更改配置或旧出口恢复时释放动态规则；规则不跨重启保留。" +
+                       "重启网卡会影响整块旧网卡。进程匹配支持文件名、完整路径、* 和 ?，例如 yysls.exe、baidu\\*.exe。");
         y = DrawCard(ctx, area, y, "出口切换连接迁移", migration);
 
         // ---------- Internet 探测 ----------
