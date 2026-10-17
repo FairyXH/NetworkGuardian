@@ -107,13 +107,13 @@ public static class HelperEntry
             return 4;
         }
 
-        var response = Execute(request);
+        var response = Execute(request, requestPath);
         WriteResponse(responsePath, response);
         Log($"helper done {response.Summary}");
         return response.Success ? 0 : 1;
     }
 
-    private static HelperResponse Execute(HelperRequest request)
+    private static HelperResponse Execute(HelperRequest request, string requestPath)
     {
         var classifier = new NetworkDeviceClassifier();
         var inventory = new PnpDeviceInventory();
@@ -136,11 +136,25 @@ public static class HelperEntry
 
         DeviceOperationResult result;
 
+        if (request.Operation == HelperOperations.BlockStaleOutlet)
+        {
+            try
+            {
+                var detail = WfpOutletLease.Run(request, requestPath, Log);
+                return TcpResponse(request, true, 0, detail);
+            }
+            catch (Exception ex)
+            {
+                Log($"WFP lease failed (dynamic session disposed): {ex}");
+                return TcpResponse(request, false, 0, ex.Message);
+            }
+        }
+
         if (request.Operation == HelperOperations.CloseStaleTcp)
         {
             var settings = request.ConnectionMigration;
             var addresses = request.OldLocalAddresses;
-            if (settings is null || !Enum.IsDefined(settings.Mode) || settings.RestartOldAdapterOnSwitch ||
+            if (settings is null || !Enum.IsDefined(settings.Mode) || settings.RestartOldAdapterOnSwitch || settings.WfpBlockOnSwitch ||
                 addresses is null || addresses.Length is 0 or > 16 ||
                 addresses.Any(address => !TcpConnectionMigrator.IsEligibleOldAddress(address, out _)))
                 return TcpResponse(request, false, 0, "Invalid TCP cleanup request.");

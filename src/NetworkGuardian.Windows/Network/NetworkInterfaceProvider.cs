@@ -166,12 +166,14 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
         };
     }
 
-    public IReadOnlyList<DefaultRouteInfo> GetDefaultRoutes()
+    public IReadOnlyList<DefaultRouteInfo> GetDefaultRoutes() => GetDefaultRoutes(AF_INET);
+
+    internal IReadOnlyList<DefaultRouteInfo> GetDefaultRoutes(uint family)
     {
         var results = new List<DefaultRouteInfo>();
-        var adapterInfo = ReadAdapterAliases();
+        var adapterInfo = ReadAdapterAliases(family);
         var unmatchedRoutes = 0;
-        var status = GetIpForwardTable2(AF_INET, out var table);
+        var status = GetIpForwardTable2(family, out var table);
         if (status != ERROR_SUCCESS || table == IntPtr.Zero)
         {
             _logger.LogDebug("GetIpForwardTable2 failed: {Error}", Win32Error.Describe((int)status));
@@ -244,7 +246,7 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
     /// the route table can be presented with interface names instead of raw LUIDs.
     /// </summary>
     private (Dictionary<ulong, (string Alias, int Metric)> ByLuid, Dictionary<uint, (string Alias, int Metric)> ByIndex)
-        ReadAdapterAliases()
+        ReadAdapterAliases(uint family = AF_INET)
     {
         var byLuid = new Dictionary<ulong, (string Alias, int Metric)>();
         var byIndex = new Dictionary<uint, (string Alias, int Metric)>();
@@ -268,16 +270,17 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
 
                 if (!string.IsNullOrEmpty(friendlyName))
                 {
-                    var entry = (friendlyName, (int)adapter.Ipv4Metric);
+                    var entry = (friendlyName, (int)(family == AF_INET6 ? adapter.Ipv6Metric : adapter.Ipv4Metric));
 
                     if (adapter.Luid != 0)
                     {
                         byLuid[adapter.Luid] = entry;
                     }
 
-                    if (adapter.IfIndex != 0)
+                    var index = family == AF_INET6 ? adapter.Ipv6IfIndex : adapter.IfIndex;
+                    if (index != 0)
                     {
-                        byIndex[adapter.IfIndex] = entry;
+                        byIndex[index] = entry;
                     }
                 }
 
