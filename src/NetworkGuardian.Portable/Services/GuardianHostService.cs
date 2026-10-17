@@ -864,16 +864,20 @@ public sealed class GuardianHostService : IAsyncDisposable
                     await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false);
                 }
                 using var scanGate = new SemaphoreSlim(2);
-                await Task.WhenAll(orderedActions.OfType<ScanAdapterAction>().Select(async action =>
+                await RunMonitoredRecoveryAsync(token => Task.WhenAll(orderedActions.OfType<ScanAdapterAction>().Select(async action =>
                 {
-                    await scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    try { await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false); }
+                    await scanGate.WaitAsync(token).ConfigureAwait(false);
+                    try { await ExecuteActionAsync(action, token).ConfigureAwait(false); }
                     finally { scanGate.Release(); }
-                })).ConfigureAwait(false);
+                })), cancellationToken).ConfigureAwait(false);
                 foreach (var action in orderedActions.Where(a => a is not ApplyInterfaceMetricsAction and not ScanAdapterAction))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false);
+                    if (action is ProbeConnectivityAction)
+                        await ExecuteActionAsync(action, cancellationToken).ConfigureAwait(false);
+                    else
+                        await RunMonitoredRecoveryAsync(token => ExecuteActionAsync(action, token), cancellationToken)
+                            .ConfigureAwait(false);
                 }
 
                 // Metric changes alter the route table immediately. Re-read it before publishing so
@@ -884,6 +888,9 @@ public sealed class GuardianHostService : IAsyncDisposable
                 }
             }
 
+            input = input with { Now = DateTimeOffset.UtcNow, GlobalProbe = _globalProbe,
+                WifiAdapters = BuildAdapterStates() };
+            input = input with { Interfaces = BuildInterfaceStates(input.WifiAdapters) };
             PublishSnapshot(decision, input);
         }
         finally
@@ -891,6 +898,14 @@ public sealed class GuardianHostService : IAsyncDisposable
             _cycleGate.Release();
         }
     }
+
+    private Task RunMonitoredRecoveryAsync(Func<CancellationToken, Task> operation, CancellationToken token) =>
+        MonitoredOperation.RunAsync(operation, async observeToken =>
+        {
+            if (DateTimeOffset.UtcNow < _resumeQuietUntilUtc || DateTimeOffset.UtcNow < _nextProbeUtc) return;
+            await RefreshProbesAsync(observeToken).ConfigureAwait(false);
+            _lastProbeUtc = DateTimeOffset.UtcNow;
+        }, TimeSpan.FromSeconds(1), token);
 
     private async Task RefreshEnumerationAsync(CancellationToken cancellationToken)
     {
