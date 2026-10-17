@@ -59,6 +59,7 @@ public sealed class GuardianHostService : IAsyncDisposable
     private readonly SemaphoreSlim _cycleGate = new(1, 1);
     private readonly SemaphoreSlim _cycleSignal = new(0, 1);
     private readonly SemaphoreSlim _bindingGate = new(1, 1);
+    private readonly SemaphoreSlim _routeMetricGate = new(1, 1);
     private readonly Dictionary<string, DateTimeOffset> _disableRetryAt = new(StringComparer.OrdinalIgnoreCase);
     private readonly Random _jitter = new();
 
@@ -464,25 +465,11 @@ public sealed class GuardianHostService : IAsyncDisposable
                 var adapters = BuildAdapterStates();
                 var interfaces = BuildInterfaceStates(adapters);
                 var desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
-                var drifted = interfaces.Any(i =>
-                    desired.TryGetValue(i.Id, out var metric) &&
-                    (i.InterfaceMetric != metric || i.RouteMetric is not null && i.RouteMetric != 1));
-
-                if (drifted && !IsPaused && _config.General.AutomaticRecovery &&
-                    _config.General.ManageInterfaceMetrics)
+                if (await ApplyLiveInterfaceMetricsAsync("Route watchdog", cancellationToken).ConfigureAwait(false))
                 {
-                    RememberTask(new ApplyInterfaceMetricsAction { MetricsByInterfaceId = desired,
-                        Reason = "路由看门狗纠正出口顺序", Confidence = interfaces.Any(i => i.Probe is { IsOnline: true } p &&
-                            DateTimeOffset.UtcNow - p.TimestampUtc < TimeSpan.FromSeconds(30)) ? .9 : .4,
-                        ConfidenceEvidence = "接口探测与实时路由；依据评分，非成功概率；结果需继续验证" });
-                    var notes = await _interfaces.ApplyInterfaceMetricsAsync(desired, cancellationToken)
-                        .ConfigureAwait(false);
-                    foreach (var note in notes)
-                    {
-                        _logger.LogInformation("跃点锁定: {Note}", note);
-                    }
-
+                    adapters = BuildAdapterStates();
                     interfaces = BuildInterfaceStates(adapters);
+                    desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
                 }
 
                 await PublishLiveRouteSnapshotAsync(interfaces, adapters, desired, cancellationToken)
@@ -1069,14 +1056,7 @@ public sealed class GuardianHostService : IAsyncDisposable
         _probeStability.TryGetValue(interfaceId, out var state);
         state ??= new InterfaceProbeStability();
         _probeStability[interfaceId] = state;
-        return state.Apply(
-            report,
-            failureThreshold: report.IsAuthoritative || failImmediately ? 1 : 2,
-            recoveryThreshold: report.IsAuthoritative ? 1 : _config.Recovery.InternetRecoveryThreshold,
-            recoveryHold: report.IsAuthoritative
-                ? TimeSpan.Zero
-                : TimeSpan.FromSeconds(_config.Recovery.InterfaceRecoveryHoldSeconds),
-            now: DateTimeOffset.UtcNow);
+        return state.Apply(report, _config.Recovery, DateTimeOffset.UtcNow, failImmediately);
     }
 
     private void ScheduleNextProbe(IEnumerable<ConnectivityProbeReport> reports)
@@ -1407,6 +1387,11 @@ public sealed class GuardianHostService : IAsyncDisposable
 
     private async Task ExecuteActionAsync(GuardianAction action, CancellationToken cancellationToken)
     {
+        if (action is ApplyInterfaceMetricsAction)
+        {
+            await ApplyLiveInterfaceMetricsAsync(action.Reason, cancellationToken).ConfigureAwait(false);
+            return;
+        }
         var blocked = action switch
         {
             EnableWifiDeviceAction a => DeviceDisablePolicy.IsDisabled(_config, a.DeviceInstanceId),
@@ -1698,20 +1683,6 @@ public sealed class GuardianHostService : IAsyncDisposable
                     break;
                 }
 
-                case ApplyInterfaceMetricsAction metrics:
-                {
-                    var notes = await _interfaces.ApplyInterfaceMetricsAsync(
-                            metrics.MetricsByInterfaceId,
-                            cancellationToken)
-                        .ConfigureAwait(false);
-                    foreach (var note in notes)
-                    {
-                        _logger.LogInformation("Interface metric: {Note}", note);
-                    }
-
-                    break;
-                }
-
                 default:
                     _logger.LogDebug("Ignoring unsupported action {Action}", action.Describe());
                     break;
@@ -1726,6 +1697,26 @@ public sealed class GuardianHostService : IAsyncDisposable
             _engine.NotifyActionFailed(action, ex.Message, DateTimeOffset.UtcNow);
             _logger.LogError(ex, "Action {Action} threw", action.Describe());
         }
+    }
+
+    private async Task<bool> ApplyLiveInterfaceMetricsAsync(string reason, CancellationToken token)
+    {
+        await _routeMetricGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            if (IsPaused || !_config.General.AutomaticRecovery || !_config.General.ManageInterfaceMetrics) return false;
+            // Both callers re-plan under the same gate; a queued decision cannot restore old metrics.
+            var adapters = BuildAdapterStates();
+            var interfaces = BuildInterfaceStates(adapters);
+            var desired = InterfaceMetricPlanner.Plan(interfaces, adapters);
+            if (!interfaces.Any(i => desired.TryGetValue(i.Id, out var metric) &&
+                (i.InterfaceMetric != metric || i.RouteMetric is not null && i.RouteMetric != 1))) return false;
+            RememberTask(new ApplyInterfaceMetricsAction { MetricsByInterfaceId = desired, Reason = reason });
+            var notes = await _interfaces.ApplyInterfaceMetricsAsync(desired, token).ConfigureAwait(false);
+            foreach (var note in notes) _logger.LogInformation("Interface metric: {Note}", note);
+            return true;
+        }
+        finally { _routeMetricGate.Release(); }
     }
 
     private CommandDefinition? ResolveCommand(RunExternalCommandAction action)

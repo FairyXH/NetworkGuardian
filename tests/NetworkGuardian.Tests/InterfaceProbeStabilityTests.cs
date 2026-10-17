@@ -1,5 +1,6 @@
 using NetworkGuardian.Core.Policies;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Configuration;
 using Xunit;
 
 namespace NetworkGuardian.Tests;
@@ -29,21 +30,25 @@ public sealed class InterfaceProbeStabilityTests
     }
 
     [Fact]
-    public void AuthoritativeVerdictsCanSwitchImmediatelyWithoutDebounce()
+    public void AuthoritativeFailureIsImmediateButFailbackRequiresSustainedRecovery()
     {
         var tracker = new InterfaceProbeStability();
         var now = DateTimeOffset.UtcNow;
-        tracker.Apply(TestData.OnlineProbe(), 2, 2, TimeSpan.FromSeconds(6), now);
+        var settings = new RecoverySettings { InternetRecoveryThreshold = 2, InterfaceRecoveryHoldSeconds = 6 };
+        tracker.Apply(TestData.OnlineProbe(), settings, now);
 
         var offline = tracker.Apply(
             TestData.OfflineProbe() with { IsAuthoritative = true },
-            1, 1, TimeSpan.Zero, now.AddSeconds(1));
+            settings, now.AddSeconds(1));
         var online = tracker.Apply(
             TestData.OnlineProbe() with { IsAuthoritative = true },
-            1, 1, TimeSpan.Zero, now.AddSeconds(2));
+            settings, now.AddSeconds(2));
 
         Assert.False(offline.IsStableOnline);
-        Assert.True(online.IsStableOnline);
+        Assert.False(online.IsStableOnline);
+        var recovered = tracker.Apply(TestData.OnlineProbe() with { IsAuthoritative = true },
+            settings, now.AddSeconds(8));
+        Assert.True(recovered.IsStableOnline);
     }
 
     [Fact]

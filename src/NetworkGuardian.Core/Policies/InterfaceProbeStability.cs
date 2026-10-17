@@ -1,4 +1,5 @@
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Configuration;
 
 namespace NetworkGuardian.Core.Policies;
 
@@ -14,6 +15,13 @@ public sealed class InterfaceProbeStability
     public int ConsecutiveSuccesses { get; private set; }
 
     public int ConsecutiveFailures { get; private set; }
+
+    public ConnectivityProbeReport Apply(
+        ConnectivityProbeReport report, RecoverySettings settings, DateTimeOffset now,
+        bool failImmediately = false) => Apply(report,
+            failureThreshold: report.IsAuthoritative || failImmediately ? 1 : 2,
+            recoveryThreshold: settings.InternetRecoveryThreshold,
+            recoveryHold: TimeSpan.FromSeconds(settings.InterfaceRecoveryHoldSeconds), now: now);
 
     public ConnectivityProbeReport Apply(
         ConnectivityProbeReport report,
