@@ -1267,9 +1267,10 @@ public sealed class GuardianHostService : IAsyncDisposable
                             var sample = await LinkQualitySampler.SampleAsync(iface, _config.Probe.NpcapRawTcpTargets, token).ConfigureAwait(false);
                             var current = _interfaces.GetInterfaces().FirstOrDefault(i => i.Id == iface.Id);
                             if (current is null || !current.IsUp) return;
-                            var liveAdapter = adapter is null ? null : adapter with { Connection = _wifi.GetConnection(adapter.InterfaceGuid) };
-                            if (liveAdapter is not null) liveAdapter = liveAdapter with { IsConnected = liveAdapter.Connection?.IsConnected == true };
-                            var liveIdentity = NetworkQualityIdentity.Create(current, liveAdapter);
+                            // Raw WLAN queries omit band; SSID+BSSID validate the association whose band
+                            // was enriched in the snapshot. Never replace that band with Unknown.
+                            if (adapter is not null && !NetworkQualityIdentity.SameWifiAssociation(adapter, _wifi.GetConnection(adapter.InterfaceGuid))) return;
+                            var liveIdentity = NetworkQualityIdentity.Create(current, adapter);
                             if (liveIdentity is null || liveIdentity.Adapter != identity.Adapter || liveIdentity.NetworkId != identity.NetworkId ||
                                 liveIdentity.Ssid != identity.Ssid || liveIdentity.Band != identity.Band) return;
                             var probe = iface.Probe;

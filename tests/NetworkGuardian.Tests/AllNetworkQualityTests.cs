@@ -8,6 +8,19 @@ namespace NetworkGuardian.Tests;
 
 public sealed class AllNetworkQualityTests
 {
+    [Fact]
+    public void RawWifiQueriesMayOmitBandButCannotSubstituteAnotherAssociation()
+    {
+        var adapter = TestData.ConnectedAdapter(TestData.AdapterA, "Home", "Home") with
+        { Connection = TestData.ConnectedAdapter(TestData.AdapterA, "Home", "Home").Connection! with
+            { Band = NetworkBand.Band5GHz, Bssid = "00:11:22:33:44:55" } };
+        var raw = adapter.Connection with { Band = NetworkBand.Unknown };
+        Assert.True(NetworkQualityIdentity.SameWifiAssociation(adapter, raw));
+        Assert.False(NetworkQualityIdentity.SameWifiAssociation(adapter, raw with { Bssid = "00:11:22:33:44:56" }));
+        Assert.False(NetworkQualityIdentity.SameWifiAssociation(adapter, raw with { Ssid = "Other" }));
+        Assert.False(NetworkQualityIdentity.SameWifiAssociation(adapter, raw with { Band = NetworkBand.Band2_4GHz }));
+        Assert.False(NetworkQualityIdentity.SameWifiAssociation(adapter, null));
+    }
     [Theory]
     [InlineData(InterfaceKind.Ethernet)]
     [InlineData(InterfaceKind.Wifi)]

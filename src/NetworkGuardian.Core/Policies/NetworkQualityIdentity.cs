@@ -35,6 +35,11 @@ public sealed record NetworkQualityIdentity(Guid Adapter, string Ssid, NetworkBa
 
     public static bool Fresh(DateTimeOffset at, DateTimeOffset now) => at <= now.AddSeconds(10) && now - at <= TimeSpan.FromMinutes(5);
 
+    public static bool SameWifiAssociation(WifiAdapterRuntimeState expected, WifiConnectionInfo? live) =>
+        live?.IsConnected == true && live.Ssid == expected.CurrentSsid &&
+        string.Equals(live.Bssid, expected.Connection?.Bssid, StringComparison.OrdinalIgnoreCase) &&
+        (live.Band == NetworkBand.Unknown || expected.Connection?.Band == NetworkBand.Unknown || live.Band == expected.Connection?.Band);
+
     public static IPAddress? Source(InterfaceRuntimeState iface) =>
         (!iface.HasIpv4InternetRoute && iface.HasIpv6InternetRoute
             ? iface.Ipv6Addresses.Concat(iface.Ipv4Addresses) : iface.Ipv4Addresses.Concat(iface.Ipv6Addresses))
