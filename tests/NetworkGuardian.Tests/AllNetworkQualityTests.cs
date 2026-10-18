@@ -60,6 +60,12 @@ public sealed class AllNetworkQualityTests
         { Kind = InterfaceKind.Tunnel, IsDefaultRoute = true, Ipv6Addresses = new[] { "2001:db8::1" } };
         Assert.Null(NetworkQualityIdentity.UnavailableReason(tunnel));
         Assert.Equal("2001:db8::1", NetworkQualityIdentity.Source(tunnel)!.ToString());
+        var splitVpn = TestData.EthernetInterface(hasGateway: false) with
+        { Kind = InterfaceKind.Virtual, HasIpv4InternetRoute = true };
+        Assert.Null(NetworkQualityIdentity.UnavailableReason(splitVpn));
+        var ipv6OnlyRoute = splitVpn with { HasIpv4InternetRoute = false, HasIpv6InternetRoute = true,
+            Ipv6Addresses = new[] { "2001:db8::1" } };
+        Assert.Equal("2001:db8::1", NetworkQualityIdentity.Source(ipv6OnlyRoute)!.ToString());
     }
 
     [Fact]

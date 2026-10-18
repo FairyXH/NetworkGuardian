@@ -35,7 +35,9 @@ public sealed record NetworkQualityIdentity(Guid Adapter, string Ssid, NetworkBa
 
     public static bool Fresh(DateTimeOffset at, DateTimeOffset now) => at <= now.AddSeconds(10) && now - at <= TimeSpan.FromMinutes(5);
 
-    public static IPAddress? Source(InterfaceRuntimeState iface) => iface.Ipv4Addresses.Concat(iface.Ipv6Addresses)
+    public static IPAddress? Source(InterfaceRuntimeState iface) =>
+        (!iface.HasIpv4InternetRoute && iface.HasIpv6InternetRoute
+            ? iface.Ipv6Addresses.Concat(iface.Ipv4Addresses) : iface.Ipv4Addresses.Concat(iface.Ipv6Addresses))
         .Select(s => IPAddress.TryParse(s, out var address) ? address : null).FirstOrDefault(a => a is not null && IsUsableSource(a));
 
     private static bool IsUsableSource(IPAddress address) => !IPAddress.IsLoopback(address) &&
@@ -47,7 +49,8 @@ public sealed record NetworkQualityIdentity(Guid Adapter, string Ssid, NetworkBa
         ? "仅本机回环，不属于外网链路；外网质量评分不适用。"
         : !iface.IsUp ? "目前未连接，无法评价当前网络质量。"
         : Source(iface) is null ? "尚无可用的 IPv4/IPv6 源地址，无法进行质量采样。"
-        : !iface.HasDefaultGateway && !iface.IsDefaultRoute ? "仅局域网接口，未发现默认外网路由；外网质量评分不适用。"
+        : !iface.HasDefaultGateway && !iface.IsDefaultRoute && !iface.HasIpv4InternetRoute && !iface.HasIpv6InternetRoute
+            ? "仅局域网接口，未发现默认外网路由；外网质量评分不适用。"
         : null;
 
     public static string KindName(InterfaceKind kind) => kind switch

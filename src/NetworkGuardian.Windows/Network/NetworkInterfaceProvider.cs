@@ -70,7 +70,32 @@ public sealed class NetworkInterfaceProvider : INetworkInterfaceProvider
             Marshal.FreeHGlobal(addresses);
         }
 
-        return results;
+        var egress = ReadInternetRouteInterfaces();
+        return results.Select(i => i with
+        {
+            HasIpv4InternetRoute = egress.Contains((i.Id, (ushort)AF_INET)),
+            HasIpv6InternetRoute = egress.Contains((i.Id, (ushort)AF_INET6)),
+        }).ToArray();
+    }
+
+    private static HashSet<(string Id, ushort Family)> ReadInternetRouteInterfaces()
+    {
+        var result = new HashSet<(string, ushort)>();
+        if (GetIpForwardTable2(AF_UNSPEC, out var table) != ERROR_SUCCESS || table == 0) return result;
+        try
+        {
+            var count = Marshal.PtrToStructure<MIB_IPFORWARD_TABLE2_HEADER>(table).NumEntries;
+            var size = Marshal.SizeOf<MIB_IPFORWARD_ROW2>();
+            for (var index = 0; index < count; index++)
+            {
+                var row = Marshal.PtrToStructure<MIB_IPFORWARD_ROW2>(table + 8 + index * size);
+                // Full defaults and the two /1 routes used by split-default TUN/VPN clients.
+                if (row.DestinationPrefix.PrefixLength <= 1)
+                    result.Add(($"luid:{row.InterfaceLuid}", row.NextHop.si_family));
+            }
+        }
+        finally { FreeMibTable(table); }
+        return result;
     }
 
     private InterfaceRuntimeState Build(IP_ADAPTER_ADDRESSES adapter, HashSet<Guid> wlanGuids)

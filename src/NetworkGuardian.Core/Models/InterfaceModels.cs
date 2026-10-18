@@ -40,6 +40,8 @@ public sealed record InterfaceRuntimeState
     public bool HasIpv6 { get; init; }
 
     public bool HasDefaultGateway { get; init; }
+    public bool HasIpv4InternetRoute { get; init; }
+    public bool HasIpv6InternetRoute { get; init; }
 
     public int? InterfaceMetric { get; init; }
 
