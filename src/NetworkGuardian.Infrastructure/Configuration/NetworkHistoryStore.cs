@@ -213,16 +213,24 @@ public sealed class NetworkHistoryStore
     }
 
     public void Record(Guid adapter, string ssid, NetworkBand band, string? deviceId, LinkQualitySample sample)
+        => Record(new(adapter, ssid, band, InterfaceKind.Wifi, "", "", ssid, deviceId), sample);
+
+    public void Record(NetworkQualityIdentity identity, LinkQualitySample sample)
     {
         lock (_gate)
         {
-            var link = _state.Links.FirstOrDefault(l => l.Adapter == adapter && l.Ssid == ssid && l.Band == band);
+            var link = _state.Links.FirstOrDefault(l => l.Adapter == identity.Adapter && l.Ssid == identity.Ssid &&
+                l.Band == identity.Band && l.Kind == identity.Kind && l.NetworkId == identity.NetworkId);
             if (link is null)
             {
-                link = new() { Adapter = adapter, Ssid = ssid, Band = band, DeviceInstanceId = deviceId };
+                link = new() { Adapter = identity.Adapter, Ssid = identity.Ssid, Band = identity.Band,
+                    DeviceInstanceId = identity.DeviceInstanceId, Kind = identity.Kind, InterfaceId = identity.InterfaceId,
+                    NetworkId = identity.NetworkId, NetworkName = identity.NetworkName };
                 _state.Links.Add(link);
             }
             if (link.Samples.Count > 0 && sample.AtUtc <= link.Samples[^1].AtUtc) return;
+            link.InterfaceId = identity.InterfaceId;
+            link.NetworkName = identity.NetworkName;
             link.Samples.Add(sample);
             link.TotalSamples++;
             var current = NetworkQualityPolicy.Estimate(link, sample.AtUtc);

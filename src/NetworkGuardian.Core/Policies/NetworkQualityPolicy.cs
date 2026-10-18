@@ -6,14 +6,15 @@ public static class NetworkQualityPolicy
 {
     public static LinkQualityEstimate Estimate(LinkQualityHistory history, DateTimeOffset now)
     {
-        var samples = history.Samples.Where(s => now - s.AtUtc < TimeSpan.FromMinutes(30)).TakeLast(40).ToArray();
-        if (samples.Length == 0) return new() { Adapter = history.Adapter, Ssid = history.Ssid, Band = history.Band };
+        var samples = history.Samples.Where(s => s.AtUtc <= now.AddSeconds(10) && now - s.AtUtc < TimeSpan.FromMinutes(30)).TakeLast(40).ToArray();
+        if (samples.Length == 0) return new() { Adapter = history.Adapter, Ssid = history.Ssid, Band = history.Band,
+            Kind = history.Kind, InterfaceId = history.InterfaceId, NetworkId = history.NetworkId, NetworkName = history.NetworkName };
         // Echo filtering is common. A gateway must have answered before silence counts as loss.
         var gatewayKnown = history.Samples.Any(s => s.GatewayReplies > 0);
         var internetKnown = history.Samples.Any(s => s.InternetReplies > 0);
         var gatewayLoss = gatewayKnown ? Loss(samples.Sum(s => s.GatewaySent), samples.Sum(s => s.GatewayReplies)) : null;
         var internetLoss = internetKnown ? Loss(samples.Sum(s => s.InternetSent), samples.Sum(s => s.InternetReplies)) : null;
-        var tcpKnown = history.Samples.Any(s => s.TcpReplies > 0);
+        var tcpKnown = history.Samples.Any(s => s.TcpReplies > 0) || samples.Any(s => s.InternetOnline == false && s.TcpSent > 0);
         var tcpLoss = tcpKnown ? Loss(samples.Sum(s => s.TcpSent), samples.Sum(s => s.TcpReplies)) : null;
         var delays = samples.Where(s => s.LatencyMs.HasValue).Select(s => s.LatencyMs!.Value).ToArray();
         var latency = delays.Length > 0 ? delays.Average() : (double?)null;
@@ -23,6 +24,7 @@ public static class NetworkQualityPolicy
         return new()
         {
             Adapter = history.Adapter, Ssid = history.Ssid, Band = history.Band,
+            Kind = history.Kind, InterfaceId = history.InterfaceId, NetworkId = history.NetworkId, NetworkName = history.NetworkName,
             UpdatedAtUtc = samples[^1].AtUtc, Samples = samples.Length,
             GatewayLoss = gatewayLoss, InternetLoss = internetLoss, TcpFailure = tcpLoss,
             LatencyMs = latency, JitterMs = jitter,
@@ -41,7 +43,7 @@ public static class NetworkQualityPolicy
     public static double CombinationScore(Guid adapter, string ssid, NetworkBand band,
         IReadOnlyList<LinkQualityEstimate> history, DateTimeOffset now)
     {
-        var fresh = history.Where(q => q.IsMeasured && now - q.UpdatedAtUtc < TimeSpan.FromDays(7)).ToArray();
+        var fresh = history.Where(q => q.Kind == InterfaceKind.Wifi && q.IsMeasured && now - q.UpdatedAtUtc < TimeSpan.FromDays(7)).ToArray();
         var exact = fresh.FirstOrDefault(q => q.Adapter == adapter && q.Ssid == ssid && q.Band == band);
         var device = fresh.Where(q => q.Adapter == adapter).ToArray();
         var network = fresh.Where(q => q.Ssid == ssid && (band == NetworkBand.Unknown || q.Band == band)).ToArray();
@@ -57,7 +59,7 @@ public static class NetworkQualityPolicy
     public static WifiCandidate Adjust(WifiCandidate candidate, IReadOnlyList<LinkQualityEstimate> history, DateTimeOffset now)
     {
         var quality = CombinationScore(candidate.InterfaceGuid, candidate.Ssid, candidate.Band, history, now);
-        var network = history.Where(q => q.Ssid == candidate.Ssid && q.IsMeasured && now - q.UpdatedAtUtc < TimeSpan.FromDays(7))
+        var network = history.Where(q => q.Kind == InterfaceKind.Wifi && q.Ssid == candidate.Ssid && q.IsMeasured && now - q.UpdatedAtUtc < TimeSpan.FromDays(7))
             .Select(q => q.Score).DefaultIfEmpty(50).Max();
         return candidate with
         {

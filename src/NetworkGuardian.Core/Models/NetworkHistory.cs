@@ -15,6 +15,10 @@ public sealed record SuppressedWifiProfile(Guid Adapter, string ProfileName);
 
 public sealed class LinkQualityHistory
 {
+    public InterfaceKind Kind { get; set; } = InterfaceKind.Wifi;
+    public string InterfaceId { get; set; } = string.Empty;
+    public string NetworkId { get; set; } = string.Empty;
+    public string NetworkName { get; set; } = string.Empty;
     public Guid Adapter { get; set; }
     public string Ssid { get; set; } = string.Empty;
     public NetworkBand Band { get; set; }
@@ -26,6 +30,7 @@ public sealed class LinkQualityHistory
 
 public sealed record LinkQualitySample
 {
+    public bool? InternetOnline { get; init; }
     public DateTimeOffset AtUtc { get; init; }
     public int GatewaySent { get; init; }
     public int GatewayReplies { get; init; }
@@ -39,6 +44,11 @@ public sealed record LinkQualitySample
 
 public sealed record LinkQualityEstimate
 {
+    // Setters preserve field defaults when older source-generated JSON omits this metadata.
+    public InterfaceKind Kind { get; set; } = InterfaceKind.Wifi;
+    public string InterfaceId { get; set; } = string.Empty;
+    public string NetworkId { get; set; } = string.Empty;
+    public string NetworkName { get; set; } = string.Empty;
     public Guid Adapter { get; init; }
     public string Ssid { get; init; } = string.Empty;
     public NetworkBand Band { get; init; }
