@@ -1210,10 +1210,10 @@ public sealed class GuardianHostService : IAsyncDisposable
             var isDefault = bestRoute is not null && DefaultRouteSelector.MatchesInterface(bestRoute, state);
             var route = routes.FirstOrDefault(r => DefaultRouteSelector.MatchesInterface(r, state));
             var wifi = adapters.FirstOrDefault(a => a.InterfaceGuid == state.WlanInterfaceGuid);
-            var quality = _config.Quality.Enabled && state.WlanInterfaceGuid is { } qualityGuid
-                ? LinkQuality.Where(q => q.Adapter == qualityGuid && q.Ssid == wifi?.CurrentSsid && q.Band == wifi?.Connection?.Band && q.IsMeasured &&
-                    DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5))
-                    .OrderByDescending(q => q.UpdatedAtUtc).FirstOrDefault() : null;
+            var identity = NetworkQualityIdentity.Create(state, wifi);
+            var measured = _config.Quality.Enabled ? identity?.Find(LinkQuality) : null;
+            var quality = measured is { IsMeasured: true } && NetworkQualityIdentity.Fresh(measured.UpdatedAtUtc, DateTimeOffset.UtcNow)
+                ? measured : null;
 
             result.Add(state with
             {
@@ -1221,8 +1221,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 IsDefaultRoute = isDefault,
                 RouteMetric = route?.RouteMetric,
                 InterfaceMetric = state.InterfaceMetric ?? route?.InterfaceMetric,
-                QualityScore = _config.Quality.Enabled && state.Kind == InterfaceKind.Wifi ?
-                    (quality?.Score ?? 50) + LearnedRouteBonus(state, quality) : null,
+                QualityScore = quality?.Score,
                 UserPreferred = _temporaryPreference is { } preferred && DateTimeOffset.UtcNow < preferred.Until &&
                     state.WlanInterfaceGuid == preferred.Adapter && wifi?.CurrentSsid == preferred.Ssid &&
                     (quality is null || quality.Score >= 50),
@@ -1241,8 +1240,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 if (_config.Quality.Enabled && !IsPaused && DateTimeOffset.UtcNow >= _resumeQuietUntilUtc)
                 {
                     var snapshot = Snapshot;
-                    var links = snapshot.Interfaces.Where(i => i.Kind == InterfaceKind.Wifi && i.IsPhysicalDevice != false &&
-                        i.IsUp && i.PrimaryIpv4Address is not null && i.HasDefaultGateway).ToArray();
+                    var links = snapshot.Interfaces.Where(i => NetworkQualityIdentity.UnavailableReason(i) is null).ToArray();
                     // Fixed small batches run off the recovery and route loops; at most two adapters at a time.
                     using var gate = new SemaphoreSlim(2);
                     await Task.WhenAll(links.Select(async iface =>
@@ -1251,12 +1249,19 @@ public sealed class GuardianHostService : IAsyncDisposable
                         try
                         {
                             var adapter = snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == iface.WlanInterfaceGuid);
-                            if (adapter?.CurrentSsid is not { } ssid) return;
+                            var identity = NetworkQualityIdentity.Create(iface, adapter);
+                            if (identity is null) return;
                             var sample = await LinkQualitySampler.SampleAsync(iface, _config.Probe.NpcapRawTcpTargets, token).ConfigureAwait(false);
-                            var live = _wifi.GetConnection(adapter.InterfaceGuid);
-                            if (live?.Ssid != ssid || !live.IsConnected) return;
-                            _history.Record(adapter.InterfaceGuid, ssid, adapter.Connection?.Band ?? NetworkBand.Unknown,
-                                adapter.DeviceInstanceId, sample);
+                            var current = _interfaces.GetInterfaces().FirstOrDefault(i => i.Id == iface.Id);
+                            if (current is null || !current.IsUp) return;
+                            var liveAdapter = adapter is null ? null : adapter with { Connection = _wifi.GetConnection(adapter.InterfaceGuid) };
+                            if (liveAdapter is not null) liveAdapter = liveAdapter with { IsConnected = liveAdapter.Connection?.IsConnected == true };
+                            var liveIdentity = NetworkQualityIdentity.Create(current, liveAdapter);
+                            if (liveIdentity is null || liveIdentity.Adapter != identity.Adapter || liveIdentity.NetworkId != identity.NetworkId ||
+                                liveIdentity.Ssid != identity.Ssid || liveIdentity.Band != identity.Band) return;
+                            var probe = iface.Probe;
+                            _history.Record(identity, sample with { InternetOnline = probe is { IsAuthoritative: true } &&
+                                NetworkQualityIdentity.Fresh(probe.TimestampUtc, DateTimeOffset.UtcNow) ? probe.IsOnline : null });
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
@@ -1275,7 +1280,9 @@ public sealed class GuardianHostService : IAsyncDisposable
             try
             {
                 var degraded = LinkQuality.Any(q => q.IsMeasured && q.Score < 50 && DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5));
-                await Task.Delay(TimeSpan.FromSeconds(degraded ? 15 : _config.Quality.SampleIntervalSeconds), token).ConfigureAwait(false);
+                var warming = Snapshot.Interfaces.Where(i => NetworkQualityIdentity.UnavailableReason(i) is null).Any(i =>
+                    NetworkQualityIdentity.Create(i, Snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == i.WlanInterfaceGuid))?.Find(LinkQuality)?.IsMeasured != true);
+                await Task.Delay(TimeSpan.FromSeconds(warming ? 5 : degraded ? 15 : _config.Quality.SampleIntervalSeconds), token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
         }

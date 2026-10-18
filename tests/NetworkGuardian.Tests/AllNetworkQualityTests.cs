@@ -73,4 +73,24 @@ public sealed class AllNetworkQualityTests
         Assert.Equal("较差", quality.Grade);
         Assert.Null(quality.GatewayLoss);
     }
+
+    [Theory]
+    [InlineData(InterfaceKind.Ethernet)]
+    [InlineData(InterfaceKind.Tunnel)]
+    [InlineData(InterfaceKind.Virtual)]
+    [InlineData(InterfaceKind.Other)]
+    [InlineData(InterfaceKind.Unknown)]
+    public void ReportsGradeEveryMeasuredNetworkKindWithoutCallingItWifi(InterfaceKind kind)
+    {
+        var iface = TestData.EthernetInterface() with { Kind = kind, AdapterGuid = TestData.AdapterA };
+        var identity = NetworkQualityIdentity.Create(iface)!;
+        var quality = new LinkQualityEstimate { Adapter = identity.Adapter, Kind = kind,
+            NetworkId = identity.NetworkId, Ssid = "", Samples = 8, UpdatedAtUtc = TestData.Now,
+            Score = 95, TcpFailure = 0, LatencyMs = 17 };
+        var snapshot = GuardianSnapshot.Initial(TestData.Config(), TestData.Now) with
+        { GlobalProbe = TestData.OnlineProbe(), Interfaces = new[] { iface } };
+        var report = NetworkQualityReporter.Build(snapshot, new[] { quality }, TestData.Config(), NetworkBrain.Seed(), TestData.Now);
+        Assert.Contains(report.Findings, text => text.Contains("优秀（95 分）", StringComparison.Ordinal));
+        Assert.DoesNotContain(report.Findings, text => text.Contains("没有与 Wi-Fi", StringComparison.Ordinal));
+    }
 }

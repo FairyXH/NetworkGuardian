@@ -18,7 +18,7 @@ public static class NetworkQualityReporter
         var summary = !current ? "正在了解当前网络，暂时还不能判断是否能正常上网。"
             : probe.IsOnline ? "目前可以上网。" : probe.IsStableOnline
                 ? "刚出现一次外网探测失败，正在复查，暂不判定为持续断网。"
-                : "目前未能验证外网可用；这不一定是无线网卡本身的问题。";
+                : "目前未能验证外网可用；这不一定是网络接口本身的问题。";
         var findings = new List<string>();
         var outlet = snapshot.Interfaces.FirstOrDefault(i => i.IsDefaultRoute);
         var outletFailed = current && probe.IsOnline && outlet?.Probe is { AttemptCount: > 0, IsOnline: false } outletProbe &&
@@ -28,26 +28,35 @@ public static class NetworkQualityReporter
         else if (current && probe.IsOnline && snapshot.OutletMatchesPolicy == false)
             summary += "当前出口与管理策略不一致，需要核对路由。";
         if (outlet is not null)
-            findings.Add($"当前出口是“{outlet.Name}”（{(outlet.Kind == InterfaceKind.Ethernet ? "有线网络" : outlet.Kind == InterfaceKind.Wifi ? "无线网络" : "其他网络接口")}）。" +
-                (outlet.Kind == InterfaceKind.Ethernet ? "已连通不等于质量优秀；有线网络目前没有与 Wi-Fi 同样的持续质量评分。" : ""));
+            findings.Add($"当前出口是“{outlet.Name}”（{NetworkQualityIdentity.KindName(outlet.Kind)}）。已连通不等于质量优秀，以下评分以持续实测为准。");
         var rated = new List<LinkQualityEstimate>();
+        var subjects = new List<(string Prefix, string? Unavailable, NetworkQualityIdentity? Identity)>();
         foreach (var adapter in snapshot.WifiAdapters)
         {
             var name = AdapterName(snapshot, adapter);
-            if (!adapter.IsConnected)
+            subjects.Add(($"“{name}”连接“{adapter.CurrentSsid ?? "—"}”：",
+                adapter.IsConnected ? null : "目前未连接，无法评价它在当前环境中的实际质量。",
+                new(adapter.InterfaceGuid, adapter.CurrentSsid ?? "", adapter.Connection?.Band ?? NetworkBand.Unknown,
+                    InterfaceKind.Wifi, "", "", adapter.CurrentSsid ?? "", adapter.DeviceInstanceId)));
+        }
+        foreach (var iface in snapshot.Interfaces.Where(i => i.Kind != InterfaceKind.Wifi ||
+                     !snapshot.WifiAdapters.Any(a => a.InterfaceGuid == i.WlanInterfaceGuid)))
+            subjects.Add(($"“{iface.Name}”（{NetworkQualityIdentity.KindName(iface.Kind)}）：",
+                NetworkQualityIdentity.UnavailableReason(iface), NetworkQualityIdentity.Create(iface)));
+        foreach (var subject in subjects)
+        {
+            var prefix = subject.Prefix;
+            if (subject.Unavailable is { } unavailable)
             {
-                findings.Add($"“{name}”目前未连接，无法评价它在当前环境中的实际质量。");
+                findings.Add(prefix + unavailable);
                 continue;
             }
-            var prefix = $"“{name}”连接“{adapter.CurrentSsid}”：";
             if (!config.Quality.Enabled)
             {
                 findings.Add(prefix + "质量采样已关闭，暂不使用历史评分评价当前连接。");
                 continue;
             }
-            var q = quality.Where(q => q.Adapter == adapter.InterfaceGuid && q.Ssid == adapter.CurrentSsid &&
-                    q.Band == (adapter.Connection?.Band ?? NetworkBand.Unknown))
-                .OrderByDescending(q => q.UpdatedAtUtc).FirstOrDefault();
+            var q = subject.Identity?.Find(quality);
             if (q is null || !Fresh(q.UpdatedAtUtc, now) || !Fresh(snapshot.TimestampUtc, now))
             {
                 findings.Add(prefix + (q is null ? "还没有本次连接的实测数据，正在等待采样。" : "上次测量已过时，等待新的采样后再评价。"));
@@ -62,7 +71,7 @@ public static class NetworkQualityReporter
             var grade = q.Grade;
             var text = prefix + $"质量{grade}（{q.Score:F0} 分）。";
             if (q.GatewayLoss is >= .05)
-                text += $"到路由器的本地链路有 {q.GatewayLoss:P0} 丢包，可能出现卡顿；可能与信号、干扰或网卡链路有关，尚不能确定是硬件损坏。";
+                text += $"到网关的本地链路 ICMP 探测约有 {q.GatewayLoss:P0} 未回应，可能出现卡顿；可能与链路或响应策略有关，尚不能确定是硬件损坏。";
             if (q.TcpFailure is >= .05)
                 text += $"外网连接尝试约有 {q.TcpFailure:P0} 失败，网页或下载可能需要重试。";
             if (q.GatewayLoss is <= .01 && q.TcpFailure is <= .01)
@@ -80,12 +89,12 @@ public static class NetworkQualityReporter
             text += $"依据充分度{(q.Samples >= 20 ? "较高" : "一般")}（{q.Samples} 组采样）。";
             findings.Add(text);
         }
-        if (snapshot.WifiAdapters.Count == 0) findings.Add("当前没有参与管理的无线连接；已保持禁用的网卡不参与此次评价。");
+        if (subjects.Count == 0) findings.Add("当前没有可评价的网络接口；已保持禁用的网卡不参与此次评价。");
         var advice = outletFailed ? "先核对当前外网出口及路由；有备用网络可用，不代表当前出口已经恢复。"
             : !current ? "等待新一轮连通性探测和质量采样，再决定是否需要调整网络。"
             : !probe.IsOnline ? "先等待复查；若持续无法上网，请检查校园网认证、路由器及宽带出口。"
             : rated.Any(q => q.GatewayLoss is >= .05 || q.TcpFailure is >= .05)
-                ? "保留当前可用出口，优先排查上述不稳定的无线连接；不要仅凭一次测量或信号强度更换网卡。"
+                ? "保留当前可用出口，优先排查上述不稳定的网络连接；不要仅凭一次测量或信号强度更换网卡。"
                 : rated.Count > 0 ? "暂时不必换网，继续观察稳定性即可。"
                 : "目前只确认了能否上网，积累更多有效采样后再比较网卡质量。";
         if (!config.Quality.Enabled) advice += "如需持续质量评价，可在“自动管理”中开启质量评级。";
