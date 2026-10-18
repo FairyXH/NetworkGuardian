@@ -44,7 +44,10 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
     {
         switch (name)
         {
-            case "training_status": return await host.Training.InvokeAsync("status", args).ConfigureAwait(false);
+            case "training_status":
+                var trainingStatus = await host.Training.InvokeAsync("status", args).ConfigureAwait(false);
+                trainingStatus["observations"] = Data(CaptureTrainingExamples().ToArray());
+                return trainingStatus;
             case "training_examples": return await host.Training.InvokeAsync("examples", args).ConfigureAwait(false);
             case "model_distill": return await host.Training.InvokeAsync(Text(args, "action"), args, CaptureTrainingExamples()).ConfigureAwait(false);
             case "guardian_status": return new JsonObject { ["snapshot"] = Data(host.Snapshot), ["mcp"] = app.McpStatus };
@@ -224,27 +227,8 @@ internal sealed class GuardianMcpBackend(PortableApp app, GuardianHostService ho
         }
     }
 
-    private IEnumerable<DistillationExample> CaptureTrainingExamples()
-    {
-        var snapshot = host.Snapshot;
-        foreach (var quality in host.LinkQuality)
-        {
-            var age = DateTimeOffset.UtcNow - quality.UpdatedAtUtc;
-            if (!quality.IsMeasured || age < TimeSpan.Zero || age > TimeSpan.FromMinutes(5)) continue;
-            var adapter = snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == quality.Adapter &&
-                a.IsConnected && a.CurrentSsid == quality.Ssid && a.Connection?.Band == quality.Band);
-            var probe = snapshot.Interfaces.FirstOrDefault(i => i.WlanInterfaceGuid == quality.Adapter)?.Probe;
-            if (adapter is null || probe is null || (quality.TcpFailure is null && quality.GatewayLoss is null)) continue;
-            var probeAge = DateTimeOffset.UtcNow - probe.TimestampUtc;
-            if (probeAge < TimeSpan.Zero || probeAge > TimeSpan.FromMinutes(5)) continue;
-            var features = new[] { quality.Score / 100, quality.TcpFailure ?? quality.GatewayLoss ?? .1,
-                Math.Min(1, (quality.LatencyMs ?? 100) / 500), Math.Min(1, quality.JitterMs / 100),
-                adapter.SignalQuality / 100d, quality.Confidence, probe.IsOnline ? 1d : 0, .5 };
-            if (features.Any(x => !double.IsFinite(x) || x < 0 || x > 1)) continue;
-            yield return new() { Id = BrainDistillation.ExampleId(features), Features = features,
-                Source = "observed-aggregate", ObservedAtUtc = quality.UpdatedAtUtc };
-        }
-    }
+    private IEnumerable<DistillationExample> CaptureTrainingExamples() =>
+        NetworkQualityObservations.Capture(host.Snapshot, host.LinkQuality, DateTimeOffset.UtcNow);
 
     private static void Merge(JsonObject target, JsonObject patch, string path = "")
     {

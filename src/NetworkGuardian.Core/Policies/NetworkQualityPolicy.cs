@@ -26,6 +26,7 @@ public static class NetworkQualityPolicy
             Adapter = history.Adapter, Ssid = history.Ssid, Band = history.Band,
             Kind = history.Kind, InterfaceId = history.InterfaceId, NetworkId = history.NetworkId, NetworkName = history.NetworkName,
             UpdatedAtUtc = samples[^1].AtUtc, Samples = samples.Length,
+            InternetOnline = last.InternetOnline,
             GatewayLoss = gatewayLoss, InternetLoss = internetLoss, TcpFailure = tcpLoss,
             LatencyMs = latency, JitterMs = jitter,
             Score = score * .8 + history.LongTermScore * .2,

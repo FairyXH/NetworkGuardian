@@ -44,6 +44,7 @@ public sealed record LinkQualitySample
 
 public sealed record LinkQualityEstimate
 {
+    public bool? InternetOnline { get; init; }
     // Setters preserve field defaults when older source-generated JSON omits this metadata.
     public InterfaceKind Kind { get; set; } = InterfaceKind.Wifi;
     public string InterfaceId { get; set; } = string.Empty;

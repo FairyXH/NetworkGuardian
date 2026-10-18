@@ -28,6 +28,7 @@ public static class LinkQualitySampler
         return new()
         {
             AtUtc = DateTimeOffset.UtcNow,
+            InternetOnline = tcp.Any(t => t.Success) || icmp.InternetReplies > 0 ? true : null,
             GatewaySent = icmp.GatewaySent, GatewayReplies = icmp.GatewayReplies,
             InternetSent = icmp.InternetSent, InternetReplies = icmp.InternetReplies,
             TcpSent = tcp.Length, TcpReplies = tcp.Count(t => t.Success),

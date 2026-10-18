@@ -29,6 +29,7 @@ namespace NetworkGuardian.Core.Serialization;
 [JsonSerializable(typeof(PreferenceState))]
 [JsonSerializable(typeof(NetworkBrainModel))]
 [JsonSerializable(typeof(DistillationJob))]
+[JsonSerializable(typeof(DistillationExample[]))]
 [JsonSerializable(typeof(SurveyState))]
 [JsonSerializable(typeof(WifiCredentialLibrary))]
 [JsonSerializable(typeof(HelperRequest))]

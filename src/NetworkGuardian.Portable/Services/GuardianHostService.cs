@@ -1261,7 +1261,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                                 liveIdentity.Ssid != identity.Ssid || liveIdentity.Band != identity.Band) return;
                             var probe = iface.Probe;
                             _history.Record(identity, sample with { InternetOnline = probe is { IsAuthoritative: true } &&
-                                NetworkQualityIdentity.Fresh(probe.TimestampUtc, DateTimeOffset.UtcNow) ? probe.IsOnline : null });
+                                NetworkQualityIdentity.Fresh(probe.TimestampUtc, DateTimeOffset.UtcNow) ? probe.IsOnline : sample.InternetOnline });
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {

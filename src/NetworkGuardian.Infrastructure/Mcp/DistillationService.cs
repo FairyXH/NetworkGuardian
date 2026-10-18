@@ -119,7 +119,9 @@ public sealed class DistillationService : IAsyncDisposable
                     return new() { ["jobId"] = selected.Id, ["remaining"] = rows.Length,
                         ["examples"] = new JsonArray(rows.Skip(offset).Take(limit).Select(r => (JsonNode)new JsonObject
                         { ["id"] = r.Id, ["features"] = new JsonArray(r.Features.Select(x => (JsonNode?)JsonValue.Create(x)).ToArray()),
-                            ["source"] = r.Source, ["observedAtUtc"] = r.ObservedAtUtc?.ToString("O"), ["target"] = r.Target }).ToArray()) };
+                            ["source"] = r.Source, ["observedAtUtc"] = r.ObservedAtUtc?.ToString("O"), ["target"] = r.Target,
+                            ["networkKind"] = r.NetworkKind?.ToString(), ["interfaceId"] = r.InterfaceId,
+                            ["networkId"] = r.NetworkId, ["networkName"] = r.NetworkName }).ToArray()) };
                 case "label":
                     var labels = args["labels"] as JsonObject ?? throw new ArgumentException("labels 必须是以样例 id 为键的对象");
                     if (labels.Count is < 1 or > 64) throw new ArgumentException("每批 1..64 条标签");

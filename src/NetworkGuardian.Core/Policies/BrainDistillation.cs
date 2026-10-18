@@ -1,11 +1,16 @@
 using System.Security.Cryptography;
 using System.Text;
 using NetworkGuardian.Core.Serialization;
+using NetworkGuardian.Core.Models;
 
 namespace NetworkGuardian.Core.Policies;
 
 public sealed class DistillationExample
 {
+    public InterfaceKind? NetworkKind { get; set; }
+    public string InterfaceId { get; set; } = "";
+    public string NetworkId { get; set; } = "";
+    public string NetworkName { get; set; } = "";
     public string Id { get; set; } = "";
     public double[] Features { get; set; } = Array.Empty<double>();
     public string Source { get; set; } = "synthetic";
