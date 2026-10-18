@@ -124,7 +124,19 @@ public sealed class GuardianHostService : IAsyncDisposable
                 CampusConfigured = _config.Wifi.CampusNetworkSsids.Contains(a.CurrentSsid ?? ""),
                 Quality = LinkQuality.FirstOrDefault(q => q.Adapter == a.InterfaceGuid && q.Ssid == a.CurrentSsid && q.Band == a.Connection?.Band &&
                     DateTimeOffset.UtcNow - q.UpdatedAtUtc < TimeSpan.FromMinutes(5)),
-            }).ToArray(),
+            }).Concat(snapshot.Interfaces.Where(i => i.Kind != InterfaceKind.Wifi ||
+                !snapshot.WifiAdapters.Any(a => a.InterfaceGuid == i.WlanInterfaceGuid)).Select(i =>
+            {
+                var identity = NetworkQualityIdentity.Create(i)!;
+                var measured = identity.Find(LinkQuality);
+                var quality = measured is not null && NetworkQualityIdentity.Fresh(measured.UpdatedAtUtc, DateTimeOffset.UtcNow) ? measured : null;
+                return new SurveyLink { Adapter = identity.Adapter, AdapterName = i.Name, Kind = i.Kind,
+                    NetworkId = identity.NetworkId, NetworkName = identity.NetworkName,
+                    Connected = NetworkQualityIdentity.UnavailableReason(i) is null,
+                    Online = i.Probe is { } probe && NetworkQualityIdentity.Fresh(probe.TimestampUtc, DateTimeOffset.UtcNow)
+                        ? probe.IsOnline : quality?.InternetOnline == true,
+                    Signal = 50, Quality = quality };
+            })).ToArray(),
         };
     }
 
@@ -1222,6 +1234,7 @@ public sealed class GuardianHostService : IAsyncDisposable
                 RouteMetric = route?.RouteMetric,
                 InterfaceMetric = state.InterfaceMetric ?? route?.InterfaceMetric,
                 QualityScore = quality?.Score,
+                LearnedUtilityBonus = LearnedRouteBonus(state, quality),
                 UserPreferred = _temporaryPreference is { } preferred && DateTimeOffset.UtcNow < preferred.Until &&
                     state.WlanInterfaceGuid == preferred.Adapter && wifi?.CurrentSsid == preferred.Ssid &&
                     (quality is null || quality.Score >= 50),
@@ -1291,9 +1304,12 @@ public sealed class GuardianHostService : IAsyncDisposable
     private double LearnedRouteBonus(InterfaceRuntimeState iface, LinkQualityEstimate? quality)
     {
         if (!_config.Quality.LearningEnabled || !_config.Quality.ApplyLearnedPreferences || quality is null) return 0;
-        var candidate = new WifiCandidate { InterfaceGuid = quality.Adapter, Ssid = quality.Ssid,
-            ProfileName = quality.Ssid, Band = quality.Band };
-        return PreferencePolicy.Bonus(Preferences, PreferencePolicy.Option(candidate, LinkQuality, DateTimeOffset.UtcNow), DateTimeOffset.UtcNow);
+        var signal = iface.Kind == InterfaceKind.Wifi
+            ? Snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == iface.WlanInterfaceGuid)?.SignalQuality : (int?)null;
+        var online = iface.Probe?.IsOnline ?? quality.InternetOnline ?? false;
+        var features = NetworkQualityObservations.Features(quality, online, signal);
+        return Math.Clamp((NetworkBrain.Predict(Brain, features) - .5) * 4,
+            -4, 4) * quality.Confidence;
     }
 
     public IReadOnlyList<PreferenceOption> GetPreferenceOptions()

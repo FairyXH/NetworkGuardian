@@ -18,7 +18,7 @@ public static class SurveyLearning
         var links = answer.AnswerContext.Links;
         if (answer.Question.Template.Kind == "adapter" && Guid.TryParse(answer.Value, out var selected) && answer.Reliability >= .4)
         {
-            var alternatives = links.DistinctBy(l => l.Adapter).Select(l => Option(l, answer.Question.Ssid)).ToArray();
+            var alternatives = links.Where(l => l.Kind == InterfaceKind.Wifi).DistinctBy(l => l.Adapter).Select(l => Option(l, answer.Question.Ssid)).ToArray();
             var chosen = alternatives.FirstOrDefault(o => o.Candidate.InterfaceGuid == selected);
             if (chosen is not null && alternatives.Length > 1)
             {
@@ -35,7 +35,8 @@ public static class SurveyLearning
         }
         else if (answer.Question.Template.Kind == "priority")
         {
-            foreach (var link in links.Where(l => l.Connected && l.Quality?.IsMeasured == true))
+            foreach (var link in links.Where(l => l.Connected && l.Quality?.IsMeasured == true &&
+                         NetworkQualityIdentity.Fresh(l.Quality.UpdatedAtUtc, answer.AnswerContext.CapturedAt)))
             {
                 var option = Option(link, link.Ssid);
                 var x = NetworkBrain.Features(option, link.Online);
@@ -56,12 +57,13 @@ public static class SurveyLearning
 
     private static PreferenceOption Option(SurveyLink link, string ssid) => new()
     {
-        Candidate = new() { InterfaceGuid = link.Adapter, Ssid = ssid, ProfileName = ssid,
-            Band = link.Band, SignalQuality = link.Signal }, AdapterName = link.AdapterName,
+        Candidate = new() { InterfaceGuid = link.Adapter, Ssid = link.Kind == InterfaceKind.Wifi ? ssid : link.NetworkId, ProfileName = ssid,
+            Band = link.Band, SignalQuality = link.Kind == InterfaceKind.Wifi ? link.Signal : 50 }, AdapterName = link.AdapterName,
         Quality = link.Ssid == ssid ? link.Quality?.Score ?? 50 : 50,
         Confidence = link.Ssid == ssid ? link.Quality?.Confidence ?? 0 : 0,
         FailureRate = link.Ssid == ssid ? link.Quality?.TcpFailure : null,
         LatencyMs = link.Ssid == ssid ? link.Quality?.LatencyMs : null,
+        JitterMs = link.Ssid == ssid ? link.Quality?.JitterMs ?? 0 : 0,
         Connected = link.Connected && link.Ssid == ssid,
     };
 }

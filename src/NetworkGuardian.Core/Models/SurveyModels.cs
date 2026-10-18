@@ -2,6 +2,9 @@ namespace NetworkGuardian.Core.Models;
 
 public sealed record SurveyLink
 {
+    public InterfaceKind Kind { get; set; } = InterfaceKind.Wifi;
+    public string NetworkId { get; set; } = "";
+    public string NetworkName { get; set; } = "";
     public Guid Adapter { get; init; }
     public string AdapterName { get; init; } = "";
     public string Ssid { get; init; } = "";
@@ -26,7 +29,7 @@ public sealed record SurveyContext
 public sealed record SurveyOption(string Value, string Label);
 public sealed record SurveyTemplate(string Id, string Kind, string Prompt);
 public sealed record NetworkSurveyQuestion(string Id, SurveyTemplate Template, string Prompt, string Ssid,
-    Guid? Adapter, IReadOnlyList<SurveyOption> Options, SurveyContext AskedContext);
+    Guid? Adapter, IReadOnlyList<SurveyOption> Options, SurveyContext AskedContext, string? NetworkId = null);
 public sealed record SurveyAnswer
 {
     public required NetworkSurveyQuestion Question { get; init; }

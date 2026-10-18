@@ -69,6 +69,7 @@ public sealed record InterfaceRuntimeState
     public ConnectivityProbeReport? Probe { get; init; }
 
     public double? QualityScore { get; init; }
+    public double LearnedUtilityBonus { get; init; }
     public bool UserPreferred { get; init; }
 
     public string MetricDescription =>

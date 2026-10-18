@@ -1,5 +1,6 @@
 using System.Drawing;
 using NetworkGuardian.Core.Models;
+using NetworkGuardian.Core.Policies;
 
 namespace NetworkGuardian.Portable.Ui.Pages;
 
@@ -35,7 +36,7 @@ internal sealed class EthernetPage : IPage
 
         // ---------- 物理以太网接口 ----------
         var physicalRows = Math.Max(1, ethernet.Count);
-        var physicalRect = new Rectangle(area.Left, y, area.Width, ctx.Scale(16 + 24) + (physicalRows * ctx.Scale(40)) + ctx.Scale(12));
+        var physicalRect = new Rectangle(area.Left, y, area.Width, ctx.Scale(16 + 24) + (physicalRows * ctx.Scale(80)) + ctx.Scale(12));
         canvas.Card(physicalRect);
         var x = physicalRect.Left + ctx.Scale(16);
         var width = physicalRect.Width - ctx.Scale(32);
@@ -45,7 +46,7 @@ internal sealed class EthernetPage : IPage
         if (ethernet.Count == 0)
         {
             Widgets.Mono(ctx, x, cy, width, "未检测到物理以太网接口。", Palette.TextMuted);
-            cy += ctx.Scale(40);
+            cy += ctx.Scale(80);
         }
 
         foreach (var iface in ethernet)
@@ -53,7 +54,13 @@ internal sealed class EthernetPage : IPage
             canvas.Text(iface.Name, new Rectangle(x, cy, width, ctx.Scale(20)), Palette.TextPrimary, TextStyle.Body);
             Widgets.Mono(ctx, x, cy + ctx.Scale(19), width, $"链路：{(iface.IsUp ? "Up" : "Down")}　{DescribeLink(iface)}");
             Widgets.Mono(ctx, x, cy + ctx.Scale(34), width, $"探测：{Format.ProbeReport(iface.Probe)}");
-            cy += ctx.Scale(40);
+            var quality = NetworkQualityIdentity.Create(iface)?.Find(ctx.Host.LinkQuality);
+            var qualityText = !ctx.Config.Quality.Enabled ? "质量采样已关闭"
+                : NetworkQualityIdentity.UnavailableReason(iface) ??
+                    (quality is not null && NetworkQualityIdentity.Fresh(quality.UpdatedAtUtc, DateTimeOffset.UtcNow)
+                        ? quality.Summary : "等待当前网络的质量采样");
+            Widgets.Mono(ctx, x, cy + ctx.Scale(53), width, qualityText);
+            cy += ctx.Scale(80);
         }
 
         y = physicalRect.Bottom + ctx.Scale(12);

@@ -54,16 +54,18 @@ public static class NetworkQuestionBank
 
     public static NetworkSurveyQuestion? Next(SurveyContext context, string? previousId, Random random)
     {
-        var connected = context.Links.Where(l => l.Connected && l.Ssid.Length > 0).ToArray();
+        var connected = context.Links.Where(l => l.Connected && (l.Ssid.Length > 0 || l.NetworkName.Length > 0)).ToArray();
+        var wireless = context.Links.Where(l => l.Kind == InterfaceKind.Wifi).ToArray();
         var eligible = Templates.Where(t => t.Id != previousId &&
             (t.Kind is "priority" or "recovery" or "schedule" || connected.Length > 0) &&
-            (t.Kind != "adapter" || context.Links.Select(l => l.Adapter).Distinct().Count() > 1)).ToArray();
+            (t.Kind != "adapter" || connected.Any(l => l.Kind == InterfaceKind.Wifi) && wireless.Select(l => l.Adapter).Distinct().Count() > 1)).ToArray();
         if (eligible.Length == 0) return null;
         var template = eligible[random.Next(eligible.Length)];
-        var subject = connected.Length > 0 ? connected[random.Next(connected.Length)] : null;
+        var subjects = template.Kind == "adapter" ? connected.Where(l => l.Kind == InterfaceKind.Wifi).ToArray() : connected;
+        var subject = subjects.Length > 0 ? subjects[random.Next(subjects.Length)] : null;
         var options = template.Kind switch
         {
-            "adapter" => context.Links.DistinctBy(l => l.Adapter).Select(l => new SurveyOption(l.Adapter.ToString("D"), l.AdapterName)).ToArray(),
+            "adapter" => wireless.DistinctBy(l => l.Adapter).Select(l => new SurveyOption(l.Adapter.ToString("D"), l.AdapterName)).ToArray(),
             "priority" => Options("stability|稳定、少丢包", "latency|低延迟", "speed|传输速度", "cost|节省流量"),
             "role" => Options("primary|主要网络", "backup|备用网络", "avoid|尽量不用", "depends|视情况而定"),
             "recovery" => Options("keep|保留现有连接", "verify|先验证更好网络再切换", "ask|先询问我"),
@@ -71,8 +73,9 @@ public static class NetworkQuestionBank
             _ => Options("yes|是", "no|不是", "unknown|不确定"),
         };
         return new(Guid.NewGuid().ToString("N"), template,
-            template.Prompt.Replace("{adapter}", subject?.AdapterName ?? "当前网卡").Replace("{ssid}", subject?.Ssid ?? "当前网络"),
-            subject?.Ssid ?? "", subject?.Adapter, options, context);
+            template.Prompt.Replace("{adapter}", subject?.AdapterName ?? "当前网卡").Replace("{ssid}",
+                subject is null ? "当前网络" : subject.Kind == InterfaceKind.Wifi ? subject.Ssid : subject.NetworkName),
+            subject?.Ssid ?? "", subject?.Adapter, options, context, subject?.NetworkId);
     }
 
     private static SurveyOption[] Options(params string[] values) => values.Select(v => v.Split('|'))
@@ -83,8 +86,9 @@ public static class NetworkQuestionBank
         if (!question.Options.Any(o => o.Value == value)) throw new ArgumentException("Invalid survey answer", nameof(value));
         var reliability = value is "unknown" or "depends" or "variable" ? .15 : .55;
         var evidence = "用户回答作为软标签；探测不能证明校园归属、收费或个人习惯";
-        var live = context.Links.FirstOrDefault(l => l.Adapter == question.Adapter && l.Ssid == question.Ssid && l.Connected);
-        if (question.Ssid.Length > 0 && live is null)
+        var live = context.Links.FirstOrDefault(l => l.Adapter == question.Adapter && l.Ssid == question.Ssid && l.Connected &&
+            (string.IsNullOrEmpty(question.NetworkId) || l.NetworkId == question.NetworkId));
+        if ((question.Ssid.Length > 0 || !string.IsNullOrEmpty(question.NetworkId)) && live is null)
         {
             reliability *= .4;
             evidence = "答题时网络状态已变化，本条样本降权";

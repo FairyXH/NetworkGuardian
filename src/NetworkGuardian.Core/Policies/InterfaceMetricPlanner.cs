@@ -79,6 +79,9 @@ public static class InterfaceMetricPlanner
         IReadOnlyList<WifiAdapterRuntimeState> wifiAdapters)
     {
         var megabits = state.SpeedBitsPerSecond / 1_000_000d;
+        // All managed interface kinds use the same measured quality; hardware speed is only a fallback.
+        if (state.QualityScore is { } quality)
+            return (quality + Math.Clamp(state.LearnedUtilityBonus, -12, 12) + (state.IsDefaultRoute ? 8 : 0)) * 1000;
         if (state.Kind != InterfaceKind.Wifi)
         {
             return megabits;
@@ -86,8 +89,6 @@ public static class InterfaceMetricPlanner
 
         // Keep a working outlet through small measurement fluctuations; a challenger needs
         // a meaningful quality advantage before the route order changes.
-        if (state.QualityScore is { } quality) return (quality + (state.IsDefaultRoute ? 8 : 0)) * 1000;
-
         var signal = state.WlanInterfaceGuid is { } guid
             ? wifiAdapters.FirstOrDefault(adapter => adapter.InterfaceGuid == guid)?.SignalQuality ?? 0
             : 0;
