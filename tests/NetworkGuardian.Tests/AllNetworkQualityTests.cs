@@ -107,9 +107,11 @@ public sealed class AllNetworkQualityTests
             NetworkId = identity.NetworkId, Ssid = "", Samples = 8, UpdatedAtUtc = TestData.Now,
             Score = 95, TcpFailure = 0, LatencyMs = 17 };
         var snapshot = GuardianSnapshot.Initial(TestData.Config(), TestData.Now) with
-        { GlobalProbe = TestData.OnlineProbe(), Interfaces = new[] { iface } };
+        { GlobalProbe = TestData.OnlineProbe(), Interfaces = new[] { iface with { IsDefaultRoute = true } },
+            WifiAdapters = new[] { TestData.ConnectedAdapter(TestData.AdapterB, "Backup", "Backup") } };
         var report = NetworkQualityReporter.Build(snapshot, new[] { quality }, TestData.Config(), NetworkBrain.Seed(), TestData.Now);
         Assert.Contains(report.Findings, text => text.Contains("优秀（95 分）", StringComparison.Ordinal));
+        Assert.Contains("优秀（95 分）", report.Findings[1]);
         Assert.DoesNotContain(report.Findings, text => text.Contains("没有与 Wi-Fi", StringComparison.Ordinal));
     }
 }

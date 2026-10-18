@@ -43,7 +43,10 @@ public static class NetworkQualityReporter
                      !snapshot.WifiAdapters.Any(a => a.InterfaceGuid == i.WlanInterfaceGuid)))
             subjects.Add(($"“{iface.Name}”（{NetworkQualityIdentity.KindName(iface.Kind)}）：",
                 NetworkQualityIdentity.UnavailableReason(iface), NetworkQualityIdentity.Create(iface)));
-        foreach (var subject in subjects)
+        var outletIdentity = outlet is null ? null : NetworkQualityIdentity.Create(outlet,
+            snapshot.WifiAdapters.FirstOrDefault(a => a.InterfaceGuid == outlet.WlanInterfaceGuid));
+        foreach (var subject in subjects.OrderBy(s => outletIdentity is not null && s.Identity?.Adapter == outletIdentity.Adapter
+                     ? 0 : s.Unavailable is null ? 1 : 2))
         {
             var prefix = subject.Prefix;
             if (subject.Unavailable is { } unavailable)
